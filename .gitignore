@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.env
+
+# Node
+node_modules/
+.next/
+dist/
+
+# Data (클라이언트 실데이터 제외)
+data/clients/*/contents/
+data/clients/*/assets/
+
+# Keys
+*.pem
+*.key
+.env.local
