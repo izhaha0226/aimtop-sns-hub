@@ -1,35 +1,29 @@
-"use client";
-
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useAuth } from "@/hooks/useAuth";
-import { LoadingSpinner } from "@/components/common/LoadingSpinner";
+"use client"
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { useAuth } from "@/hooks/useAuth"
 
 interface AuthGuardProps {
-  children: React.ReactNode;
+  children: React.ReactNode
 }
 
 export function AuthGuard({ children }: AuthGuardProps) {
-  const { isAuthenticated, isLoading } = useAuth();
-  const router = useRouter();
+  const { user, loading } = useAuth()
+  const router = useRouter()
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.replace("/login");
-    }
-  }, [isAuthenticated, isLoading, router]);
+    if (!loading && !user) router.replace("/login")
+  }, [user, loading, router])
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <LoadingSpinner size="lg" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
       </div>
-    );
+    )
   }
 
-  if (!isAuthenticated) {
-    return null;
-  }
+  if (!user) return null
 
-  return <>{children}</>;
+  return <>{children}</>
 }

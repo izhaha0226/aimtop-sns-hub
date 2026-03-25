@@ -1,25 +1,35 @@
-"use client";
+"use client"
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { useAuth } from "@/hooks/useAuth"
+import Sidebar from "@/components/layout/Sidebar"
+import Header from "@/components/layout/Header"
 
-import { AuthGuard } from "@/components/layout/AuthGuard";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { Header } from "@/components/layout/Header";
+export default function MainLayout({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth()
+  const router = useRouter()
 
-export default function MainLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <AuthGuard>
-      <div className="flex h-screen">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Header />
-          <main className="flex-1 overflow-auto bg-gray-50 p-6">
-            {children}
-          </main>
-        </div>
+  useEffect(() => {
+    if (!loading && !user) router.push("/login")
+  }, [user, loading, router])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
       </div>
-    </AuthGuard>
-  );
+    )
+  }
+
+  if (!user) return null
+
+  return (
+    <div className="flex h-screen bg-gray-50 overflow-hidden">
+      <Sidebar />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <Header />
+        <main className="flex-1 overflow-auto p-6">{children}</main>
+      </div>
+    </div>
+  )
 }

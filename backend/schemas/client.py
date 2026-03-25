@@ -1,6 +1,5 @@
 import uuid
 from datetime import datetime
-
 from pydantic import BaseModel
 
 
@@ -8,7 +7,7 @@ class ClientCreate(BaseModel):
     name: str
     logo: str | None = None
     brand_color: str | None = None
-    account_type: str | None = None
+    account_type: str = "brand"
 
 
 class ClientUpdate(BaseModel):
@@ -21,18 +20,9 @@ class ClientUpdate(BaseModel):
 class ClientResponse(BaseModel):
     id: uuid.UUID
     name: str
-    logo: str | None = None
-    brand_color: str | None = None
-    account_type: str | None = None
-    is_deleted: bool
+    logo: str | None
+    brand_color: str | None
+    account_type: str
     created_at: datetime
-    updated_at: datetime
 
     model_config = {"from_attributes": True}
-
-
-class ClientListResponse(BaseModel):
-    items: list[ClientResponse]
-    total: int
-    page: int
-    size: int

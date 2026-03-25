@@ -1,45 +1,37 @@
-import enum
+import uuid
 from datetime import datetime
-
-from sqlalchemy import DateTime, Enum, String
+from sqlalchemy import String, Enum, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column
-
-from models.base import Base, TimestampMixin, UUIDMixin
-
-
-class UserRole(str, enum.Enum):
-    SUPER_ADMIN = "super_admin"
-    ADMIN = "admin"
-    MANAGER = "manager"
-    VIEWER = "viewer"
+from sqlalchemy.dialects.postgresql import UUID
+from core.database import Base
 
 
-class UserStatus(str, enum.Enum):
-    ACTIVE = "active"
-    INACTIVE = "inactive"
-    INVITED = "invited"
-
-
-class User(UUIDMixin, TimestampMixin, Base):
+class User(Base):
     __tablename__ = "users"
 
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    telegram_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    profile_image: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole, name="user_role"),
-        default=UserRole.VIEWER,
-        nullable=False,
+    email: Mapped[str] = mapped_column(
+        String(255), unique=True, nullable=False, index=True
     )
-    status: Mapped[UserStatus] = mapped_column(
-        Enum(UserStatus, name="user_status"),
-        default=UserStatus.INVITED,
-        nullable=False,
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(20))
+    telegram_id: Mapped[str | None] = mapped_column(String(100))
+    profile_image: Mapped[str | None] = mapped_column(String(500))
+    role: Mapped[str] = mapped_column(
+        Enum("admin", "approver", "editor", "viewer", name="user_role"),
+        default="editor",
     )
-    last_login_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
+    status: Mapped[str] = mapped_column(
+        Enum("active", "inactive", name="user_status"),
+        default="active",
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

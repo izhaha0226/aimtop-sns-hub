@@ -7,7 +7,7 @@ export default function TermsPage() {
       <section className="mb-8">
         <h2 className="text-xl font-semibold mb-3">제1조 (목적)</h2>
         <p className="text-gray-700 leading-relaxed">
-          본 약관은 에임탑(이하 "회사")이 제공하는 AimTop SNS Hub 서비스(이하 "서비스")의
+          본 약관은 에임탑(이하 &quot;회사&quot;)이 제공하는 AimTop SNS Hub 서비스(이하 &quot;서비스&quot;)의
           이용 조건 및 절차, 회사와 이용자 간의 권리·의무 및 책임 사항을 규정함을 목적으로 합니다.
         </p>
       </section>

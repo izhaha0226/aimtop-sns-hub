@@ -1,63 +1,56 @@
-"use client";
+"use client"
+import { useState, useEffect, useCallback } from "react"
+import { authService } from "@/services/auth"
+import { usersService } from "@/services/users"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
-import { useCallback } from "react";
-
-import type { LoginRequest } from "@/types/auth";
-import * as authService from "@/services/auth";
-
-function storeTokens(accessToken: string, refreshToken: string): void {
-  localStorage.setItem("access_token", accessToken);
-  localStorage.setItem("refresh_token", refreshToken);
-}
-
-function clearStoredTokens(): void {
-  localStorage.removeItem("access_token");
-  localStorage.removeItem("refresh_token");
-}
-
-function hasStoredToken(): boolean {
-  if (typeof window === "undefined") return false;
-  return !!localStorage.getItem("access_token");
+interface User {
+  id: string
+  name: string
+  email: string
+  role: string
+  status: string
 }
 
 export function useAuth() {
-  const router = useRouter();
-  const queryClient = useQueryClient();
+  const [user, setUser] = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
 
-  const userQuery = useQuery({
-    queryKey: ["currentUser"],
-    queryFn: authService.getMe,
-    enabled: hasStoredToken(),
-    retry: false,
-    staleTime: 5 * 60 * 1000,
-  });
+  useEffect(() => {
+    async function fetchUser() {
+      const token = localStorage.getItem("access_token")
+      if (!token) {
+        setLoading(false)
+        return
+      }
+      try {
+        const me = await usersService.me()
+        setUser(me)
+      } catch {
+        localStorage.clear()
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchUser()
+  }, [])
 
-  const loginMutation = useMutation({
-    mutationFn: (credentials: LoginRequest) =>
-      authService.login(credentials),
-    onSuccess: (data) => {
-      storeTokens(data.access_token, data.refresh_token);
-      queryClient.invalidateQueries({ queryKey: ["currentUser"] });
-      router.push("/dashboard");
-    },
-  });
+  const login = useCallback(async (email: string, password: string) => {
+    await authService.login(email, password)
+    const me = await usersService.me()
+    setUser(me)
+  }, [])
 
-  const handleLogout = useCallback(async () => {
-    await authService.logout();
-    clearStoredTokens();
-    queryClient.clear();
-    router.push("/login");
-  }, [queryClient, router]);
+  const logout = useCallback(async () => {
+    await authService.logout()
+    setUser(null)
+  }, [])
 
   return {
-    user: userQuery.data ?? null,
-    isLoading: userQuery.isLoading,
-    isAuthenticated: !!userQuery.data,
-    login: loginMutation.mutate,
-    loginError: loginMutation.error,
-    isLoggingIn: loginMutation.isPending,
-    logout: handleLogout,
-  };
+    user,
+    loading,
+    login,
+    logout,
+    isAdmin: user?.role === "admin",
+    isApprover: user?.role === "approver" || user?.role === "admin",
+  }
 }

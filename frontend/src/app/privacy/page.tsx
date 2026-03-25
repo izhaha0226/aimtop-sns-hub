@@ -7,7 +7,7 @@ export default function PrivacyPage() {
       <section className="mb-8">
         <h2 className="text-xl font-semibold mb-3">1. 수집하는 개인정보 항목</h2>
         <p className="text-gray-700 leading-relaxed">
-          AimTop SNS Hub(이하 "서비스")는 서비스 제공을 위해 다음과 같은 개인정보를 수집합니다.
+          AimTop SNS Hub(이하 &quot;서비스&quot;)는 서비스 제공을 위해 다음과 같은 개인정보를 수집합니다.
         </p>
         <ul className="list-disc pl-5 mt-3 text-gray-700 space-y-1">
           <li>이름, 이메일 주소, 연락처</li>

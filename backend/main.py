@@ -1,101 +1,64 @@
-from contextlib import asynccontextmanager
-from collections.abc import AsyncGenerator
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import ValidationError
+from contextlib import asynccontextmanager
+import logging
+import time
 
-from core.config import get_settings
-from core.database import dispose_engine
-from core.exceptions import AppError
-from core.logging import logger
-from core.redis import close_redis
-from middleware.logging import RequestLoggingMiddleware
-from routes.auth import router as auth_router
-from routes.clients import router as clients_router
-from routes.health import router as health_router
-from routes.users import router as users_router
+from core.config import settings
+from core.database import init_db
+from routes import auth, users, clients, health
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
-    logger.info("Starting SNS Hub backend")
+async def lifespan(app: FastAPI):
+    logger.info("서버 시작 중...")
+    try:
+        await init_db()
+        logger.info("DB 초기화 완료")
+    except Exception as e:
+        logger.warning(f"DB 초기화 실패 (DB 미연결): {e}")
     yield
-    logger.info("Shutting down SNS Hub backend")
-    await dispose_engine()
-    await close_redis()
+    logger.info("서버 종료")
 
 
-def create_app() -> FastAPI:
-    settings = get_settings()
+app = FastAPI(
+    title="AimTop SNS Hub API",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
-    application = FastAPI(
-        title="AimTop SNS Hub",
-        version="0.1.0",
-        lifespan=lifespan,
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def logging_middleware(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    duration = round((time.time() - start) * 1000)
+    logger.info(f"{request.method} {request.url.path} {response.status_code} {duration}ms")
+    return response
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled error: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "서버 오류가 발생했습니다"}
     )
 
-    _add_cors(application, settings.CORS_ORIGINS)
-    _add_exception_handlers(application)
-    _add_middleware(application)
-    _register_routers(application)
 
-    return application
-
-
-def _add_cors(application: FastAPI, origins: list[str]) -> None:
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-
-def _add_exception_handlers(application: FastAPI) -> None:
-    @application.exception_handler(AppError)
-    async def app_error_handler(
-        _request: Request,
-        exc: AppError,
-    ) -> JSONResponse:
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"success": False, "message": exc.message},
-        )
-
-    @application.exception_handler(ValidationError)
-    async def validation_error_handler(
-        _request: Request,
-        exc: ValidationError,
-    ) -> JSONResponse:
-        return JSONResponse(
-            status_code=422,
-            content={"success": False, "message": str(exc)},
-        )
-
-    @application.exception_handler(Exception)
-    async def generic_error_handler(
-        _request: Request,
-        exc: Exception,
-    ) -> JSONResponse:
-        logger.error("Unhandled error: %s", exc)
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "message": "Internal server error"},
-        )
-
-
-def _add_middleware(application: FastAPI) -> None:
-    application.add_middleware(RequestLoggingMiddleware)
-
-
-def _register_routers(application: FastAPI) -> None:
-    application.include_router(health_router)
-    application.include_router(auth_router, prefix="/api/v1")
-    application.include_router(users_router, prefix="/api/v1")
-    application.include_router(clients_router, prefix="/api/v1")
-
-
-app = create_app()
+app.include_router(health.router)
+app.include_router(auth.router)
+app.include_router(users.router)
+app.include_router(clients.router)

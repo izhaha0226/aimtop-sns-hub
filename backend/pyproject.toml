@@ -1,18 +1,20 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.backends.legacy:build"
+
 [project]
 name = "aimtop-sns-hub-backend"
 version = "0.1.0"
-description = "AimTop SNS Hub Backend"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.30.0",
+    "uvicorn[standard]>=0.32.0",
     "sqlalchemy[asyncio]>=2.0.0",
     "asyncpg>=0.30.0",
     "alembic>=1.14.0",
-    "redis[asyncio]>=5.0.0",
-    "pyjwt>=2.9.0",
+    "redis[asyncio]>=5.2.0",
+    "pyjwt>=2.10.0",
     "bcrypt>=4.2.0",
-    "cryptography>=43.0.0",
     "pydantic-settings>=2.6.0",
     "pydantic[email]>=2.10.0",
     "python-multipart>=0.0.12",
@@ -25,10 +27,3 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "httpx>=0.28.0",
 ]
-
-[tool.setuptools.packages.find]
-include = ["core*", "models*", "schemas*", "repositories*", "services*", "routes*", "middleware*"]
-
-[build-system]
-requires = ["setuptools>=75.0"]
-build-backend = "setuptools.build_meta"

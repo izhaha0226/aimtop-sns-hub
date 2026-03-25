@@ -1,74 +1,40 @@
-import axios from "axios";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5001/api/v1";
+import axios from "axios"
 
 const api = axios.create({
-  baseURL: API_URL,
-  headers: {
-    "Content-Type": "application/json",
-  },
-});
-
-function getAccessToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("access_token");
-}
-
-function getRefreshToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("refresh_token");
-}
-
-function clearTokens(): void {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem("access_token");
-  localStorage.removeItem("refresh_token");
-}
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001",
+  timeout: 10000,
+})
 
 api.interceptors.request.use((config) => {
-  const token = getAccessToken();
-  if (token) {
-    config.headers.set("Authorization", `Bearer ${token}`);
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("access_token")
+    if (token) config.headers.Authorization = `Bearer ${token}`
   }
-  return config;
-});
+  return config
+})
 
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const originalRequest = error.config;
-
-    if (error.response?.status !== 401 || originalRequest._retry) {
-      return Promise.reject(error);
-    }
-
-    originalRequest._retry = true;
-    const refreshToken = getRefreshToken();
-
-    if (!refreshToken) {
-      clearTokens();
-      if (typeof window !== "undefined") {
-        window.location.href = "/login";
+    const original = error.config
+    if (error.response?.status === 401 && !original._retry) {
+      original._retry = true
+      const refresh = localStorage.getItem("refresh_token")
+      if (refresh) {
+        try {
+          const res = await api.post("/api/v1/auth/refresh", { refresh_token: refresh })
+          localStorage.setItem("access_token", res.data.access_token)
+          localStorage.setItem("refresh_token", res.data.refresh_token)
+          original.headers.Authorization = `Bearer ${res.data.access_token}`
+          return api(original)
+        } catch {
+          localStorage.clear()
+          if (typeof window !== "undefined") window.location.href = "/login"
+        }
       }
-      return Promise.reject(error);
     }
-
-    try {
-      const { data } = await axios.post(`${API_URL}/auth/refresh`, {
-        refresh_token: refreshToken,
-      });
-      localStorage.setItem("access_token", data.access_token);
-      localStorage.setItem("refresh_token", data.refresh_token);
-      originalRequest.headers.Authorization = `Bearer ${data.access_token}`;
-      return api(originalRequest);
-    } catch {
-      clearTokens();
-      if (typeof window !== "undefined") {
-        window.location.href = "/login";
-      }
-      return Promise.reject(error);
-    }
+    return Promise.reject(error)
   }
-);
+)
 
-export default api;
+export default api

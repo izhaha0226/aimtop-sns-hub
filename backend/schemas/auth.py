@@ -12,19 +12,8 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
-class RefreshTokenRequest(BaseModel):
+class RefreshRequest(BaseModel):
     refresh_token: str
-
-
-class InviteRequest(BaseModel):
-    email: EmailStr
-    name: str
-    role: str = "viewer"
-
-
-class AcceptInviteRequest(BaseModel):
-    token: str
-    password: str
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -34,3 +23,14 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+
+
+class InviteRequest(BaseModel):
+    name: str
+    email: EmailStr
+    role: str = "editor"
+
+
+class AcceptInviteRequest(BaseModel):
+    token: str
+    password: str
