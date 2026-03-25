@@ -3032,4 +3032,302 @@ def generate_card_news(client_id, topic, slide_count):
 
 ---
 
+## 18. SPEC 최종 검토 — 빠진 기능/프로세스
+
+### 18-1. 추가 필요 확인된 항목
+
+| # | 항목 | 중요도 | 처리 |
+|---|---|---|---|
+| 1 | 유튜브 썸네일 자동 생성 (Fal.ai) | 🔴 | Sprint 4에 추가 |
+| 2 | 틱톡/유튜브 영상 자막 자동 생성 (Whisper) | 🔴 | Sprint 3에 추가 |
+| 3 | 채널별 최적 이미지 비율 자동 리사이징 | 🔴 | Sprint 4에 추가 |
+| 4 | 링크드인 60일 토큰 만료 전 수동 재연동 알림 | 🔴 | Sprint 1에 추가 |
+| 5 | 클라이언트 워크스페이스 대시보드 접근 권한 분리 | 🟠 | Sprint 1에 추가 |
+| 6 | 콘텐츠 발행 전 최종 확인 화면 (체크리스트) | 🟠 | Sprint 4에 추가 |
+| 7 | 대량 예약 발행 시 플랫폼 API Rate Limit 대응 | 🟠 | Sprint 4에 추가 |
+| 8 | 클라이언트별 월간 AI 사용량(비용) 리포트 | 🟡 | Sprint 9에 추가 |
+| 9 | 모바일 반응형 (운영팀 모바일 사용 여부) | 🟡 | Sprint 1 기획 시 결정 |
+| 10 | 서비스 이용약관 / 개인정보처리방침 페이지 | 🔴 | Meta 심사 요건 — 즉시 필요 |
+
+---
+
+## 19. 개발 정책 (Development Policy)
+
+> 모든 개발자(에이전트 포함)는 아래 정책을 반드시 준수합니다.
+> 정책 위반 코드는 PR 머지 불가합니다.
+
+---
+
+### 19-1. 코드 구조 정책
+
+#### P-01. 모든 페이지 모듈화 필수
+
+```
+프론트엔드 컴포넌트 규칙:
+pages/          → 라우팅만 담당 (비즈니스 로직 없음)
+components/     → 재사용 가능한 UI 컴포넌트
+  common/       → 버튼, 인풋, 모달 등 공통
+  features/     → 기능별 컴포넌트 (콘텐츠, 승인, 분석 등)
+hooks/          → 커스텀 훅 (API 호출, 상태 관리)
+services/       → API 클라이언트 함수
+utils/          → 순수 유틸 함수
+constants/      → 상수 정의
+types/          → TypeScript 타입 정의
+
+백엔드 모듈 규칙:
+routes/         → API 엔드포인트 (라우팅만)
+services/       → 비즈니스 로직
+repositories/   → DB 접근 로직
+models/         → 데이터 모델
+utils/          → 유틸 함수
+schemas/        → Pydantic 스키마
+workers/        → Celery 작업
+```
+
+**금지 패턴:**
+- ❌ pages 안에 API 호출 직접 작성
+- ❌ 하나의 파일에 여러 기능 혼재
+- ❌ 컴포넌트 안에 비즈니스 로직 직접 작성
+- ✅ 반드시 관심사 분리 (Separation of Concerns)
+
+---
+
+#### P-02. 함수 30줄 이하 원칙
+
+```python
+# ❌ 금지 — 한 함수에 모든 로직
+def create_content(data):
+    # 검증 로직 10줄
+    # DB 저장 10줄
+    # AI 생성 호출 10줄
+    # 알림 발송 10줄
+    # 파일 저장 10줄
+    # ... 총 50줄
+
+# ✅ 권장 — 역할별 분리
+def create_content(data):
+    validated = validate_content_data(data)      # 5줄
+    content = save_content_to_db(validated)       # 5줄
+    generate_ai_assets(content)                   # 5줄
+    notify_approver(content)                      # 5줄
+    return content                                # 2줄
+```
+
+**예외:** 설정 파일, 상수 정의, 타입 정의는 30줄 초과 허용
+
+---
+
+#### P-03. 에러 처리 및 알림 정책
+
+**모든 외부 API 호출은 반드시 예외 처리:**
+
+```python
+# ✅ 필수 패턴
+async def publish_to_instagram(content_id: str, media_url: str):
+    try:
+        result = await meta_api.publish(media_url)
+        await log_success(content_id, "instagram", result)
+        return result
+
+    except RateLimitError as e:
+        await log_error(content_id, "instagram", "rate_limit", str(e))
+        await queue_retry(content_id, delay_minutes=60)
+        await notify_admin(f"인스타 API Rate Limit: {content_id}")
+        raise
+
+    except TokenExpiredError as e:
+        await log_error(content_id, "instagram", "token_expired", str(e))
+        await suspend_channel_publishing(content_id)
+        await notify_admin_token_expired("instagram", content_id)
+        raise
+
+    except Exception as e:
+        await log_error(content_id, "instagram", "unknown", str(e))
+        await notify_admin(f"인스타 발행 실패 (알 수 없는 오류): {content_id}")
+        raise
+```
+
+**알림 레벨 정의:**
+
+| 레벨 | 상황 | 알림 대상 | 채널 |
+|---|---|---|---|
+| 🔴 CRITICAL | 서버 다운, DB 연결 실패 | Admin | 텔레그램 즉시 |
+| 🟠 ERROR | 발행 실패, 토큰 만료, API 오류 | Admin + 담당자 | 텔레그램 즉시 |
+| 🟡 WARNING | Rate Limit 80%, 토큰 만료 7일 전 | Admin | 텔레그램 |
+| 🟢 INFO | 발행 완료, 승인 완료 | 담당자 | 인앱 알림 |
+
+**포트/서버 오류 감지:**
+```python
+# 백엔드 헬스체크 엔드포인트 필수
+GET /health
+→ {
+    "status": "ok",
+    "db": "connected",
+    "redis": "connected",
+    "celery": "running",
+    "timestamp": "2026-03-26T07:00:00"
+  }
+
+# 프론트엔드 API 연결 실패 처리
+if (!response.ok) {
+  showErrorToast(`서버 오류 (${response.status}): 잠시 후 다시 시도해주세요`)
+  reportErrorToSentry(error)  // 에러 트래킹
+}
+```
+
+---
+
+### 19-2. 운영 안정성 정책
+
+#### P-04. 환경변수 관리
+
+```bash
+# .env.example 반드시 최신 유지 (실제 값 없이 키만)
+CLAUDE_API_KEY=
+FAL_API_KEY=
+META_APP_ID=
+META_APP_SECRET=
+POSTGRES_URL=
+REDIS_URL=
+JWT_SECRET=
+SENDGRID_API_KEY=
+
+# 실제 .env는 절대 git 커밋 금지 (.gitignore 필수)
+# 배포 환경변수는 서버 환경변수로만 관리
+```
+
+#### P-05. DB 마이그레이션 정책
+
+- Alembic으로 마이그레이션 관리 (직접 DB 수정 금지)
+- 마이그레이션 파일 반드시 리뷰 후 적용
+- 롤백 스크립트 항상 함께 작성
+- 운영 DB 직접 수정 절대 금지 (마이그레이션으로만)
+
+#### P-06. API 버전 관리
+
+```
+/api/v1/contents    ← 현재 버전
+/api/v2/contents    ← 다음 버전 (병렬 운영 후 전환)
+
+버전 변경 시:
+- 기존 버전 최소 30일 유지 후 폐기
+- 폐기 예정 API는 Deprecated 헤더 표시
+- 클라이언트 앱에 버전 업데이트 안내
+```
+
+#### P-07. 로깅 정책
+
+```python
+# 모든 로그에 포함 필수
+logger.info("content_published", extra={
+    "content_id": content_id,
+    "client_id": client_id,
+    "platform": "instagram",
+    "user_id": user_id,
+    "duration_ms": elapsed,
+    "timestamp": datetime.utcnow()
+})
+
+# 로그 레벨 기준
+DEBUG   → 개발 환경만
+INFO    → 주요 이벤트 (발행, 승인, 로그인)
+WARNING → 비정상이지만 서비스 지속 가능
+ERROR   → 처리 실패, 즉시 알림 필요
+CRITICAL→ 서비스 중단 수준
+```
+
+#### P-08. 테스트 정책
+
+- 모든 서비스 함수 단위 테스트 필수
+- API 엔드포인트 통합 테스트 필수
+- 외부 API 호출은 Mock으로 테스트
+- PR 머지 전 테스트 통과 필수
+
+#### P-09. 백업 정책
+
+```
+PostgreSQL:
+  - 매일 오전 2시 자동 백업
+  - 보관 기간: 30일
+  - 백업 위치: /backup/postgres/YYYY-MM-DD.sql.gz
+
+파일 데이터 (JSON/MD):
+  - Git으로 버전 관리 (클라이언트 실데이터 제외)
+  - 소재 파일: 별도 백업 스토리지
+
+백업 실패 시:
+  - Admin 텔레그램 즉시 알림
+```
+
+#### P-10. 코드 리뷰 정책
+
+- 모든 코드는 PR → 리뷰 → 머지 (직접 main 푸시 금지)
+- PR 단위: 기능 하나 = PR 하나
+- 커밋 메시지 컨벤션:
+  ```
+  feat: 새 기능
+  fix: 버그 수정
+  refactor: 리팩토링
+  docs: 문서
+  test: 테스트
+  chore: 설정/빌드
+  ```
+
+#### P-11. 성능 정책
+
+- API 응답 목표: **2초 이내**
+- DB 쿼리 목표: **500ms 이내**
+- 느린 쿼리 (1초 초과) 자동 로그 + 알림
+- N+1 쿼리 금지 (ORM 관계 설정 시 주의)
+- 이미지/영상 CDN 경유 (직접 서빙 금지)
+
+#### P-12. 보안 정책
+
+- SQL Injection: ORM 사용, 원시 쿼리 금지
+- XSS: 모든 사용자 입력 sanitize 필수
+- CSRF: JWT + SameSite Cookie
+- API 키: 환경변수만, 코드에 하드코딩 절대 금지
+- 로그에 토큰/비밀번호 출력 금지 (마스킹 처리)
+- HTTPS 강제 (HTTP 리다이렉트)
+
+#### P-13. 배포 정책
+
+```
+개발 → staging 브랜치 → main 브랜치
+
+배포 전 체크리스트:
+  □ npm run build 성공
+  □ 단위 테스트 통과
+  □ 서버 재시작 완료
+  □ /health 엔드포인트 200 응답
+  □ 실제 URL 접속 확인
+  □ 핵심 기능 스모크 테스트
+  □ 완료 후 보고
+```
+
+#### P-14. 문서화 정책
+
+- 모든 API 엔드포인트 FastAPI 자동 문서 (`/docs`) 유지
+- 복잡한 비즈니스 로직은 주석 필수
+- README는 항상 최신 상태 유지
+- SPEC 변경 시 docs/SPEC.md + 옵시디언 동시 업데이트
+
+---
+
+### 19-3. 개발 정책 요약 체크리스트
+
+```
+코드 작성 시 매번 확인:
+  □ 페이지/컴포넌트/서비스 역할 분리됐는가?
+  □ 함수가 30줄 이하인가?
+  □ 모든 외부 API 호출에 예외 처리가 있는가?
+  □ 오류 시 알림이 발송되는가?
+  □ 환경변수를 코드에 하드코딩하지 않았는가?
+  □ 로그에 민감 정보가 포함되지 않았는가?
+  □ 테스트를 작성했는가?
+  □ 커밋 메시지 컨벤션을 지켰는가?
+```
+
+---
+
 *Master Chief 작성 · 에임탑 내부 문서 · 2026-03-26*
