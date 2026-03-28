@@ -6,5 +6,5 @@ echo "=== AimTop SNS Hub Backend 시작 ==="
 [ ! -d ".venv" ] && python3 -m venv .venv
 source .venv/bin/activate
 pip install -q -e .
-echo "백엔드 시작 (포트 5001)..."
-uvicorn main:app --host 0.0.0.0 --port 5001 --reload
+echo "백엔드 시작 (포트 1112)..."
+uvicorn main:app --host 0.0.0.0 --port 1112 --reload

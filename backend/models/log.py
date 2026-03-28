@@ -4,7 +4,8 @@ from sqlalchemy import Enum, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from models.base import Base, UUIDMixin
+from core.database import Base
+from models.base import UUIDMixin
 from models.user import UserRole
 
 import datetime as dt
