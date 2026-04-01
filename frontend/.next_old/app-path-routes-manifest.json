@@ -1,0 +1,16 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/favicon.ico/route": "/favicon.ico",
+  "/(auth)/login/page": "/login",
+  "/page": "/",
+  "/privacy/page": "/privacy",
+  "/terms/page": "/terms",
+  "/(main)/clients/page": "/clients",
+  "/(main)/dashboard/page": "/dashboard",
+  "/(main)/contents/[id]/page": "/contents/[id]",
+  "/(main)/onboarding/page": "/onboarding",
+  "/(main)/contents/page": "/contents",
+  "/(main)/contents/new/page": "/contents/new",
+  "/(main)/clients/[id]/page": "/clients/[id]",
+  "/(main)/settings/users/page": "/settings/users"
+}
