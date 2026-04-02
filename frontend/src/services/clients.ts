@@ -9,7 +9,7 @@ export const clientsService = {
     const res = await api.get(`/api/v1/clients/${id}`)
     return res.data
   },
-  async create(data: { name: string; account_type?: string; brand_color?: string }) {
+  async create(data: { name: string; industry_category: string; account_type?: string; brand_color?: string; logo?: string }) {
     const res = await api.post("/api/v1/clients", data)
     return res.data
   },

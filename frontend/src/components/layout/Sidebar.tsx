@@ -2,13 +2,14 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
-  LayoutDashboard, FileText, Calendar,
+  LayoutDashboard, Building2, FileText, Calendar,
   MessageSquare, BarChart3, TrendingUp, Settings
 } from "lucide-react"
 import { cn } from "@/utils/cn"
 
 const menus = [
   { href: "/dashboard", icon: LayoutDashboard, label: "대시보드" },
+  { href: "/clients", icon: Building2, label: "클라이언트" },
   { href: "/contents", icon: FileText, label: "콘텐츠" },
   { href: "/calendar", icon: Calendar, label: "캘린더" },
   { href: "/inbox", icon: MessageSquare, label: "인박스" },

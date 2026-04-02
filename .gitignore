@@ -18,3 +18,5 @@ data/clients/*/assets/
 *.key
 .env.local
 .vercel
+logs/
+logs/

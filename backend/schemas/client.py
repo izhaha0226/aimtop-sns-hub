@@ -8,6 +8,7 @@ class ClientCreate(BaseModel):
     logo: str | None = None
     brand_color: str | None = None
     account_type: str = "brand"
+    industry_category: str
 
 
 class ClientUpdate(BaseModel):
@@ -15,6 +16,7 @@ class ClientUpdate(BaseModel):
     logo: str | None = None
     brand_color: str | None = None
     account_type: str | None = None
+    industry_category: str | None = None
 
 
 class ClientResponse(BaseModel):
@@ -23,6 +25,7 @@ class ClientResponse(BaseModel):
     logo: str | None
     brand_color: str | None
     account_type: str
+    industry_category: str
     created_at: datetime
 
     model_config = {"from_attributes": True}
