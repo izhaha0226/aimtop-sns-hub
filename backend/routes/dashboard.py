@@ -1,5 +1,6 @@
+import uuid
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -95,3 +96,31 @@ async def recent_activity(
             for a in recent_approvals
         ],
     }
+
+
+@router.get("/overview")
+async def get_overview(
+    client_id: uuid.UUID = Query(..., description="클라이언트 ID"),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """전체 계정 통합 대시보드."""
+    from services.dashboard_service import DashboardService
+    service = DashboardService(db)
+    return await service.get_overview(client_id)
+
+
+@router.get("/best-times/{account_id}")
+async def get_best_times(
+    account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """AI 기반 최적 발행 시간 추천."""
+    from services.dashboard_service import DashboardService
+    from fastapi import HTTPException
+    service = DashboardService(db)
+    try:
+        return await service.get_best_times(account_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))

@@ -10,6 +10,8 @@ from core.database import init_db
 from routes import auth, users, clients, health, onboarding
 from routes import contents, channels, dashboard, media
 from routes import oauth, publish, ai
+from routes import analytics, notifications
+from routes import approvals, reports, growth
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -72,3 +74,6 @@ app.include_router(media.router)
 app.include_router(oauth.router)
 app.include_router(publish.router)
 app.include_router(ai.router)
+app.include_router(approvals.router)
+app.include_router(reports.router)
+app.include_router(growth.router)
