@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+import asyncio
 import logging
 import time
 
@@ -10,6 +11,7 @@ from core.database import init_db
 from routes import auth, users, clients, health, onboarding
 from routes import contents, channels, dashboard, media
 from routes import oauth, publish, ai
+from routes import schedule, comments, auto_reply
 from routes import analytics, notifications
 from routes import approvals, reports, growth
 
@@ -25,7 +27,20 @@ async def lifespan(app: FastAPI):
         logger.info("DB 초기화 완료")
     except Exception as e:
         logger.warning(f"DB 초기화 실패 (DB 미연결): {e}")
+
+    # 예약 발행 스케줄러 시작
+    from services.scheduler_service import scheduler_loop
+    scheduler_task = asyncio.create_task(scheduler_loop())
+    logger.info("예약 발행 스케줄러 시작")
+
     yield
+
+    # 스케줄러 종료
+    scheduler_task.cancel()
+    try:
+        await scheduler_task
+    except asyncio.CancelledError:
+        pass
     logger.info("서버 종료")
 
 
@@ -74,6 +89,11 @@ app.include_router(media.router)
 app.include_router(oauth.router)
 app.include_router(publish.router)
 app.include_router(ai.router)
+app.include_router(schedule.router)
+app.include_router(comments.router)
+app.include_router(auto_reply.router)
+app.include_router(analytics.router)
+app.include_router(notifications.router)
 app.include_router(approvals.router)
 app.include_router(reports.router)
 app.include_router(growth.router)
