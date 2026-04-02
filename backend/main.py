@@ -8,7 +8,7 @@ import time
 from core.config import settings
 from core.database import init_db
 from routes import auth, users, clients, health, onboarding
-from routes import contents, channels, dashboard, media
+from routes import contents, channels, dashboard, media, ai
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -68,3 +68,4 @@ app.include_router(contents.router)
 app.include_router(channels.router)
 app.include_router(dashboard.router)
 app.include_router(media.router)
+app.include_router(ai.router)
