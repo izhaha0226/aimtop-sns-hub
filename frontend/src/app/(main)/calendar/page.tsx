@@ -29,7 +29,10 @@ export default function CalendarPage() {
     const end = new Date(year, month + 1, 0).toISOString().split("T")[0]
     setLoading(true)
     api.get(`/api/v1/schedule/calendar?start_date=${start}&end_date=${end}`)
-      .then(r => setSchedules(r.data?.items || r.data || []))
+      .then(r => {
+        const d = r.data?.items || r.data
+        setSchedules(Array.isArray(d) ? d : [])
+      })
       .catch(() => setSchedules([]))
       .finally(() => setLoading(false))
   }, [year, month])
