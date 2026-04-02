@@ -11,6 +11,25 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = ["http://localhost:5000"]
     PORT: int = 5001
 
+    # SNS OAuth - Instagram (Meta)
+    INSTAGRAM_APP_ID: str = ""
+    INSTAGRAM_APP_SECRET: str = ""
+
+    # SNS OAuth - YouTube (Google)
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+
+    # SNS OAuth - X (Twitter)
+    X_CLIENT_ID: str = ""
+    X_CLIENT_SECRET: str = ""
+
+    # SNS OAuth - Naver Blog
+    NAVER_CLIENT_ID: str = ""
+    NAVER_CLIENT_SECRET: str = ""
+
+    # Token encryption key (Fernet)
+    TOKEN_ENCRYPT_KEY: str = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = True

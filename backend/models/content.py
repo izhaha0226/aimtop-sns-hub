@@ -51,6 +51,12 @@ class Content(Base):
     status: Mapped[str] = mapped_column(
         String(50), nullable=False, default="draft", index=True
     )
+    platform_post_id: Mapped[str | None] = mapped_column(String(500))
+    published_url: Mapped[str | None] = mapped_column(String(2000))
+    channel_connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("channel_connections.id", ondelete="SET NULL"), nullable=True
+    )
+    publish_error: Mapped[str | None] = mapped_column(Text)
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
