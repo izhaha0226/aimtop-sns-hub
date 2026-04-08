@@ -1,15 +1,17 @@
 import api from "./api"
 
+export interface ChannelConnection {
+  id: string
+  client_id: string
+  channel_type: string
+  account_name?: string | null
+  account_id?: string | null
+  is_connected: boolean
+}
+
 export const channelsService = {
-  async listChannels(clientId: string) {
+  async list(clientId: string) {
     const res = await api.get(`/api/v1/clients/${clientId}/channels`)
-    return res.data
-  },
-  async connectChannel(clientId: string, data: { channel_type: string; account_name: string }) {
-    const res = await api.post(`/api/v1/clients/${clientId}/channels`, data)
-    return res.data
-  },
-  async disconnectChannel(clientId: string, channelId: string) {
-    await api.delete(`/api/v1/clients/${clientId}/channels/${channelId}`)
+    return Array.isArray(res.data) ? res.data : []
   },
 }
