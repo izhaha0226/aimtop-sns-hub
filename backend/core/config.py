@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = ["http://localhost:5000"]
     PORT: int = 5001
 
+    # 앱/프론트 URL
+    APP_BASE_URL: str = "http://localhost:1111"
+
     # SNS OAuth - Instagram (Meta)
     INSTAGRAM_APP_ID: str = ""
     INSTAGRAM_APP_SECRET: str = ""
@@ -26,6 +29,14 @@ class Settings(BaseSettings):
     # SNS OAuth - Naver Blog
     NAVER_CLIENT_ID: str = ""
     NAVER_CLIENT_SECRET: str = ""
+
+    # Notification email settings
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = ""
+    SMTP_FROM_NAME: str = "SNS Hub"
 
     # Token encryption key (Fernet)
     TOKEN_ENCRYPT_KEY: str = ""

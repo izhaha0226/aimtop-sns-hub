@@ -5,6 +5,8 @@ SNS OAuth2 플로우 관리
 
 import secrets
 import logging
+import hashlib
+import base64
 from urllib.parse import urlencode
 
 import httpx
@@ -39,6 +41,17 @@ def decrypt_token(token: str) -> str:
         except Exception:
             return token
     return token
+
+
+def _build_code_verifier() -> str:
+    """PKCE code_verifier 생성."""
+    return secrets.token_urlsafe(64)
+
+
+def _build_code_challenge(code_verifier: str) -> str:
+    """code_verifier -> S256 challenge (base64url without padding)."""
+    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
 # ---------- 플랫폼별 OAuth 설정 ----------
@@ -84,6 +97,8 @@ def _get_client_credentials(platform: str) -> tuple[str, str]:
 class SNSOAuth:
     """SNS OAuth2 플로우 관리 클래스"""
 
+    _x_verifier_by_state: dict[str, str] = {}
+
     def get_auth_url(self, platform: str, redirect_uri: str, state: str | None = None) -> str:
         """플랫폼별 OAuth 인증 URL 생성"""
         if platform not in PLATFORM_CONFIGS:
@@ -112,13 +127,17 @@ class SNSOAuth:
                 "state": oauth_state,
             }
         elif platform == "x":
+            code_verifier = _build_code_verifier()
+            code_challenge = _build_code_challenge(code_verifier)
+            self._x_verifier_by_state[oauth_state] = code_verifier
+
             params = {
                 "client_id": client_id,
                 "redirect_uri": redirect_uri,
                 "scope": config["scopes"],
                 "response_type": "code",
-                "code_challenge": secrets.token_urlsafe(43),
-                "code_challenge_method": "plain",
+                "code_challenge": code_challenge,
+                "code_challenge_method": "S256",
                 "state": oauth_state,
             }
         elif platform == "blog":
@@ -134,7 +153,12 @@ class SNSOAuth:
         return f"{config['auth_url']}?{urlencode(params)}"
 
     async def exchange_code(
-        self, platform: str, code: str, redirect_uri: str
+        self,
+        platform: str,
+        code: str,
+        redirect_uri: str,
+        state: str | None = None,
+        code_verifier: str | None = None,
     ) -> dict:
         """Authorization code -> access_token + refresh_token 교환"""
         if platform not in PLATFORM_CONFIGS:
@@ -142,6 +166,9 @@ class SNSOAuth:
 
         config = PLATFORM_CONFIGS[platform]
         client_id, client_secret = _get_client_credentials(platform)
+
+        if platform == "x" and not code_verifier:
+            code_verifier = self._x_verifier_by_state.pop(state, None) if state else None
 
         async with httpx.AsyncClient(timeout=30) as client:
             if platform == "instagram":
@@ -167,6 +194,8 @@ class SNSOAuth:
                     },
                 )
             elif platform == "x":
+                if not code_verifier:
+                    raise ValueError("PKCE verifier가 누락되었습니다")
                 resp = await client.post(
                     config["token_url"],
                     data={
@@ -174,7 +203,7 @@ class SNSOAuth:
                         "redirect_uri": redirect_uri,
                         "code": code,
                         "client_id": client_id,
-                        "code_verifier": "placeholder",
+                        "code_verifier": code_verifier,
                     },
                     auth=(client_id, client_secret),
                     headers={"Content-Type": "application/x-www-form-urlencoded"},

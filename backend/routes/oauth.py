@@ -59,7 +59,7 @@ async def oauth_callback(
         raise HTTPException(status_code=400, detail=f"지원하지 않는 플랫폼: {platform}")
 
     try:
-        tokens = await oauth_service.exchange_code(platform, code, redirect_uri)
+        tokens = await oauth_service.exchange_code(platform, code, redirect_uri, state=state)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"토큰 교환 실패: {str(e)}")
 
