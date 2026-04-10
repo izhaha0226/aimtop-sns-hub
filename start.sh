@@ -22,7 +22,7 @@ echo "  PID: $BACKEND_PID"
 # Start Frontend
 echo "프론트엔드 시작 (포트 1111)..."
 cd "$ROOT/frontend"
-nohup npx next dev -p 1111 > /tmp/sns-frontend.log 2>&1 &
+nohup ./run-prod.sh > /tmp/sns-frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo "  PID: $FRONTEND_PID"
 

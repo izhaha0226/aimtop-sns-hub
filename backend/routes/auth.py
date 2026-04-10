@@ -1,25 +1,53 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from datetime import datetime, timezone
-import jwt
 
+from fastapi import APIRouter, Depends, HTTPException, status
+import jwt
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.config import settings
 from core.database import get_db
 from core.security import (
-    verify_password, create_access_token,
-    create_refresh_token, decode_token, hash_password
-)
-from models.user import User
-from schemas.auth import (
-    LoginRequest, TokenResponse, RefreshRequest,
-    ForgotPasswordRequest, ResetPasswordRequest,
-    InviteRequest, AcceptInviteRequest,
-    ChangePasswordRequest,
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    hash_password,
+    verify_password,
 )
 from middleware.auth import get_current_user
-from models.user import UserRole
+from models.user import User, UserRole
+from schemas.auth import (
+    AcceptInviteRequest,
+    ChangePasswordRequest,
+    ForgotPasswordRequest,
+    InviteRequest,
+    LoginRequest,
+    RefreshRequest,
+    ResetPasswordRequest,
+    TokenResponse,
+)
+from services.notification_service import NotificationService
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+
+
+def _build_reset_link(token: str) -> str:
+    return f"{settings.APP_BASE_URL.rstrip('/')}" + f"/forgot-password/reset?token={token}"
+
+
+def _build_invite_link(token: str) -> str:
+    return f"{settings.APP_BASE_URL.rstrip('/')}" + f"/signup?invite={token}"
+
+
+def _email_body(title: str, message: str, action_url: str | None = None) -> str:
+    if action_url:
+        return (
+            f"<h2>{title}</h2>"
+            f"<p>{message}</p>"
+            f"<p><a href='{action_url}'>바로 이동</a></p>"
+            f"<p style='color:#888'>만료된 링크는 무효화됩니다.</p>"
+        )
+    return f"<h2>{title}</h2><p>{message}</p>"
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -73,10 +101,26 @@ async def logout():
 async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
-    if user:
-        token = create_access_token(str(user.id), "reset")
-        # TODO: SendGrid로 이메일 발송
-        return {"message": "비밀번호 재설정 이메일을 발송했습니다"}
+
+    if not user:
+        # 계정 존재 여부 노출 방지
+        return {"message": "해당 이메일로 재설정 링크를 발송했습니다"}
+
+    token = create_access_token(str(user.id), "reset")
+    reset_link = _build_reset_link(token)
+
+    sent = await NotificationService(db).send_email(
+        to_email=user.email,
+        subject="[SNS Hub] 비밀번호 재설정",
+        body=_email_body("비밀번호 재설정", "아래 버튼을 클릭해서 비밀번호를 재설정하세요.", reset_link),
+    )
+
+    if not sent:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="이메일 발송에 실패했습니다. 관리자에게 문의하세요.",
+        )
+
     return {"message": "해당 이메일로 재설정 링크를 발송했습니다"}
 
 
@@ -139,8 +183,22 @@ async def invite_user(
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
+
     invite_token = create_access_token(str(new_user.id), "invite")
-    # TODO: 이메일로 초대 링크 발송
+    invite_link = _build_invite_link(invite_token)
+
+    sent = await NotificationService(db).send_email(
+        to_email=new_user.email,
+        subject="[SNS Hub] 초대 안내",
+        body=_email_body("SNS Hub 초대", f"{body.name}님, 아래 링크로 가입을 완료하세요.", invite_link),
+    )
+
+    if not sent:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="초대 메일 발송에 실패했습니다. 관리자에게 문의하세요.",
+        )
+
     return {"message": "초대가 발송되었습니다", "invite_token": invite_token}
 
 

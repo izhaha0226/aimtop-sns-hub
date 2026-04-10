@@ -44,7 +44,7 @@ class CommentService:
             raise ValueError("채널 연결을 찾을 수 없습니다")
 
         platform = channel.channel_type
-        access_token = decrypt_token(channel.access_token_enc)
+        access_token = decrypt_token(channel.access_token or "")
 
         # 해당 채널의 발행된 콘텐츠 조회
         contents_result = await self.db.execute(
@@ -187,7 +187,7 @@ class CommentService:
         if not channel:
             raise ValueError("채널 연결을 찾을 수 없습니다")
 
-        access_token = decrypt_token(channel.access_token_enc)
+        access_token = decrypt_token(channel.access_token or "")
         platform = channel.channel_type
 
         # 플랫폼별 답글 전송
@@ -272,7 +272,7 @@ class CommentService:
                 )
                 channel = ch_result.scalar_one_or_none()
                 if channel:
-                    access_token = decrypt_token(channel.access_token_enc)
+                    access_token = decrypt_token(channel.access_token or "")
                     await self._hide_on_platform(
                         channel.channel_type, access_token, comment.platform_comment_id
                     )

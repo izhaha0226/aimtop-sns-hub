@@ -7,12 +7,15 @@
 
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
+from models.channel import ChannelConnection
+from models.content import Content
 from models.user import User
 from middleware.auth import get_current_user
 from services.scheduler_service import SchedulerService
@@ -21,6 +24,18 @@ from schemas.schedule import ScheduleResponse
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/schedule", tags=["schedule"])
+
+
+def _token_health(token_expires_at: datetime | None) -> str:
+    now = datetime.now(timezone.utc)
+    soon = now + timedelta(days=7)
+    if not token_expires_at:
+        return "unknown"
+    if token_expires_at <= now:
+        return "reauth_required"
+    if token_expires_at <= soon:
+        return "expiring"
+    return "healthy"
 
 
 class ScheduleRequest(BaseModel):
@@ -77,6 +92,7 @@ async def get_pending_schedules(
 async def get_calendar_schedules(
     start_date: datetime = Query(..., description="조회 시작일"),
     end_date: datetime = Query(..., description="조회 종료일"),
+    client_id: uuid.UUID | None = Query(default=None, description="클라이언트 ID"),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
@@ -86,24 +102,47 @@ async def get_calendar_schedules(
 
     service = SchedulerService(db)
     schedules = await service.get_schedules_in_range(start_date, end_date)
+    content_ids = [schedule.content_id for schedule in schedules]
+    channel_ids = [schedule.channel_connection_id for schedule in schedules]
 
-    # 캘린더 뷰를 위한 날짜별 그룹핑
+    content_map = {}
+    channel_map = {}
+    if content_ids:
+        content_result = await db.execute(select(Content).where(Content.id.in_(content_ids)))
+        content_map = {content.id: content for content in content_result.scalars().all()}
+    if channel_ids:
+        channel_result = await db.execute(select(ChannelConnection).where(ChannelConnection.id.in_(channel_ids)))
+        channel_map = {channel.id: channel for channel in channel_result.scalars().all()}
+
+    items = []
     calendar_data = {}
-    for s in schedules:
-        date_key = s.scheduled_at.strftime("%Y-%m-%d")
-        if date_key not in calendar_data:
-            calendar_data[date_key] = []
-        calendar_data[date_key].append({
-            "id": str(s.id),
-            "content_id": str(s.content_id),
-            "channel_connection_id": str(s.channel_connection_id),
-            "scheduled_at": s.scheduled_at.isoformat(),
-            "status": s.status,
-        })
+    for schedule in schedules:
+        content = content_map.get(schedule.content_id)
+        channel = channel_map.get(schedule.channel_connection_id)
+        if client_id and (not content or content.client_id != client_id):
+            continue
+
+        item = {
+            "id": str(schedule.id),
+            "content_id": str(schedule.content_id),
+            "channel_connection_id": str(schedule.channel_connection_id),
+            "scheduled_at": schedule.scheduled_at.isoformat(),
+            "status": schedule.status,
+            "title": content.title if content else None,
+            "platform": channel.channel_type if channel else None,
+            "account_name": channel.account_name if channel else None,
+            "token_expires_at": channel.token_expires_at.isoformat() if channel and channel.token_expires_at else None,
+            "channel_health": _token_health(channel.token_expires_at if channel else None),
+        }
+        items.append(item)
+
+        date_key = schedule.scheduled_at.strftime("%Y-%m-%d")
+        calendar_data.setdefault(date_key, []).append(item)
 
     return {
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
-        "total": len(schedules),
+        "total": len(items),
+        "items": items,
         "dates": calendar_data,
     }

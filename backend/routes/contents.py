@@ -8,9 +8,10 @@ from core.database import get_db
 from models.content import Content
 from models.approval import Approval
 from models.schedule import Schedule
+from models.channel import ChannelConnection
 from models.user import User
 from schemas.content import ContentCreate, ContentUpdate, ContentResponse, ContentListResponse
-from schemas.approval import ApprovalCreate, ApprovalResponse
+from schemas.approval import ApprovalCreate
 from schemas.schedule import ScheduleCreate, ScheduleResponse
 from middleware.auth import get_current_user
 
@@ -25,6 +26,17 @@ async def _get_content_or_404(content_id: uuid.UUID, db: AsyncSession) -> Conten
     if not content:
         raise HTTPException(status_code=404, detail="콘텐츠를 찾을 수 없습니다")
     return content
+
+
+async def _ensure_channel_token_valid(channel_connection_id: uuid.UUID | None, db: AsyncSession):
+    if not channel_connection_id:
+        return
+    result = await db.execute(select(ChannelConnection).where(ChannelConnection.id == channel_connection_id))
+    channel = result.scalar_one_or_none()
+    if not channel:
+        raise HTTPException(status_code=404, detail="채널 연결을 찾을 수 없습니다")
+    if channel.token_expires_at and channel.token_expires_at <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail=f"{channel.channel_type} 채널 토큰이 만료되어 재인증이 필요합니다")
 
 
 @router.get("", response_model=ContentListResponse)
@@ -134,7 +146,7 @@ async def request_approval(
     return content
 
 
-@router.post("/{content_id}/approve", response_model=ApprovalResponse)
+@router.post("/{content_id}/approve", response_model=ContentResponse)
 async def approve_content(
     content_id: uuid.UUID,
     body: ApprovalCreate,
@@ -150,11 +162,11 @@ async def approve_content(
     approval = Approval(content_id=content_id, approver_id=current_user.id, action="approved", memo=body.memo)
     db.add(approval)
     await db.commit()
-    await db.refresh(approval)
-    return approval
+    await db.refresh(content)
+    return content
 
 
-@router.post("/{content_id}/reject", response_model=ApprovalResponse)
+@router.post("/{content_id}/reject", response_model=ContentResponse)
 async def reject_content(
     content_id: uuid.UUID,
     body: ApprovalCreate,
@@ -170,8 +182,8 @@ async def reject_content(
     approval = Approval(content_id=content_id, approver_id=current_user.id, action="rejected", memo=body.memo)
     db.add(approval)
     await db.commit()
-    await db.refresh(approval)
-    return approval
+    await db.refresh(content)
+    return content
 
 
 @router.post("/{content_id}/schedule", response_model=ScheduleResponse)
@@ -184,6 +196,8 @@ async def schedule_content(
     content = await _get_content_or_404(content_id, db)
     if content.status != "approved":
         raise HTTPException(status_code=400, detail="승인된 콘텐츠만 예약 가능합니다")
+    await _ensure_channel_token_valid(body.channel_connection_id, db)
+    content.channel_connection_id = body.channel_connection_id
     content.status = "scheduled"
     content.scheduled_at = body.scheduled_at
     schedule = Schedule(content_id=content_id, channel_connection_id=body.channel_connection_id, scheduled_at=body.scheduled_at)
@@ -196,12 +210,20 @@ async def schedule_content(
 @router.post("/{content_id}/publish-now", response_model=ContentResponse)
 async def publish_now(
     content_id: uuid.UUID,
+    channel_connection_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     content = await _get_content_or_404(content_id, db)
     if content.status not in ("approved", "scheduled"):
         raise HTTPException(status_code=400, detail="승인된 콘텐츠만 발행 가능합니다")
+
+    target_channel_id = channel_connection_id or content.channel_connection_id
+    if not target_channel_id:
+        raise HTTPException(status_code=400, detail="발행할 채널을 선택해 주세요")
+
+    await _ensure_channel_token_valid(target_channel_id, db)
+    content.channel_connection_id = target_channel_id
     content.status = "published"
     content.published_at = datetime.now(timezone.utc)
     await db.commit()

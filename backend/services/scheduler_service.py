@@ -6,7 +6,7 @@ Celery 없이 asyncio + DB 폴링 방식으로 구현 (초기 버전)
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,11 +15,13 @@ from core.database import AsyncSessionLocal
 from models.schedule import Schedule
 from models.content import Content
 from models.channel import ChannelConnection
+from services.channel_health_service import ChannelHealthService
 from services.sns_publisher import SNSPublisher
 
 logger = logging.getLogger(__name__)
 
 publisher = SNSPublisher()
+last_channel_health_check: datetime | None = None
 
 
 class SchedulerService:
@@ -64,6 +66,15 @@ class SchedulerService:
         if not conn_id:
             raise ValueError("채널 연결 ID가 필요합니다")
 
+        channel_result = await self.db.execute(
+            select(ChannelConnection).where(ChannelConnection.id == conn_id)
+        )
+        channel = channel_result.scalar_one_or_none()
+        if not channel:
+            raise ValueError("채널 연결을 찾을 수 없습니다")
+        if channel.token_expires_at and channel.token_expires_at <= datetime.now(timezone.utc):
+            raise ValueError(f"{channel.channel_type} 채널 토큰이 만료되어 재인증이 필요합니다")
+
         schedule = Schedule(
             content_id=content_id,
             channel_connection_id=conn_id,
@@ -73,6 +84,7 @@ class SchedulerService:
         self.db.add(schedule)
 
         # 콘텐츠 상태를 scheduled로 변경
+        content.channel_connection_id = conn_id
         content.status = "scheduled"
         content.scheduled_at = scheduled_at
 
@@ -224,10 +236,23 @@ class SchedulerService:
 
 async def scheduler_loop():
     """백그라운드에서 매분 실행되는 스케줄러 루프"""
+    global last_channel_health_check
+
     logger.info("Scheduler loop started")
     while True:
         try:
             await SchedulerService.process_due_schedules()
+
+            now = datetime.now(timezone.utc)
+            if (
+                last_channel_health_check is None
+                or now - last_channel_health_check >= timedelta(minutes=30)
+            ):
+                async with AsyncSessionLocal() as db:
+                    monitor_result = await ChannelHealthService(db).monitor_and_notify()
+                    if monitor_result["scanned"]:
+                        logger.info("Channel health alerts checked: %s", monitor_result)
+                last_channel_health_check = now
         except Exception as e:
             logger.error(f"Scheduler loop error: {e}", exc_info=True)
         await asyncio.sleep(60)  # 1분마다 체크

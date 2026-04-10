@@ -6,17 +6,36 @@ import asyncio
 import logging
 import time
 
+from sqlalchemy import text
+
 from core.config import settings
-from core.database import init_db
+from core.database import init_db, engine
 from routes import auth, users, clients, health, onboarding
 from routes import contents, channels, dashboard, media
 from routes import oauth, publish, ai
 from routes import schedule, comments, auto_reply
 from routes import analytics, notifications
-from routes import approvals, reports, growth
+from routes import approvals, reports, growth, ops
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+async def ensure_columns():
+    migrations = [
+        "ALTER TABLE contents ADD COLUMN IF NOT EXISTS platform_post_id VARCHAR(500)",
+        "ALTER TABLE contents ADD COLUMN IF NOT EXISTS published_url VARCHAR(2000)",
+        "ALTER TABLE contents ADD COLUMN IF NOT EXISTS channel_connection_id UUID",
+        "ALTER TABLE contents ADD COLUMN IF NOT EXISTS publish_error TEXT",
+    ]
+    try:
+        async with engine.connect() as conn:
+            for sql in migrations:
+                await conn.execute(text(sql))
+            await conn.commit()
+        logger.info("DB column sync completed")
+    except Exception as e:
+        logger.warning(f"DB column sync skipped: {e}")
 
 
 @asynccontextmanager
@@ -24,6 +43,7 @@ async def lifespan(app: FastAPI):
     logger.info("서버 시작 중...")
     try:
         await init_db()
+        await ensure_columns()
         logger.info("DB 초기화 완료")
     except Exception as e:
         logger.warning(f"DB 초기화 실패 (DB 미연결): {e}")
@@ -97,3 +117,4 @@ app.include_router(notifications.router)
 app.include_router(approvals.router)
 app.include_router(reports.router)
 app.include_router(growth.router)
+app.include_router(ops.router)

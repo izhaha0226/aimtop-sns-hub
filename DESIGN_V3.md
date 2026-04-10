@@ -1,6 +1,7 @@
 # AimTop SNS Hub — 보완 설계서 V3
 
 > 작성일: 2026-04-03
+> 최종 업데이트: 2026-04-09
 > 기반: SNS 자동화 플랫폼 SPEC v1.3 + 코드베이스 분석 결과
 > 도메인: sns.aimtop.ai
 > 회사: 에임탑(AimTop) / admin@aimtop.ai
@@ -17,7 +18,7 @@
 | 운영 방식 | 다중 클라이언트 대행 관리 (멀티 워크스페이스) |
 | 도메인 | sns.aimtop.ai |
 | 프론트 포트 | 1111 (Next.js) |
-| 백엔드 포트 | 5002 (FastAPI) |
+| 백엔드 포트 | 1112 (FastAPI) |
 | GitHub | izhaha0226/aimtop-sns-hub |
 
 ---
@@ -37,13 +38,23 @@
 | 인증 | JWT + OAuth2 (Meta / X / 카카오 등) | |
 | 알림 | 텔레그램 Bot API | |
 | PDF 생성 | WeasyPrint | 리포트 |
-| 배포 | Mac mini + Cloudflare Tunnel | |
+| 배포 | Vercel(프론트) + Railway(백엔드) 지향 / 현재 Mac mini + Cloudflare Tunnel 병행 | 안정화 진행 중 |
 
 > **LLM 호출 정책**: 모든 AI 텍스트 생성(카피, 전략서, 인사이트 등)은 반드시 `claude --print --max-turns 1` CLI 호출만 사용. Anthropic API(anthropic Python SDK, REST API) 직접 호출 절대 금지.
 
 ---
 
 ## 3. 현재 구현 현황 분석
+
+### 3-0. 2026-04-09 기준 최신 반영 사항
+
+- 채널 OAuth 지원 범위를 인스타그램/유튜브/X/블로그 중심에서 Facebook, Threads, Kakao, TikTok, LinkedIn까지 확장
+- OAuth 콜백은 백엔드에서 처리 후 클라이언트 상세 페이지로 리다이렉트
+- 채널 토큰 헬스(정상/만료임박/재인증필요/미확인) 위젯을 대시보드/클라이언트 상세/콘텐츠 상세/캘린더에 반영
+- 스케줄러 루프가 30분마다 채널 헬스 점검 및 인앱/텔레그램/이메일 알림 생성
+- 콘텐츠 상세에서 발행 채널 선택, 즉시 발행, 예약 발행, 재인증 필요 채널 차단 UX 반영
+- 외부 승인 워크플로우 보강: 검토자 이메일 발송, 토큰 기반 공개 검토 페이지(`/external-approval/[token]`), 콘텐츠 상세의 외부 승인 요청/이력 UI 추가
+- 승인/반려 API 응답 계약을 프론트 기대값에 맞게 `ContentResponse`로 정렬
 
 ### 3-1. 구현된 DB 모델 (10개)
 

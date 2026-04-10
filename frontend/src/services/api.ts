@@ -16,23 +16,44 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const original = error.config
-    if (error.response?.status === 401 && !original._retry) {
-      original._retry = true
-      const refresh = localStorage.getItem("refresh_token")
-      if (refresh) {
-        try {
-          const res = await api.post("/api/v1/auth/refresh", { refresh_token: refresh })
-          localStorage.setItem("access_token", res.data.access_token)
-          localStorage.setItem("refresh_token", res.data.refresh_token)
-          original.headers.Authorization = `Bearer ${res.data.access_token}`
-          return api(original)
-        } catch {
+    const original = error.config || {}
+    const originalUrl = String(original.url || "")
+    const isRefreshRequest = originalUrl.includes("/api/v1/auth/refresh")
+
+    if (error.response?.status === 401) {
+      if (isRefreshRequest) {
+        if (typeof window !== "undefined") {
           localStorage.clear()
-          if (typeof window !== "undefined") window.location.href = "/login"
+          window.location.href = "/login"
+        }
+        return Promise.reject(error)
+      }
+
+      if (!original._retry) {
+        original._retry = true
+        const refresh = typeof window !== "undefined" ? localStorage.getItem("refresh_token") : null
+
+        if (refresh) {
+          try {
+            const res = await api.post("/api/v1/auth/refresh", { refresh_token: refresh })
+            localStorage.setItem("access_token", res.data.access_token)
+            localStorage.setItem("refresh_token", res.data.refresh_token)
+            original.headers = original.headers || {}
+            original.headers.Authorization = `Bearer ${res.data.access_token}`
+            return api(original)
+          } catch {
+            if (typeof window !== "undefined") {
+              localStorage.clear()
+              window.location.href = "/login"
+            }
+          }
+        } else if (typeof window !== "undefined") {
+          localStorage.clear()
+          window.location.href = "/login"
         }
       }
     }
+
     return Promise.reject(error)
   }
 )
