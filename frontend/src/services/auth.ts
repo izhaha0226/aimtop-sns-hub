@@ -15,10 +15,19 @@ export const authService = {
   },
 
   async forgotPassword(email: string) {
-    return api.post("/api/v1/auth/forgot-password", { email })
+    const res = await api.post("/api/v1/auth/forgot-password", { email })
+    return res.data
   },
 
   async resetPassword(token: string, newPassword: string) {
-    return api.post("/api/v1/auth/reset-password", { token, new_password: newPassword })
+    const res = await api.post("/api/v1/auth/reset-password", { token, new_password: newPassword })
+    return res.data
+  },
+
+  async acceptInvite(token: string, password: string) {
+    const res = await api.post("/api/v1/auth/accept-invite", { token, password })
+    localStorage.setItem("access_token", res.data.access_token)
+    localStorage.setItem("refresh_token", res.data.refresh_token)
+    return res.data
   },
 }

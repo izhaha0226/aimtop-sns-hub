@@ -18,6 +18,7 @@ export function useSelectedClient() {
     const requested = preferredId ?? getSelectedClientId()
     const resolved = clientList.find((client) => client.id === requested)?.id || clientList[0]?.id || ""
     setSelectedClientIdState(resolved)
+    if (!resolved) return
     if (resolved !== requested) setSelectedClientId(resolved)
   }, [])
 

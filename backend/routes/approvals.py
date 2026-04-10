@@ -4,7 +4,7 @@ External Approvals Routes - 외부 리뷰어 승인 관리 API.
 """
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db

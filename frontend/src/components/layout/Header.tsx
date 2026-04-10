@@ -40,6 +40,10 @@ export default function Header() {
 
   useEffect(() => {
     void Promise.resolve().then(loadNotifications)
+    const timer = window.setInterval(() => {
+      void loadNotifications()
+    }, 60000)
+    return () => window.clearInterval(timer)
   }, [])
 
   useEffect(() => {

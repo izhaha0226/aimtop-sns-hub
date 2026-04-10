@@ -144,10 +144,9 @@ class NotificationService:
                 logger.warning("User not found for telegram notification: %s", user_id)
                 return False
 
-            # extra_data 또는 별도 필드에서 telegram_chat_id 가져오기
-            chat_id = getattr(user, "telegram_chat_id", None)
+            chat_id = getattr(user, "telegram_id", None)
             if not chat_id:
-                logger.info("No telegram_chat_id for user %s", user_id)
+                logger.info("No telegram_id for user %s", user_id)
                 return False
 
             bot = Bot(token=bot_token)

@@ -8,6 +8,8 @@ export function getSelectedClientId() {
 
 export function setSelectedClientId(clientId: string) {
   if (typeof window === "undefined") return
+  const current = localStorage.getItem(SELECTED_CLIENT_KEY) || ""
+  if (current === clientId) return
   if (clientId) localStorage.setItem(SELECTED_CLIENT_KEY, clientId)
   else localStorage.removeItem(SELECTED_CLIENT_KEY)
   window.dispatchEvent(new CustomEvent(SELECTED_CLIENT_EVENT, { detail: clientId }))

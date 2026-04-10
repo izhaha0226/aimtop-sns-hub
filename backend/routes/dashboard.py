@@ -7,6 +7,7 @@ from sqlalchemy import select, func
 from core.database import get_db
 from models.content import Content
 from models.approval import Approval
+from models.channel import ChannelConnection
 from models.user import User
 from middleware.auth import get_current_user
 
@@ -55,6 +56,40 @@ async def get_stats(
         "scheduled": scheduled_count,
         "drafts": draft_count,
     }
+
+
+@router.get("/channels-health")
+async def get_channels_health(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    now = datetime.now(timezone.utc)
+    soon = now + timedelta(days=7)
+
+    result = await db.execute(select(ChannelConnection).where(ChannelConnection.is_connected == True))
+    channels = result.scalars().all()
+
+    summary = {"healthy": 0, "expiring": 0, "reauth_required": 0, "unknown": 0}
+    items = []
+    for channel in channels:
+        if not channel.token_expires_at:
+            health = "unknown"
+        elif channel.token_expires_at <= now:
+            health = "reauth_required"
+        elif channel.token_expires_at <= soon:
+            health = "expiring"
+        else:
+            health = "healthy"
+        summary[health] += 1
+        items.append({
+            "id": str(channel.id),
+            "platform": channel.channel_type,
+            "account_name": channel.account_name,
+            "health": health,
+            "token_expires_at": channel.token_expires_at.isoformat() if channel.token_expires_at else None,
+        })
+
+    return {"summary": summary, "items": items}
 
 
 @router.get("/recent-activity")

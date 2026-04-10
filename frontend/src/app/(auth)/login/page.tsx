@@ -1,4 +1,5 @@
 "use client"
+import Link from "next/link"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/useAuth"
@@ -43,7 +44,10 @@ export default function LoginPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">비밀번호</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-medium">비밀번호</label>
+              <Link href="/forgot-password" className="text-xs text-blue-600 hover:underline">비밀번호 찾기</Link>
+            </div>
             <input
               type="password"
               value={password}
@@ -61,6 +65,9 @@ export default function LoginPage() {
             {loading ? "로그인 중..." : "로그인"}
           </button>
         </form>
+        <div className="mt-5 text-sm text-gray-500">
+          초대 링크가 있으신가요? <Link href="/signup" className="text-blue-600 hover:underline">초대 수락</Link>
+        </div>
       </div>
     </div>
   )

@@ -7,7 +7,7 @@
 
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -24,6 +24,18 @@ from schemas.schedule import ScheduleResponse
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/schedule", tags=["schedule"])
+
+
+def _token_health(token_expires_at: datetime | None) -> str:
+    now = datetime.now(timezone.utc)
+    soon = now + timedelta(days=7)
+    if not token_expires_at:
+        return "unknown"
+    if token_expires_at <= now:
+        return "reauth_required"
+    if token_expires_at <= soon:
+        return "expiring"
+    return "healthy"
 
 
 class ScheduleRequest(BaseModel):
@@ -118,6 +130,9 @@ async def get_calendar_schedules(
             "status": schedule.status,
             "title": content.title if content else None,
             "platform": channel.channel_type if channel else None,
+            "account_name": channel.account_name if channel else None,
+            "token_expires_at": channel.token_expires_at.isoformat() if channel and channel.token_expires_at else None,
+            "channel_health": _token_health(channel.token_expires_at if channel else None),
         }
         items.append(item)
 

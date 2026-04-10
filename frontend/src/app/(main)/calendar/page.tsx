@@ -12,6 +12,9 @@ interface ScheduleItem {
   scheduled_at: string
   platform: string
   status: string
+  account_name?: string | null
+  token_expires_at?: string | null
+  channel_health?: "healthy" | "expiring" | "reauth_required" | "unknown"
 }
 
 export default function CalendarPage() {
@@ -44,6 +47,20 @@ export default function CalendarPage() {
   }, [year, month, selectedClientId, clientLoading])
 
   const visibleSchedules = selectedClientId ? schedules : []
+
+  const healthBadgeClass = (health?: ScheduleItem["channel_health"]) => {
+    if (health === "healthy") return "bg-blue-100 text-blue-700"
+    if (health === "expiring") return "bg-yellow-100 text-yellow-700"
+    if (health === "reauth_required") return "bg-red-100 text-red-700"
+    return "bg-gray-100 text-gray-600"
+  }
+
+  const healthLabel = (health?: ScheduleItem["channel_health"]) => {
+    if (health === "healthy") return "정상"
+    if (health === "expiring") return "임박"
+    if (health === "reauth_required") return "재인증"
+    return "미확인"
+  }
 
   const getItemsForDay = (day: number) => {
     const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
@@ -83,8 +100,19 @@ export default function CalendarPage() {
                   <>
                     <span className={`text-xs ${isToday(day) ? "bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center" : "text-gray-600"}`}>{day}</span>
                     {getItemsForDay(day).map((item) => (
-                      <div key={item.id} onClick={() => router.push(`/contents/${item.content_id}`)} className="mt-1 px-1 py-0.5 text-xs bg-blue-100 text-blue-700 rounded truncate cursor-pointer hover:bg-blue-200" title={`${item.title} · ${item.platform}`}>
-                        {item.title || "예약 콘텐츠"}
+                      <div
+                        key={item.id}
+                        onClick={() => router.push(`/contents/${item.content_id}`)}
+                        className="mt-1 px-1.5 py-1 text-xs border rounded cursor-pointer hover:bg-gray-50"
+                        title={`${item.title} · ${item.platform}${item.account_name ? ` · ${item.account_name}` : ""}`}
+                      >
+                        <div className="font-medium text-gray-700 truncate">{item.title || "예약 콘텐츠"}</div>
+                        <div className="flex items-center justify-between gap-1 mt-1">
+                          <span className="text-[10px] text-gray-500 truncate">{item.platform}</span>
+                          <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${healthBadgeClass(item.channel_health)}`}>
+                            {healthLabel(item.channel_health)}
+                          </span>
+                        </div>
                       </div>
                     ))}
                   </>

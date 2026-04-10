@@ -1,6 +1,7 @@
 # AimTop SNS Hub — 개발 범위 + 실행 계획
 
 > 작성일: 2026-04-03
+> 최종 업데이트: 2026-04-09
 > 기반: DESIGN_V3.md + 코드베이스 분석 결과
 > 기술스택: FastAPI + Next.js 15 + PostgreSQL + Claude CLI
 > LLM 호출: `claude --print --max-turns 1` 만 사용. Anthropic API 직접 호출 절대 금지.
@@ -21,9 +22,19 @@
 | 이메일 | SendGrid 또는 AWS SES | - |
 | 알림 | python-telegram-bot | - |
 | PDF | WeasyPrint | - |
-| 배포 | Mac mini + Cloudflare Tunnel | - |
+| 배포 | Vercel + Railway 지향 / 현재 Mac mini + Cloudflare Tunnel 병행 | - |
 
 ---
+
+## 2026-04-09 이번 업데이트 완료 항목
+
+- 채널 OAuth 확장: Facebook / Threads / Kakao / TikTok / LinkedIn 추가
+- OAuth state 정리 + 백엔드 콜백 후 프론트 리다이렉트 구조 확정
+- 토큰 헬스 모니터링 + 30분 주기 알림 자동화 추가
+- 대시보드/클라이언트/콘텐츠/캘린더에 채널 헬스 UX 반영
+- 승인/반려 API 응답 계약 정렬 (`ApprovalResponse` → `ContentResponse`)
+- 외부 승인 이메일 발송 + 공개 검토 페이지 + 콘텐츠 상세 요청 UI 구현
+- 프론트 운영 모드 `next dev` → `run-prod.sh` 기반 production build/start 전환
 
 ## 전체 Phase 개요
 
