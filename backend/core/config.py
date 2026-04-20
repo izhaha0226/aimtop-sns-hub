@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -46,6 +46,11 @@ class Settings(BaseSettings):
 
     TELEGRAM_BOT_TOKEN: str = ""
 
+    # AI / media keys
+    FAL_KEY: str = ""
+    OPENAI_API_KEY: str = ""
+    OPENAI_BASE_URL: str = ""
+
     # Notification email settings
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587
@@ -57,9 +62,11 @@ class Settings(BaseSettings):
     # Token encryption key (Fernet)
     TOKEN_ENCRYPT_KEY: str = ""
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore",
+    )
 
 
 settings = Settings()
