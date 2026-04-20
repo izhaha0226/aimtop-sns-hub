@@ -53,6 +53,7 @@ def build_copy_prompt(
     brand_name: str = "",
     target_audience: str = "",
     strategy_keywords: list[str] | None = None,
+    benchmark_profile: dict | None = None,
 ) -> str:
     """Build a complete prompt for copy generation.
 
@@ -84,6 +85,17 @@ def build_copy_prompt(
     # Additional context
     if context:
         parts.append(f"\n[추가 컨텍스트]\n{context}")
+
+    if benchmark_profile:
+        top_hooks = ", ".join(item.get("pattern", "") for item in benchmark_profile.get("top_hooks", [])[:3] if item.get("pattern"))
+        top_ctas = ", ".join(item.get("pattern", "") for item in benchmark_profile.get("top_ctas", [])[:3] if item.get("pattern"))
+        rules = benchmark_profile.get("recommended_prompt_rules", "")
+        parts.append(
+            "\n[벤치마킹 인텔리전스]\n"
+            f"상위 훅 패턴: {top_hooks or '없음'}\n"
+            f"상위 CTA 패턴: {top_ctas or '없음'}\n"
+            f"적용 규칙: {rules or '문구를 직접 복제하지 말고 구조만 참고할 것'}"
+        )
 
     # Main topic
     parts.append(f"\n[주제]\n{topic}")

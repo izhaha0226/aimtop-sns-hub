@@ -9,6 +9,8 @@ export interface GenerateCopyPayload {
   brand_name?: string
   target_audience?: string
   strategy_keywords?: string[]
+  engine?: { provider?: string; model?: string; fallback_enabled?: boolean }
+  benchmark?: { client_id?: string; top_k?: number; window_days?: number; platform?: string }
 }
 
 export interface GenerateCopyResponse {
@@ -41,14 +43,20 @@ export interface ConceptSet {
   slides: ConceptSlide[]
 }
 
+export interface EngineOverridePayload {
+  provider?: string
+  model?: string
+  fallback_enabled?: boolean
+}
+
 export const aiService = {
   async generateCopy(payload: GenerateCopyPayload) {
     const res = await api.post("/api/v1/ai/generate-copy", payload)
     return res.data as GenerateCopyResponse
   },
 
-  async suggestHashtags(topic: string, platform = "instagram", count = 12) {
-    const res = await api.post("/api/v1/ai/suggest-hashtags", { topic, platform, count })
+  async suggestHashtags(topic: string, platform = "instagram", count = 12, engine?: EngineOverridePayload) {
+    const res = await api.post("/api/v1/ai/suggest-hashtags", { topic, platform, count, engine })
     return Array.isArray(res.data?.hashtags) ? res.data.hashtags : []
   },
 
@@ -57,8 +65,8 @@ export const aiService = {
     return res.data as GenerateImageResponse
   },
 
-  async generateConceptSets(topic: string, brandInfo = "", count = 3) {
-    const res = await api.post("/api/v1/ai/concept-sets", { topic, brand_info: brandInfo, count })
+  async generateConceptSets(topic: string, brandInfo = "", count = 3, engine?: EngineOverridePayload) {
+    const res = await api.post("/api/v1/ai/concept-sets", { topic, brand_info: brandInfo, count, engine })
     return Array.isArray(res.data?.concept_sets) ? (res.data.concept_sets as ConceptSet[]) : []
   },
 }

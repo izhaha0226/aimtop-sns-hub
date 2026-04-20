@@ -1,4 +1,5 @@
 "use client"
+import Link from "next/link"
 import { useEffect, useState } from "react"
 import { useAuth } from "@/hooks/useAuth"
 import { useRouter } from "next/navigation"
@@ -45,6 +46,11 @@ export default function UsersPage() {
 
   return (
     <div>
+      <div className="flex gap-2 border-b pb-2 mb-6">
+        <Link href="/settings/users" className="px-3 py-2 rounded-lg text-sm bg-blue-50 text-blue-700 font-medium">담당자 관리</Link>
+        <Link href="/settings/secrets" className="px-3 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-50">시크릿 관리</Link>
+        <Link href="/settings/ai-engine" className="px-3 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-50">AI 엔진 설정</Link>
+      </div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-bold">담당자 관리</h1>
         <button className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition-colors">

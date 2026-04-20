@@ -1,14 +1,13 @@
 """
 Image Service - Fal.ai API integration for image generation.
 """
-import os
 import logging
 
 import httpx
 
-logger = logging.getLogger(__name__)
+from services.runtime_settings import get_runtime_setting
 
-FAL_KEY = os.environ.get("FAL_KEY", "")
+logger = logging.getLogger(__name__)
 
 # Model mapping
 _MODEL_MAP = {
@@ -36,7 +35,8 @@ async def generate_image(
     Returns:
         {image_url, seed, model_used}
     """
-    if not FAL_KEY:
+    fal_key = await get_runtime_setting("fal_key")
+    if not fal_key:
         raise RuntimeError("FAL_KEY environment variable is not set")
 
     model_id = _MODEL_MAP.get(model, _MODEL_MAP["fast"])
@@ -49,7 +49,7 @@ async def generate_image(
 
     url = f"{FAL_API_BASE}/{model_id}"
     headers = {
-        "Authorization": f"Key {FAL_KEY}",
+        "Authorization": f"Key {fal_key}",
         "Content-Type": "application/json",
     }
     payload = {

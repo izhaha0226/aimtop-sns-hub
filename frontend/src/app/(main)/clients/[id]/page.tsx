@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { clientsService } from "@/services/clients"
-import { channelsService, getTokenHealth, type ChannelConnection } from "@/services/channels"
+import { channelsService, getTokenHealth, isAutoPublishSupported, type ChannelConnection } from "@/services/channels"
 import { oauthService } from "@/services/oauth"
 import { ArrowLeft, Pencil, Trash2, X, Link2, CheckCircle2, PlugZap, Unplug, AlertCircle } from "lucide-react"
 
@@ -15,8 +15,8 @@ const INDUSTRY_CATEGORIES = [
 
 const CHANNEL_CARDS = [
   { id: "instagram", label: "인스타그램", desc: "피드/릴스/댓글", enabled: true },
-  { id: "facebook", label: "페이스북", desc: "페이지 포스팅/인사이트", enabled: true },
-  { id: "threads", label: "Threads", desc: "Meta 계열 발행", enabled: true },
+  { id: "facebook", label: "페이스북", desc: "페이지 연동", enabled: true },
+  { id: "threads", label: "Threads", desc: "Meta 계열 연동", enabled: true },
   { id: "youtube", label: "유튜브", desc: "영상/쇼츠/댓글", enabled: true },
   { id: "x", label: "X", desc: "트윗/답글", enabled: true },
   { id: "blog", label: "네이버 블로그", desc: "포스팅 발행", enabled: true },
@@ -213,6 +213,9 @@ export default function ClientDetailPage() {
           </div>
 
           <div className="flex gap-2">
+            <button onClick={() => router.push(`/clients/${id}/benchmark`)} className="flex items-center gap-2 px-3 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+              <Link2 size={14} />벤치마킹
+            </button>
             <button onClick={openEdit} className="flex items-center gap-2 px-3 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors">
               <Pencil size={14} />수정
             </button>
@@ -245,7 +248,7 @@ export default function ClientDetailPage() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="font-bold">채널별 인증 / 연동</h2>
-            <p className="text-sm text-gray-500 mt-1">설계도 기준으로 우선 구현된 채널부터 OAuth 연동을 복구했습니다.</p>
+            <p className="text-sm text-gray-500 mt-1">OAuth 연동과 실제 자동 발행 지원 범위를 분리해서 표시합니다.</p>
           </div>
         </div>
 
@@ -286,6 +289,9 @@ export default function ClientDetailPage() {
                       ) : (
                         <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">미구현</span>
                       )}
+                      <span className={`text-[11px] px-2 py-0.5 rounded-full ${isAutoPublishSupported(channel.id) ? "bg-blue-50 text-blue-700 border border-blue-200" : "bg-gray-100 text-gray-600 border border-gray-200"}`}>
+                        {isAutoPublishSupported(channel.id) ? "자동발행 지원" : "연동만 지원"}
+                      </span>
                       {connected && (
                         <span className={`text-[11px] px-2 py-0.5 rounded-full ${tokenStatus.className}`}>{tokenStatus.label}</span>
                       )}

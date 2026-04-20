@@ -1,7 +1,22 @@
 """
 AI Schemas - Pydantic v2 request/response models for AI endpoints.
 """
+import uuid
+
 from pydantic import BaseModel, Field
+
+
+class EngineOverride(BaseModel):
+    provider: str | None = None
+    model: str | None = None
+    fallback_enabled: bool | None = None
+
+
+class BenchmarkOverride(BaseModel):
+    client_id: uuid.UUID | None = None
+    top_k: int | None = Field(default=None, ge=1, le=50)
+    window_days: int | None = Field(default=None, ge=1, le=365)
+    platform: str | None = None
 
 
 # ── Generate Copy ──────────────────────────────────────────
@@ -15,6 +30,8 @@ class GenerateCopyRequest(BaseModel):
     brand_name: str = Field("", description="Brand name for context")
     target_audience: str = Field("", description="Target audience description")
     strategy_keywords: list[str] = Field(default_factory=list, description="Strategy keywords to include")
+    engine: EngineOverride | None = None
+    benchmark: BenchmarkOverride | None = None
 
 
 class GenerateCopyResponse(BaseModel):
@@ -44,6 +61,7 @@ class SuggestHashtagsRequest(BaseModel):
     topic: str = Field(..., description="Topic for hashtag suggestions")
     platform: str = Field("instagram", description="Target platform")
     count: int = Field(15, ge=1, le=50, description="Number of hashtags")
+    engine: EngineOverride | None = None
 
 
 class SuggestHashtagsResponse(BaseModel):
@@ -67,6 +85,7 @@ class GenerateConceptSetsRequest(BaseModel):
     topic: str = Field(..., description="Card-news topic")
     brand_info: str = Field("", description="Brand information for context")
     count: int = Field(3, ge=1, le=5, description="Number of concept sets")
+    engine: EngineOverride | None = None
 
 
 class GenerateConceptSetsResponse(BaseModel):
@@ -78,6 +97,7 @@ class GenerateConceptSetsResponse(BaseModel):
 class ChatEditRequest(BaseModel):
     original_text: str = Field(..., description="Original text to edit")
     instruction: str = Field(..., description="Edit instruction")
+    engine: EngineOverride | None = None
 
 
 class ChatEditResponse(BaseModel):
@@ -105,6 +125,7 @@ class GenerateStrategyRequest(BaseModel):
     tone: str = Field("", description="Brand tone")
     target_audience: str = Field("", description="Target audience")
     goals: list[str] = Field(default_factory=list, description="Campaign goals")
+    engine: EngineOverride | None = None
 
 
 class GenerateStrategyResponse(BaseModel):
