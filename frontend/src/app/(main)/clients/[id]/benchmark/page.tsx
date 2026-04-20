@@ -12,6 +12,20 @@ const PLATFORM_HINTS: Record<string, string> = {
   x: "경쟁 X username 입력. 조회수는 공개 지표 프록시 추정입니다.",
   youtube: "채널 handle(@...) 또는 채널명 입력. metadata.channel_id가 있으면 더 정확합니다.",
   threads: "현재는 수동 수집 fallback만 지원합니다.",
+  tiktok: "OAuth 연결은 있지만 벤치마킹 수집기는 아직 없습니다.",
+  linkedin: "OAuth 연결은 있지만 공개 벤치마킹 수집기는 아직 없습니다.",
+  kakao: "현재는 수동 수집 fallback만 지원합니다.",
+}
+
+const PLATFORM_SUPPORT: Record<string, string> = {
+  instagram: "실수집 지원 · 조회수 프록시",
+  facebook: "실수집 지원 · 조회수 프록시",
+  x: "실수집 지원 · 조회수 프록시",
+  youtube: "실수집 지원 · 실조회수",
+  threads: "수동 fallback",
+  tiktok: "미구현",
+  linkedin: "미구현",
+  kakao: "미구현",
 }
 
 function parseMetadata(platform: string, raw: string) {
@@ -20,6 +34,13 @@ function parseMetadata(platform: string, raw: string) {
   if (platform === "facebook") return { page_id: value }
   if (platform === "youtube") return { channel_id: value }
   return { external_id: value }
+}
+
+function metadataInputValue(platform: string, metadata?: Record<string, unknown> | null) {
+  if (!metadata) return ""
+  if (platform === "facebook") return String(metadata.page_id || "")
+  if (platform === "youtube") return String(metadata.channel_id || "")
+  return String(metadata.external_id || "")
 }
 
 function badgeTone(status?: string) {
@@ -42,8 +63,10 @@ export default function ClientBenchmarkPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [statusMap, setStatusMap] = useState<Record<string, RefreshAccountResult>>({})
   const [form, setForm] = useState({ handle: "", purpose: "all", source_type: "manual", memo: "", metadataInput: "" })
+  const [editForm, setEditForm] = useState({ handle: "", purpose: "all", source_type: "manual", memo: "", metadataInput: "", is_active: true })
 
   const load = useCallback(async (currentPlatform = platform, currentTopK = topK) => {
     setLoading(true)
@@ -97,6 +120,42 @@ export default function ClientBenchmarkPage() {
     }
   }
 
+  function startEdit(item: BenchmarkAccountItem) {
+    setEditingId(item.id)
+    setEditForm({
+      handle: item.handle,
+      purpose: item.purpose,
+      source_type: item.source_type,
+      memo: item.memo || "",
+      metadataInput: metadataInputValue(item.platform, item.metadata_json),
+      is_active: item.is_active,
+    })
+  }
+
+  async function saveEdit(item: BenchmarkAccountItem) {
+    if (!editingId) return
+    setSaving(true)
+    try {
+      const updated = await benchmarkingService.updateAccount(item.id, {
+        handle: editForm.handle,
+        purpose: editForm.purpose,
+        source_type: editForm.source_type,
+        memo: editForm.memo,
+        is_active: editForm.is_active,
+        metadata_json: parseMetadata(item.platform, editForm.metadataInput),
+      })
+      setAccounts((prev) => prev.map((row) => row.id === updated.id ? updated : row))
+      setEditingId(null)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function toggleActive(item: BenchmarkAccountItem) {
+    const updated = await benchmarkingService.updateAccount(item.id, { is_active: !item.is_active })
+    setAccounts((prev) => prev.map((row) => row.id === updated.id ? updated : row))
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -117,6 +176,10 @@ export default function ClientBenchmarkPage() {
             {item}
           </button>
         ))}
+      </div>
+
+      <div className="rounded-xl border bg-slate-50 px-4 py-3 text-xs text-slate-700">
+        현재 지원 상태: {PLATFORM_SUPPORT[platform] || "미정"}
       </div>
 
       <div className="bg-white rounded-xl border p-5 space-y-4">
@@ -158,27 +221,64 @@ export default function ClientBenchmarkPage() {
               <div className="space-y-3 text-sm">
                 {platformAccounts.length === 0 ? <div className="text-gray-400">등록된 계정 없음</div> : platformAccounts.map((item) => {
                   const refreshState = statusMap[item.id]
+                  const isEditing = editingId === item.id
                   return (
                     <div key={item.id} className="rounded-lg border px-3 py-3 space-y-2">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="font-medium">{item.handle}</div>
-                          <div className="text-xs text-gray-500">{item.purpose} / {item.source_type}</div>
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <input value={editForm.handle} onChange={(e) => setEditForm((prev) => ({ ...prev, handle: e.target.value }))} className="w-full rounded-lg border px-3 py-2 text-sm" />
+                          <div className="grid grid-cols-2 gap-2">
+                            <select value={editForm.purpose} onChange={(e) => setEditForm((prev) => ({ ...prev, purpose: e.target.value }))} className="rounded-lg border px-3 py-2 text-sm">
+                              <option value="all">all</option>
+                              <option value="benchmark">benchmark</option>
+                              <option value="inspiration">inspiration</option>
+                            </select>
+                            <select value={editForm.source_type} onChange={(e) => setEditForm((prev) => ({ ...prev, source_type: e.target.value }))} className="rounded-lg border px-3 py-2 text-sm">
+                              <option value="manual">manual</option>
+                              <option value="discovery">discovery</option>
+                              <option value="competitor">competitor</option>
+                            </select>
+                          </div>
+                          <input value={editForm.metadataInput} onChange={(e) => setEditForm((prev) => ({ ...prev, metadataInput: e.target.value }))} placeholder={item.platform === "facebook" ? "page_id (선택)" : item.platform === "youtube" ? "channel_id (선택)" : "보조 식별자 (선택)"} className="w-full rounded-lg border px-3 py-2 text-sm" />
+                          <input value={editForm.memo} onChange={(e) => setEditForm((prev) => ({ ...prev, memo: e.target.value }))} placeholder="메모" className="w-full rounded-lg border px-3 py-2 text-sm" />
+                          <label className="flex items-center gap-2 text-xs text-gray-600">
+                            <input type="checkbox" checked={editForm.is_active} onChange={(e) => setEditForm((prev) => ({ ...prev, is_active: e.target.checked }))} /> 활성화
+                          </label>
+                          <div className="flex gap-2">
+                            <button onClick={() => void saveEdit(item)} disabled={saving} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs disabled:opacity-50">저장</button>
+                            <button onClick={() => setEditingId(null)} className="px-3 py-1.5 rounded-lg border text-xs">취소</button>
+                          </div>
                         </div>
-                        <button onClick={() => handleRefreshAccount(item.id)} disabled={refreshingId === item.id} className="px-3 py-1.5 rounded-lg border text-xs hover:bg-gray-50 disabled:opacity-50">
-                          {refreshingId === item.id ? "수집 중..." : "새로고침"}
-                        </button>
-                      </div>
-                      {item.metadata_json && (
-                        <div className="text-[11px] text-gray-500 break-all">metadata: {JSON.stringify(item.metadata_json)}</div>
+                      ) : (
+                        <>
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="font-medium">{item.handle}</div>
+                              <div className="text-xs text-gray-500">{item.purpose} / {item.source_type}</div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => startEdit(item)} className="px-2.5 py-1.5 rounded-lg border text-xs hover:bg-gray-50">수정</button>
+                              <button onClick={() => void handleRefreshAccount(item.id)} disabled={refreshingId === item.id || !item.is_active} className="px-2.5 py-1.5 rounded-lg border text-xs hover:bg-gray-50 disabled:opacity-50">
+                                {refreshingId === item.id ? "수집 중..." : "새로고침"}
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${item.is_active ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-gray-100 text-gray-600 border-gray-200"}`}>{item.is_active ? "활성" : "비활성"}</span>
+                            <button onClick={() => void toggleActive(item)} className="text-[11px] text-gray-600 underline underline-offset-2">{item.is_active ? "비활성화" : "재활성화"}</button>
+                          </div>
+                          {item.metadata_json && (
+                            <div className="text-[11px] text-gray-500 break-all">metadata: {JSON.stringify(item.metadata_json)}</div>
+                          )}
+                          {item.memo && <div className="text-[11px] text-gray-500">memo: {item.memo}</div>}
+                          {refreshState && (
+                            <div className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${badgeTone(refreshState.status)}`}>
+                              {refreshState.status} · {refreshState.inserted}건
+                            </div>
+                          )}
+                          {refreshState?.message && <div className="text-[11px] text-gray-600">{refreshState.message}</div>}
+                        </>
                       )}
-                      {item.memo && <div className="text-[11px] text-gray-500">memo: {item.memo}</div>}
-                      {refreshState && (
-                        <div className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${badgeTone(refreshState.status)}`}>
-                          {refreshState.status} · {refreshState.inserted}건
-                        </div>
-                      )}
-                      {refreshState?.message && <div className="text-[11px] text-gray-600">{refreshState.message}</div>}
                     </div>
                   )
                 })}
