@@ -206,6 +206,43 @@ class BenchmarkCollectorService:
                 "live_supported": True,
                 "platform": platform,
             }
+        if platform == "instagram":
+            if not source_channel:
+                return [], {
+                    "status": "manual_ingest_required",
+                    "message": "Instagram 실수집에는 이 클라이언트의 연결된 Instagram 채널 토큰이 필요합니다.",
+                    "live_supported": False,
+                    "platform": platform,
+                }
+            posts = await self._collect_instagram_posts(account, source_channel, top_k=top_k)
+            return posts, {
+                "status": "live_collected",
+                "message": "Instagram Business Discovery 기반 실데이터 수집 완료",
+                "live_supported": True,
+                "platform": platform,
+            }
+        if platform == "facebook":
+            if not source_channel:
+                return [], {
+                    "status": "manual_ingest_required",
+                    "message": "Facebook 실수집에는 이 클라이언트의 연결된 Facebook 페이지 토큰이 필요합니다.",
+                    "live_supported": False,
+                    "platform": platform,
+                }
+            posts = await self._collect_facebook_posts(account, source_channel, top_k=top_k)
+            return posts, {
+                "status": "live_collected_proxy_views",
+                "message": "Facebook 페이지 포스트 실데이터 수집 완료 (조회수는 참여도 프록시 추정)",
+                "live_supported": True,
+                "platform": platform,
+            }
+        if platform == "threads":
+            return [], {
+                "status": "manual_ingest_required",
+                "message": "Threads는 공개 벤치마킹용 안정 API가 아직 부족해 수동 수집 대상으로 유지합니다.",
+                "live_supported": False,
+                "platform": platform,
+            }
         return [], {
             "status": "manual_ingest_required",
             "message": f"{platform} 실수집기는 아직 미구현입니다.",
@@ -410,6 +447,127 @@ class BenchmarkCollectorService:
         rows.sort(key=lambda item: (item.get("view_count", 0), item.get("engagement_rate", 0)), reverse=True)
         return rows[:top_k]
 
+    async def _collect_instagram_posts(self, account: BenchmarkAccount, source_channel: ChannelConnection, top_k: int) -> list[dict]:
+        access_token = decrypt_token(source_channel.access_token or "")
+        if not access_token:
+            raise RuntimeError("Instagram source token is missing")
+
+        ig_user_id = self._resolve_instagram_user_id(source_channel)
+        if not ig_user_id:
+            raise RuntimeError("Instagram source account의 ig user id를 찾지 못했습니다")
+
+        username = account.handle.strip().lstrip("@")
+        fields = (
+            f"business_discovery.username({username})"
+            "{username,name,followers_count,media_count,media.limit(20)"
+            "{id,caption,media_type,permalink,comments_count,like_count,timestamp}}"
+        )
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(
+                f"https://graph.facebook.com/v19.0/{ig_user_id}",
+                params={"fields": fields, "access_token": access_token},
+            )
+            resp.raise_for_status()
+            discovery = (resp.json().get("business_discovery") or {})
+            media = (discovery.get("media") or {}).get("data", [])
+
+        rows: list[dict] = []
+        for item in media:
+            caption = (item.get("caption") or "").strip()
+            like_count = int(item.get("like_count", 0) or 0)
+            comment_count = int(item.get("comments_count", 0) or 0)
+            proxy_views = self._estimate_instagram_views(like_count, comment_count)
+            rows.append(
+                {
+                    "external_post_id": item.get("id"),
+                    "post_url": item.get("permalink"),
+                    "content_text": caption,
+                    "hook_text": self._first_line(caption),
+                    "cta_text": self._extract_cta_text(caption),
+                    "hashtags_json": self._extract_hashtags(caption),
+                    "format_type": str(item.get("media_type") or "post").lower(),
+                    "view_count": proxy_views,
+                    "like_count": like_count,
+                    "comment_count": comment_count,
+                    "share_count": 0,
+                    "save_count": 0,
+                    "engagement_rate": self._calc_engagement_rate(
+                        views=proxy_views,
+                        likes=like_count,
+                        comments=comment_count,
+                    ),
+                    "published_at": self._parse_dt(item.get("timestamp")),
+                    "raw_payload": {
+                        "source": "instagram_business_discovery",
+                        "target_username": username,
+                        "view_metric": "proxy_from_like_comment",
+                    },
+                }
+            )
+
+        rows.sort(key=lambda item: (item.get("view_count", 0), item.get("engagement_rate", 0)), reverse=True)
+        return rows[:top_k]
+
+    async def _collect_facebook_posts(self, account: BenchmarkAccount, source_channel: ChannelConnection, top_k: int) -> list[dict]:
+        access_token = decrypt_token(source_channel.access_token or "")
+        if not access_token:
+            raise RuntimeError("Facebook source token is missing")
+
+        page_id = self._resolve_facebook_page_id(account, source_channel)
+        if not page_id:
+            raise RuntimeError("Facebook 페이지 ID가 필요합니다. benchmark account metadata_json.page_id 또는 숫자 handle을 사용해 주세요")
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(
+                f"https://graph.facebook.com/v19.0/{page_id}/posts",
+                params={
+                    "fields": "id,message,created_time,permalink_url,shares,likes.summary(true),comments.summary(true)",
+                    "limit": max(5, min(top_k * 2, 20)),
+                    "access_token": access_token,
+                },
+            )
+            resp.raise_for_status()
+            items = resp.json().get("data", [])
+
+        rows: list[dict] = []
+        for item in items:
+            text = (item.get("message") or "").strip()
+            like_count = int(((item.get("likes") or {}).get("summary") or {}).get("total_count", 0) or 0)
+            comment_count = int(((item.get("comments") or {}).get("summary") or {}).get("total_count", 0) or 0)
+            share_count = int((item.get("shares") or {}).get("count", 0) or 0)
+            proxy_views = self._estimate_facebook_views(like_count, comment_count, share_count)
+            rows.append(
+                {
+                    "external_post_id": item.get("id"),
+                    "post_url": item.get("permalink_url"),
+                    "content_text": text,
+                    "hook_text": self._first_line(text),
+                    "cta_text": self._extract_cta_text(text),
+                    "hashtags_json": self._extract_hashtags(text),
+                    "format_type": "post",
+                    "view_count": proxy_views,
+                    "like_count": like_count,
+                    "comment_count": comment_count,
+                    "share_count": share_count,
+                    "save_count": 0,
+                    "engagement_rate": self._calc_engagement_rate(
+                        views=proxy_views,
+                        likes=like_count,
+                        comments=comment_count,
+                        shares=share_count,
+                    ),
+                    "published_at": self._parse_dt(item.get("created_time")),
+                    "raw_payload": {
+                        "source": "facebook_page_posts",
+                        "page_id": page_id,
+                        "view_metric": "proxy_from_engagement",
+                    },
+                }
+            )
+
+        rows.sort(key=lambda item: (item.get("view_count", 0), item.get("engagement_rate", 0)), reverse=True)
+        return rows[:top_k]
+
     def _build_placeholder_posts(self, account: BenchmarkAccount, top_k: int, window_days: int) -> list[dict]:
         now = datetime.now(timezone.utc)
         posts: list[dict] = []
@@ -460,6 +618,35 @@ class BenchmarkCollectorService:
         if "#shorts" in title:
             return "shorts"
         return "video"
+
+    def _resolve_instagram_user_id(self, source_channel: ChannelConnection) -> str | None:
+        extra = source_channel.extra_data or {}
+        return extra.get("instagram_user_id") or extra.get("id") or source_channel.account_id
+
+    def _resolve_facebook_page_id(self, account: BenchmarkAccount, source_channel: ChannelConnection) -> str | None:
+        metadata = account.metadata_json or {}
+        if metadata.get("page_id"):
+            return str(metadata["page_id"])
+        handle = account.handle.strip()
+        if handle.isdigit():
+            return handle
+
+        pages = (source_channel.extra_data or {}).get("pages") or []
+        normalized = handle.lstrip("@").lower()
+        for page in pages:
+            if str(page.get("id") or "") == normalized:
+                return str(page.get("id"))
+            if str(page.get("name") or "").strip().lower() == normalized:
+                return str(page.get("id"))
+        return None
+
+    def _estimate_instagram_views(self, likes: int, comments: int) -> int:
+        proxy = (likes * 22) + (comments * 38)
+        return max(proxy, likes + comments)
+
+    def _estimate_facebook_views(self, likes: int, comments: int, shares: int) -> int:
+        proxy = (likes * 18) + (comments * 32) + (shares * 40)
+        return max(proxy, likes + comments + shares)
 
     def _estimate_x_views(self, likes: int, comments: int, shares: int, quotes: int) -> int:
         proxy = (likes * 28) + (comments * 45) + (shares * 35) + (quotes * 40)
