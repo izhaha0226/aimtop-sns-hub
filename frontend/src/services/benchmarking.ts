@@ -48,13 +48,22 @@ export interface ActionLanguageProfileItem {
   updated_at?: string | null
 }
 
+export interface RefreshAccountResult {
+  status: string
+  message: string
+  inserted: number
+  profile_id?: string | null
+  live_supported?: boolean
+  platform?: string
+}
+
 export const benchmarkingService = {
   async listAccounts(clientId?: string) {
     const res = await api.get("/api/v1/benchmarking/accounts", { params: clientId ? { client_id: clientId } : {} })
     return Array.isArray(res.data) ? (res.data as BenchmarkAccountItem[]) : []
   },
 
-  async createAccount(payload: { client_id: string; platform: string; handle: string; purpose?: string; source_type?: string; memo?: string }) {
+  async createAccount(payload: { client_id: string; platform: string; handle: string; purpose?: string; source_type?: string; memo?: string; metadata_json?: Record<string, unknown> }) {
     const res = await api.post("/api/v1/benchmarking/accounts", payload)
     return res.data as BenchmarkAccountItem
   },
@@ -68,7 +77,7 @@ export const benchmarkingService = {
     const res = await api.post(`/api/v1/benchmarking/accounts/${id}/refresh`, null, {
       params: { top_k: topK, window_days: windowDays },
     })
-    return res.data as { status: string; message: string; inserted: number; profile_id?: string | null }
+    return res.data as RefreshAccountResult
   },
 
   async getTopPosts(clientId: string, platform: string, topK = 10) {

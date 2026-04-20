@@ -11,12 +11,14 @@ class BenchmarkAccountCreateRequest(BaseModel):
     purpose: str = "all"
     source_type: str = "manual"
     memo: str | None = None
+    metadata_json: dict | None = None
 
 
 class BenchmarkAccountUpdateRequest(BaseModel):
     purpose: str | None = None
     source_type: str | None = None
     memo: str | None = None
+    metadata_json: dict | None = None
     is_active: bool | None = None
 
 

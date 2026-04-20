@@ -2,9 +2,33 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { benchmarkingService, type ActionLanguageProfileItem, type BenchmarkAccountItem, type BenchmarkPostItem } from "@/services/benchmarking"
+import { benchmarkingService, type ActionLanguageProfileItem, type BenchmarkAccountItem, type BenchmarkPostItem, type RefreshAccountResult } from "@/services/benchmarking"
 
 const PLATFORMS = ["instagram", "facebook", "x", "threads", "kakao", "tiktok", "linkedin", "youtube"]
+
+const PLATFORM_HINTS: Record<string, string> = {
+  instagram: "경쟁 인스타 username 입력. 실수집은 연결된 Instagram 채널 토큰이 필요합니다.",
+  facebook: "페이지명 또는 page_id 입력. page_id는 metadata에 넣으면 더 안정적입니다.",
+  x: "경쟁 X username 입력. 조회수는 공개 지표 프록시 추정입니다.",
+  youtube: "채널 handle(@...) 또는 채널명 입력. metadata.channel_id가 있으면 더 정확합니다.",
+  threads: "현재는 수동 수집 fallback만 지원합니다.",
+}
+
+function parseMetadata(platform: string, raw: string) {
+  const value = raw.trim()
+  if (!value) return undefined
+  if (platform === "facebook") return { page_id: value }
+  if (platform === "youtube") return { channel_id: value }
+  return { external_id: value }
+}
+
+function badgeTone(status?: string) {
+  if (!status) return "bg-gray-100 text-gray-700 border-gray-200"
+  if (status.includes("live_collected")) return "bg-green-50 text-green-700 border-green-200"
+  if (status.includes("manual")) return "bg-amber-50 text-amber-700 border-amber-200"
+  if (status.includes("error")) return "bg-red-50 text-red-700 border-red-200"
+  return "bg-gray-100 text-gray-700 border-gray-200"
+}
 
 export default function ClientBenchmarkPage() {
   const { id } = useParams<{ id: string }>()
@@ -14,7 +38,12 @@ export default function ClientBenchmarkPage() {
   const [profile, setProfile] = useState<ActionLanguageProfileItem | null>(null)
   const [platform, setPlatform] = useState("instagram")
   const [topK, setTopK] = useState(10)
+  const [windowDays, setWindowDays] = useState(30)
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [refreshingId, setRefreshingId] = useState<string | null>(null)
+  const [statusMap, setStatusMap] = useState<Record<string, RefreshAccountResult>>({})
+  const [form, setForm] = useState({ handle: "", purpose: "all", source_type: "manual", memo: "", metadataInput: "" })
 
   const load = useCallback(async (currentPlatform = platform, currentTopK = topK) => {
     setLoading(true)
@@ -33,10 +62,40 @@ export default function ClientBenchmarkPage() {
   }, [id, platform, topK])
 
   useEffect(() => { void load() }, [load])
-
   useEffect(() => { void load(platform, topK) }, [load, platform, topK])
 
   const platformAccounts = useMemo(() => accounts.filter((item) => item.platform === platform), [accounts, platform])
+
+  async function handleCreateAccount() {
+    if (!form.handle.trim()) return
+    setSaving(true)
+    try {
+      const created = await benchmarkingService.createAccount({
+        client_id: id,
+        platform,
+        handle: form.handle.trim(),
+        purpose: form.purpose,
+        source_type: form.source_type,
+        memo: form.memo.trim() || undefined,
+        metadata_json: parseMetadata(platform, form.metadataInput),
+      })
+      setAccounts((prev) => [created, ...prev])
+      setForm({ handle: "", purpose: "all", source_type: "manual", memo: "", metadataInput: "" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleRefreshAccount(accountId: string) {
+    setRefreshingId(accountId)
+    try {
+      const result = await benchmarkingService.refreshAccount(accountId, topK, windowDays)
+      setStatusMap((prev) => ({ ...prev, [accountId]: result }))
+      await load(platform, topK)
+    } finally {
+      setRefreshingId(null)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -60,9 +119,34 @@ export default function ClientBenchmarkPage() {
         ))}
       </div>
 
-      <div className="bg-white rounded-xl border p-4 flex items-center gap-3">
+      <div className="bg-white rounded-xl border p-5 space-y-4">
+        <div>
+          <div className="text-sm font-semibold">벤치마킹 계정 등록</div>
+          <div className="text-xs text-gray-500 mt-1">{PLATFORM_HINTS[platform] || "채널별 실수집 가능 범위에 맞춰 등록하세요."}</div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <input value={form.handle} onChange={(e) => setForm((prev) => ({ ...prev, handle: e.target.value }))} placeholder="handle / username / page_id" className="rounded-lg border px-3 py-2 text-sm" />
+          <select value={form.purpose} onChange={(e) => setForm((prev) => ({ ...prev, purpose: e.target.value }))} className="rounded-lg border px-3 py-2 text-sm">
+            <option value="all">all</option>
+            <option value="benchmark">benchmark</option>
+            <option value="inspiration">inspiration</option>
+          </select>
+          <select value={form.source_type} onChange={(e) => setForm((prev) => ({ ...prev, source_type: e.target.value }))} className="rounded-lg border px-3 py-2 text-sm">
+            <option value="manual">manual</option>
+            <option value="discovery">discovery</option>
+            <option value="competitor">competitor</option>
+          </select>
+          <input value={form.metadataInput} onChange={(e) => setForm((prev) => ({ ...prev, metadataInput: e.target.value }))} placeholder={platform === "facebook" ? "page_id (선택)" : platform === "youtube" ? "channel_id (선택)" : "보조 식별자 (선택)"} className="rounded-lg border px-3 py-2 text-sm" />
+          <button onClick={handleCreateAccount} disabled={saving || !form.handle.trim()} className="rounded-lg bg-blue-600 text-white text-sm px-4 py-2 disabled:opacity-50">{saving ? "등록 중..." : "계정 등록"}</button>
+        </div>
+        <input value={form.memo} onChange={(e) => setForm((prev) => ({ ...prev, memo: e.target.value }))} placeholder="메모 (선택)" className="rounded-lg border px-3 py-2 text-sm w-full" />
+      </div>
+
+      <div className="bg-white rounded-xl border p-4 flex flex-wrap items-center gap-3">
         <label className="text-sm text-gray-600">Top-K</label>
         <input value={topK} onChange={(e) => setTopK(Number(e.target.value) || 10)} className="w-24 rounded-lg border px-3 py-2 text-sm" />
+        <label className="text-sm text-gray-600">기간(일)</label>
+        <input value={windowDays} onChange={(e) => setWindowDays(Number(e.target.value) || 30)} className="w-24 rounded-lg border px-3 py-2 text-sm" />
         <span className="text-xs text-gray-500">조회수/참여율/최근성 점수 기반</span>
       </div>
 
@@ -71,13 +155,33 @@ export default function ClientBenchmarkPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="bg-white rounded-xl border p-4 lg:col-span-1">
               <h2 className="font-semibold mb-3">등록 계정</h2>
-              <div className="space-y-2 text-sm">
-                {platformAccounts.length === 0 ? <div className="text-gray-400">등록된 계정 없음</div> : platformAccounts.map((item) => (
-                  <div key={item.id} className="rounded-lg border px-3 py-2">
-                    <div className="font-medium">{item.handle}</div>
-                    <div className="text-xs text-gray-500">{item.purpose} / {item.source_type}</div>
-                  </div>
-                ))}
+              <div className="space-y-3 text-sm">
+                {platformAccounts.length === 0 ? <div className="text-gray-400">등록된 계정 없음</div> : platformAccounts.map((item) => {
+                  const refreshState = statusMap[item.id]
+                  return (
+                    <div key={item.id} className="rounded-lg border px-3 py-3 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-medium">{item.handle}</div>
+                          <div className="text-xs text-gray-500">{item.purpose} / {item.source_type}</div>
+                        </div>
+                        <button onClick={() => handleRefreshAccount(item.id)} disabled={refreshingId === item.id} className="px-3 py-1.5 rounded-lg border text-xs hover:bg-gray-50 disabled:opacity-50">
+                          {refreshingId === item.id ? "수집 중..." : "새로고침"}
+                        </button>
+                      </div>
+                      {item.metadata_json && (
+                        <div className="text-[11px] text-gray-500 break-all">metadata: {JSON.stringify(item.metadata_json)}</div>
+                      )}
+                      {item.memo && <div className="text-[11px] text-gray-500">memo: {item.memo}</div>}
+                      {refreshState && (
+                        <div className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${badgeTone(refreshState.status)}`}>
+                          {refreshState.status} · {refreshState.inserted}건
+                        </div>
+                      )}
+                      {refreshState?.message && <div className="text-[11px] text-gray-600">{refreshState.message}</div>}
+                    </div>
+                  )
+                })}
               </div>
             </div>
 
@@ -108,6 +212,7 @@ export default function ClientBenchmarkPage() {
                     <div>
                       <div className="font-medium text-sm">#{index + 1} {post.hook_text || post.content_text?.slice(0, 60) || "제목 없음"}</div>
                       <div className="text-xs text-gray-500 mt-1">CTA: {post.cta_text || "없음"}</div>
+                      {post.post_url && <a href={post.post_url} target="_blank" rel="noreferrer" className="text-xs text-blue-600 mt-1 inline-block">원문 보기</a>}
                     </div>
                     <div className="text-right text-xs text-gray-500">
                       <div>조회수 {post.view_count.toLocaleString()}</div>
