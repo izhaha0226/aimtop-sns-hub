@@ -160,9 +160,15 @@ async def generate_concept_sets(
         f"카드뉴스 컨셉을 {count}세트 만들어줘.\n"
         f"주제: {topic}\n"
         f"브랜드 정보: {brand_info}\n\n"
-        f"각 세트는 다음 JSON 형식이야:\n"
-        f'{{"concept_name": "...", "slides": ['
-        f'{{"title": "...", "body": "...", "visual_direction": "..."}}]}}\n\n'
+        "[HAICo 컨셉 생성 규칙]\n"
+        "- 최종 카드뉴스 한 세트로 바로 수렴하지 말고, 내부적으로 먼저 서로 다른 방향을 충분히 발산할 것.\n"
+        "- 각 컨셉은 worldview, 정보 구조, 설득 메커니즘이 달라야 한다.\n"
+        "- 흔한 제목 바꾸기 수준이 아니라 narrative arc가 달라야 한다.\n"
+        "- 가장 강한 방향만 선택해 세트로 완성하듯 생각하되, 출력은 요청된 세트 수만큼 서로 다른 컨셉 세트로 줄 것.\n"
+        "- 각 슬라이드는 모바일에서 바로 읽히는 짧은 문장과 장면감 있는 visual_direction을 우선할 것.\n\n"
+        "각 세트는 다음 JSON 형식이야:\n"
+        '{"concept_name": "...", "slides": ['
+        '{"title": "...", "body": "...", "visual_direction": "..."}}]}\n\n'
         f"JSON 배열로만 응답해. 총 {count}개의 세트를 배열로 반환."
     )
     try:
