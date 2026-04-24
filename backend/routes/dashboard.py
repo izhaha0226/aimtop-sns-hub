@@ -18,6 +18,26 @@ from services.sns_publisher import SNSPublisher
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
+PUBLISH_FAILURE_CATEGORIES = [
+    ("missing_evidence", "증거 누락", ("platform_post_id/published_url",)),
+    ("unsupported_platform", "미지원 채널", ("실제 발행 자동화를 지원하지 않습니다",)),
+    ("token_expired", "토큰 만료", ("토큰이 만료되어 재인증이 필요합니다",)),
+    ("missing_channel", "채널/콘텐츠 누락", ("채널 연결을 찾을 수 없습니다", "채널 연결 ID가 필요합니다", "콘텐츠 또는 채널을 찾을 수 없습니다", "콘텐츠를 찾을 수 없습니다")),
+    ("retrying", "재시도 중", ("예약 발행 재시도 중",)),
+]
+
+
+def _classify_publish_error(error_message: str | None) -> tuple[str, str]:
+    text = (error_message or "").strip()
+    for key, label, needles in PUBLISH_FAILURE_CATEGORIES:
+        if any(needle in text for needle in needles):
+            return key, label
+    return "other", "기타 오류"
+
+
+def _count_failed_publish_category(contents: list[Content], category_key: str) -> int:
+    return sum(1 for content in contents if _classify_publish_error(content.publish_error)[0] == category_key)
+
 
 @router.get("/stats")
 async def get_stats(
@@ -263,22 +283,21 @@ async def get_publish_observability(
             )
         )
     ).scalar() or 0
-    failed_missing_evidence = (
-        await db.execute(
-            select(func.count()).select_from(Content).where(
-                Content.status == "failed",
-                Content.publish_error.contains("platform_post_id/published_url"),
-            )
+
+    failed_contents_result = await db.execute(
+        select(Content)
+        .where(
+            Content.status == "failed",
+            Content.publish_error.isnot(None),
         )
-    ).scalar() or 0
-    failed_unsupported_platform = (
-        await db.execute(
-            select(func.count()).select_from(Content).where(
-                Content.status == "failed",
-                Content.publish_error.contains("실제 발행 자동화를 지원하지 않습니다"),
-            )
-        )
-    ).scalar() or 0
+    )
+    failed_contents = list(failed_contents_result.scalars().all())
+    failed_missing_evidence = _count_failed_publish_category(failed_contents, "missing_evidence")
+    failed_unsupported_platform = _count_failed_publish_category(failed_contents, "unsupported_platform")
+    failed_token_expired = _count_failed_publish_category(failed_contents, "token_expired")
+    failed_missing_channel = _count_failed_publish_category(failed_contents, "missing_channel")
+    failed_retrying = _count_failed_publish_category(failed_contents, "retrying")
+    failed_other = _count_failed_publish_category(failed_contents, "other")
 
     published_result = await db.execute(
         select(Content, ChannelConnection)
@@ -324,6 +343,10 @@ async def get_publish_observability(
             "failed_with_error": failed_with_error,
             "failed_missing_evidence": failed_missing_evidence,
             "failed_unsupported_platform": failed_unsupported_platform,
+            "failed_token_expired": failed_token_expired,
+            "failed_missing_channel": failed_missing_channel,
+            "failed_retrying": failed_retrying,
+            "failed_other": failed_other,
         },
         "published_items": [
             {
@@ -355,6 +378,8 @@ async def get_publish_observability(
                 "id": str(item.id),
                 "title": item.title,
                 "publish_error": item.publish_error,
+                "failure_category": _classify_publish_error(item.publish_error)[0],
+                "failure_label": _classify_publish_error(item.publish_error)[1],
                 "updated_at": item.updated_at.isoformat() if item.updated_at else None,
                 "channel_connection_id": str(item.channel_connection_id) if item.channel_connection_id else None,
                 "channel_type": channel.channel_type if channel else None,

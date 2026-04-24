@@ -60,6 +60,10 @@ interface PublishObservability {
     failed_with_error: number
     failed_missing_evidence: number
     failed_unsupported_platform: number
+    failed_token_expired: number
+    failed_missing_channel: number
+    failed_retrying: number
+    failed_other: number
   }
   published_items: Array<{
     id: string
@@ -84,6 +88,8 @@ interface PublishObservability {
     id: string
     title: string
     publish_error?: string | null
+    failure_category?: string | null
+    failure_label?: string | null
     updated_at?: string | null
     channel_connection_id?: string | null
     channel_type?: string | null
@@ -108,6 +114,10 @@ const EMPTY_PUBLISH_OBSERVABILITY: PublishObservability = {
     failed_with_error: 0,
     failed_missing_evidence: 0,
     failed_unsupported_platform: 0,
+    failed_token_expired: 0,
+    failed_missing_channel: 0,
+    failed_retrying: 0,
+    failed_other: 0,
   },
   published_items: [],
   suspicious_items: [],
@@ -165,6 +175,10 @@ function normalizePublishObservability(value: unknown): PublishObservability {
       failed_with_error: Number(data.summary?.failed_with_error ?? 0),
       failed_missing_evidence: Number(data.summary?.failed_missing_evidence ?? 0),
       failed_unsupported_platform: Number(data.summary?.failed_unsupported_platform ?? 0),
+      failed_token_expired: Number(data.summary?.failed_token_expired ?? 0),
+      failed_missing_channel: Number(data.summary?.failed_missing_channel ?? 0),
+      failed_retrying: Number(data.summary?.failed_retrying ?? 0),
+      failed_other: Number(data.summary?.failed_other ?? 0),
     },
     published_items: Array.isArray(data.published_items) ? data.published_items : [],
     suspicious_items: Array.isArray(data.suspicious_items) ? data.suspicious_items : [],
@@ -258,6 +272,13 @@ export default function DashboardPage() {
     return "bg-red-50 text-red-700"
   }
 
+  const failureBadge = (category?: string | null) => {
+    if (category === "retrying") return "bg-amber-50 text-amber-700"
+    if (category === "unsupported_platform" || category === "token_expired" || category === "missing_channel") return "bg-rose-50 text-rose-700"
+    if (category === "missing_evidence") return "bg-orange-50 text-orange-700"
+    return "bg-gray-100 text-gray-700"
+  }
+
   return (
     <div>
       <h1 className="text-xl font-bold mb-6">대시보드</h1>
@@ -322,7 +343,8 @@ export default function DashboardPage() {
               </div>
               <div className="text-xs text-gray-500 text-right">
                 <div>증거 {publishObservability?.summary.published_with_evidence ?? 0} · 의심 {publishObservability?.summary.published_without_evidence ?? 0} · 실패 {publishObservability?.summary.failed_with_error ?? 0}</div>
-                <div className="mt-1">증거누락 실패 {publishObservability?.summary.failed_missing_evidence ?? 0} · 미지원채널 실패 {publishObservability?.summary.failed_unsupported_platform ?? 0}</div>
+                <div className="mt-1">증거누락 {publishObservability?.summary.failed_missing_evidence ?? 0} · 미지원채널 {publishObservability?.summary.failed_unsupported_platform ?? 0} · 토큰만료 {publishObservability?.summary.failed_token_expired ?? 0}</div>
+                <div className="mt-1">채널/콘텐츠 누락 {publishObservability?.summary.failed_missing_channel ?? 0} · 재시도중 {publishObservability?.summary.failed_retrying ?? 0} · 기타 {publishObservability?.summary.failed_other ?? 0}</div>
               </div>
             </div>
 
@@ -366,7 +388,10 @@ export default function DashboardPage() {
                 <div className="space-y-2">
                   {(publishObservability?.failed_items || []).slice(0, 5).map((item) => (
                     <div key={item.id} className="rounded-lg bg-red-50 border border-red-100 px-3 py-2">
-                      <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
+                        <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium ${failureBadge(item.failure_category)}`}>{item.failure_label || "기타 오류"}</span>
+                      </div>
                       <p className="text-[11px] text-gray-500 mt-1">채널: {item.channel_type || "-"}{item.account_name ? ` · ${item.account_name}` : ""}</p>
                       <p className="text-[11px] text-red-700 mt-1 line-clamp-2">{item.publish_error || "실패 사유 없음"}</p>
                     </div>
