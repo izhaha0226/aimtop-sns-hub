@@ -77,6 +77,38 @@ function formatDateTime(value?: string | null) {
   return date.toLocaleString("ko-KR")
 }
 
+function parseTimestamp(value?: string | null) {
+  if (!value) return null
+  const date = new Date(value)
+  const time = date.getTime()
+  return Number.isNaN(time) ? null : time
+}
+
+function isStaleRefresh(value?: string | null, thresholdHours = 24) {
+  const time = parseTimestamp(value)
+  if (!time) return false
+  return Date.now() - time >= thresholdHours * 60 * 60 * 1000
+}
+
+function pickAccountState(
+  refreshState?: RefreshAccountResult,
+  diagnostic?: BenchmarkAccountDiagnosticItem,
+) {
+  if (!refreshState) return diagnostic
+  if (!diagnostic) return refreshState
+
+  const refreshTime = parseTimestamp(refreshState.refreshed_at)
+  const diagnosticTime = parseTimestamp(diagnostic.last_refresh_at)
+
+  if (refreshTime && diagnosticTime) {
+    return refreshTime >= diagnosticTime ? refreshState : diagnostic
+  }
+
+  if (refreshTime) return refreshState
+  if (diagnosticTime) return diagnostic
+  return diagnostic
+}
+
 function postSourceLabel(post: BenchmarkPostItem) {
   const source = String(post.raw_payload?.source || "")
   if (source === "youtube_api_live") return "실데이터"
@@ -182,6 +214,8 @@ export default function ClientBenchmarkPage() {
       proxyMetricCount: activeRows.reduce((sum, item) => sum + item.proxy_metric_count, 0),
       totalPostCount: activeRows.reduce((sum, item) => sum + item.total_post_count, 0),
       tokenMissingCount: activeRows.filter((item) => item.source_channel_connected && !item.source_channel_has_token).length,
+      neverRefreshedCount: activeRows.filter((item) => !item.last_refresh_at).length,
+      staleRefreshCount: activeRows.filter((item) => Boolean(item.last_refresh_at) && isStaleRefresh(item.last_refresh_at)).length,
       inactiveCount: diagnostics.filter((item) => !item.is_active).length,
     }
   }, [diagnostics])
@@ -227,6 +261,14 @@ export default function ClientBenchmarkPage() {
       }
     }
 
+    if (diagnosticSummary.neverRefreshedCount > 0 || diagnosticSummary.staleRefreshCount > 0) {
+      return {
+        status: "warning" as const,
+        title: "점검 이력 부족",
+        detail: `새로고침 이력이 없는 계정 ${diagnosticSummary.neverRefreshedCount}개, 24시간 이상 지난 계정 ${diagnosticSummary.staleRefreshCount}개가 있습니다. 현재 상태를 최신 운영 정보로 보기 어렵습니다.`,
+      }
+    }
+
     if (diagnosticSummary.mixedCount > 0) {
       return {
         status: "warning" as const,
@@ -266,7 +308,7 @@ export default function ClientBenchmarkPage() {
       title: "직접 실데이터 없음",
       detail: "계정은 등록되어 있지만 현재 클라이언트 기준 실수집 상태를 아직 확인하지 못했습니다. 연결 채널/토큰/collector 상태를 확인해야 합니다.",
     }
-  }, [diagnosticSummary.actualMetricCount, diagnosticSummary.blockedCount, diagnosticSummary.collectorErrorCount, diagnosticSummary.liveAccountCount, diagnosticSummary.mixedCount, diagnosticSummary.noDataCount, diagnosticSummary.placeholderOnlyCount, diagnosticSummary.tokenMissingCount, platformAccounts.length, platformSupportLevel])
+  }, [diagnosticSummary.actualMetricCount, diagnosticSummary.blockedCount, diagnosticSummary.collectorErrorCount, diagnosticSummary.liveAccountCount, diagnosticSummary.mixedCount, diagnosticSummary.neverRefreshedCount, diagnosticSummary.noDataCount, diagnosticSummary.placeholderOnlyCount, diagnosticSummary.staleRefreshCount, diagnosticSummary.tokenMissingCount, platformAccounts.length, platformSupportLevel])
 
   const profileSummary = useMemo(() => {
     if (!profile) {
@@ -386,6 +428,7 @@ export default function ClientBenchmarkPage() {
           <div className="text-xs text-gray-500">등록/활성 계정</div>
           <div className="mt-2 text-sm font-semibold text-gray-900">{platformAccounts.length}개 등록 · {activePlatformAccounts.length}개 활성</div>
           <div className="mt-2 text-xs text-gray-500">비활성 {Math.max(platformAccounts.length - activePlatformAccounts.length, 0)}개 · 토큰누락 {diagnosticSummary.tokenMissingCount}개 · 수집오류 {diagnosticSummary.collectorErrorCount}개</div>
+          <div className="mt-1 text-xs text-gray-500">새로고침 없음 {diagnosticSummary.neverRefreshedCount}개 · 24시간 초과 {diagnosticSummary.staleRefreshCount}개</div>
         </div>
         <div className="rounded-xl border bg-white p-4">
           <div className="text-xs text-gray-500">직접 실데이터 정합성</div>
@@ -453,7 +496,14 @@ export default function ClientBenchmarkPage() {
                 {platformAccounts.length === 0 ? <div className="text-gray-400">등록된 계정 없음</div> : platformAccounts.map((item) => {
                   const refreshState = statusMap[item.id]
                   const diagnostic = diagnosticMap[item.id]
-                  const accountState = refreshState || diagnostic
+                  const accountState = pickAccountState(refreshState, diagnostic)
+                  const refreshTime = parseTimestamp(refreshState?.refreshed_at)
+                  const diagnosticTime = parseTimestamp(diagnostic?.last_refresh_at)
+                  const useRefreshMeta = Boolean(refreshState && (!diagnosticTime || (refreshTime && refreshTime >= diagnosticTime)))
+                  const latestRefreshAt = useRefreshMeta ? (refreshState?.refreshed_at || null) : (diagnostic?.last_refresh_at || null)
+                  const latestRefreshStatus = useRefreshMeta ? (refreshState?.status || null) : (diagnostic?.last_refresh_status || null)
+                  const latestRefreshStatusLabel = useRefreshMeta ? (refreshState?.status_label || null) : (diagnostic?.last_refresh_status_label || null)
+                  const latestRefreshMessage = useRefreshMeta ? (refreshState?.message || null) : (diagnostic?.last_refresh_message || null)
                   const isEditing = editingId === item.id
                   return (
                     <div key={item.id} className="rounded-lg border px-3 py-3 space-y-2">
@@ -522,6 +572,21 @@ export default function ClientBenchmarkPage() {
                                     placeholder fallback
                                   </div>
                                 )}
+                                {latestRefreshStatusLabel && (
+                                  <div className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${badgeTone(latestRefreshStatus || undefined)}`}>
+                                    마지막 점검 {latestRefreshStatusLabel}
+                                  </div>
+                                )}
+                                {!latestRefreshAt && item.is_active && (
+                                  <div className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-amber-50 text-amber-700 border-amber-200">
+                                    새로고침 이력 없음
+                                  </div>
+                                )}
+                                {latestRefreshAt && isStaleRefresh(latestRefreshAt) && (
+                                  <div className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-amber-50 text-amber-700 border-amber-200">
+                                    24시간 이상 경과
+                                  </div>
+                                )}
                                 {accountState.source_channel_connected && accountState.source_channel_has_token === false && (
                                   <div className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-rose-50 text-rose-700 border-rose-200">
                                     토큰 없음
@@ -537,14 +602,14 @@ export default function ClientBenchmarkPage() {
                               ) : (
                                 <div className="text-[11px] text-amber-700">연결 상태: {accountState.source_channel_missing_reason || "연결 채널 확인 필요"}</div>
                               )}
-                              {(accountState.refreshed_at || diagnostic?.last_refresh_at) && (
-                                <div className="text-[11px] text-gray-500">마지막 새로고침: {formatDateTime(accountState.refreshed_at || diagnostic?.last_refresh_at) || accountState.refreshed_at || diagnostic?.last_refresh_at}</div>
+                              {latestRefreshAt && (
+                                <div className="text-[11px] text-gray-500">마지막 새로고침: {formatDateTime(latestRefreshAt) || latestRefreshAt}</div>
                               )}
                             </div>
                           )}
                           {accountState?.message && <div className="text-[11px] text-gray-600">{accountState.message}</div>}
-                          {!refreshState && diagnostic?.last_refresh_status === "collector_error" && diagnostic.last_refresh_message && (
-                            <div className="text-[11px] text-red-700">최근 수집 오류: {diagnostic.last_refresh_message}</div>
+                          {!refreshState && latestRefreshMessage && latestRefreshStatus === "collector_error" && (
+                            <div className="text-[11px] text-red-700">최근 수집 오류: {latestRefreshMessage}</div>
                           )}
                         </>
                       )}
