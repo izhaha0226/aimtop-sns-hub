@@ -63,6 +63,7 @@ interface PublishObservability {
     failed_missing_evidence: number
     failed_unsupported_platform: number
     failed_token_expired: number
+    failed_token_missing: number
     failed_missing_channel: number
     failed_retrying: number
     failed_other: number
@@ -117,6 +118,7 @@ const EMPTY_PUBLISH_OBSERVABILITY: PublishObservability = {
     failed_missing_evidence: 0,
     failed_unsupported_platform: 0,
     failed_token_expired: 0,
+    failed_token_missing: 0,
     failed_missing_channel: 0,
     failed_retrying: 0,
     failed_other: 0,
@@ -143,6 +145,7 @@ const PIPELINE_DETAIL_LABELS: Record<string, string> = {
   meta_app_secret_present: "Meta App Secret",
   connected_channels: "연결 채널",
   reauth_required: "재인증 필요",
+  token_missing_channels: "토큰 없음 채널",
   supported_connected_channels: "지원 채널",
   supported_healthy_channels: "건강한 지원 채널",
   unsupported_connected_channels: "미지원 연결 채널",
@@ -173,8 +176,8 @@ const PIPELINE_DETAIL_LABELS: Record<string, string> = {
 
 const PIPELINE_DETAIL_ORDER: Record<PipelineKey, string[]> = {
   ai_generation: ["blocked_tasks", "fallback_only_tasks", "fallback_missing_tasks", "primary_ready_tasks", "openai_key_present", "claude_cli_available"],
-  oauth_connections: ["reauth_required", "unknown_token_channels", "connected_channels", "supported_healthy_channels", "meta_app_id_present", "meta_app_secret_present"],
-  publishing: ["suspicious_published_without_evidence", "failed_publish_count", "unsupported_connected_channels", "unknown_token_channels", "supported_connected_channels", "supported_healthy_channels", "published_evidence_count"],
+  oauth_connections: ["reauth_required", "token_missing_channels", "unknown_token_channels", "connected_channels", "supported_healthy_channels", "meta_app_id_present", "meta_app_secret_present"],
+  publishing: ["suspicious_published_without_evidence", "failed_publish_count", "token_missing_channels", "unsupported_connected_channels", "unknown_token_channels", "supported_connected_channels", "supported_healthy_channels", "published_evidence_count"],
   benchmarking: ["token_missing_accounts", "duplicate_source_accounts", "duplicate_source_connections", "collector_error_accounts", "placeholder_only_accounts", "no_data_accounts", "never_refreshed_accounts", "stale_refresh_accounts", "live_accounts", "active_accounts"],
   unknown: [],
 }
@@ -231,6 +234,7 @@ function normalizePublishObservability(value: unknown): PublishObservability {
       failed_missing_evidence: Number(data.summary?.failed_missing_evidence ?? 0),
       failed_unsupported_platform: Number(data.summary?.failed_unsupported_platform ?? 0),
       failed_token_expired: Number(data.summary?.failed_token_expired ?? 0),
+      failed_token_missing: Number(data.summary?.failed_token_missing ?? 0),
       failed_missing_channel: Number(data.summary?.failed_missing_channel ?? 0),
       failed_retrying: Number(data.summary?.failed_retrying ?? 0),
       failed_other: Number(data.summary?.failed_other ?? 0),
@@ -422,7 +426,7 @@ export default function DashboardPage() {
               <div className="text-xs text-gray-500 text-right">
                 <div>증거 {publishObservability?.summary.published_with_evidence ?? 0} · 의심 {publishObservability?.summary.published_without_evidence ?? 0} · 실패 {publishObservability?.summary.failed_with_error ?? 0}</div>
                 <div className="mt-1">증거누락 {publishObservability?.summary.failed_missing_evidence ?? 0} · 미지원채널 {publishObservability?.summary.failed_unsupported_platform ?? 0} · 토큰만료 {publishObservability?.summary.failed_token_expired ?? 0}</div>
-                <div className="mt-1">채널/콘텐츠 누락 {publishObservability?.summary.failed_missing_channel ?? 0} · 재시도중 {publishObservability?.summary.failed_retrying ?? 0} · 기타 {publishObservability?.summary.failed_other ?? 0}</div>
+                <div className="mt-1">토큰없음 {publishObservability?.summary.failed_token_missing ?? 0} · 채널/콘텐츠 누락 {publishObservability?.summary.failed_missing_channel ?? 0} · 재시도중 {publishObservability?.summary.failed_retrying ?? 0} · 기타 {publishObservability?.summary.failed_other ?? 0}</div>
               </div>
             </div>
 

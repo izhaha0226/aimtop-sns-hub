@@ -15,6 +15,7 @@ from schemas.approval import ApprovalCreate
 from schemas.schedule import ScheduleCreate, ScheduleResponse
 from middleware.auth import get_current_user
 from services.sns_publisher import SNSPublisher
+from services.sns_oauth import decrypt_token
 
 router = APIRouter(prefix="/api/v1/contents", tags=["contents"])
 
@@ -37,6 +38,12 @@ def _mark_publish_failed(
     content.publish_error = error_message[:500]
 
 
+def _channel_has_access_token(channel: ChannelConnection | None) -> bool:
+    if not channel or not channel.access_token:
+        return False
+    return bool(decrypt_token(channel.access_token))
+
+
 async def _get_content_or_404(content_id: uuid.UUID, db: AsyncSession) -> Content:
     result = await db.execute(
         select(Content).where(Content.id == content_id, Content.status != "trashed")
@@ -47,15 +54,21 @@ async def _get_content_or_404(content_id: uuid.UUID, db: AsyncSession) -> Conten
     return content
 
 
-async def _ensure_channel_token_valid(channel_connection_id: uuid.UUID | None, db: AsyncSession):
+async def _ensure_channel_publishable(channel_connection_id: uuid.UUID | None, db: AsyncSession):
     if not channel_connection_id:
         return
     result = await db.execute(select(ChannelConnection).where(ChannelConnection.id == channel_connection_id))
     channel = result.scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="채널 연결을 찾을 수 없습니다")
+    if not channel.is_connected:
+        raise HTTPException(status_code=400, detail="연결된 채널을 찾을 수 없습니다")
+    if not _channel_has_access_token(channel):
+        raise HTTPException(status_code=400, detail="연결 레코드는 있으나 access token 없음")
     if channel.token_expires_at and channel.token_expires_at <= datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail=f"{channel.channel_type} 채널 토큰이 만료되어 재인증이 필요합니다")
+    if not SNSPublisher.is_supported_platform(channel.channel_type):
+        raise HTTPException(status_code=400, detail=f"{channel.channel_type} 채널은 아직 실제 발행 자동화를 지원하지 않습니다")
 
 
 @router.get("", response_model=ContentListResponse)
@@ -215,7 +228,7 @@ async def schedule_content(
     content = await _get_content_or_404(content_id, db)
     if content.status != "approved":
         raise HTTPException(status_code=400, detail="승인된 콘텐츠만 예약 가능합니다")
-    await _ensure_channel_token_valid(body.channel_connection_id, db)
+    await _ensure_channel_publishable(body.channel_connection_id, db)
     content.channel_connection_id = body.channel_connection_id
     content.status = "scheduled"
     content.scheduled_at = body.scheduled_at
@@ -251,6 +264,14 @@ async def publish_now(
         )
         await db.commit()
         raise HTTPException(status_code=404, detail=content.publish_error)
+    if not _channel_has_access_token(channel):
+        _mark_publish_failed(
+            content,
+            channel_connection_id=target_channel_id,
+            error_message="연결 레코드는 있으나 access token 없음",
+        )
+        await db.commit()
+        raise HTTPException(status_code=400, detail=content.publish_error)
     if channel.token_expires_at and channel.token_expires_at <= datetime.now(timezone.utc):
         _mark_publish_failed(
             content,

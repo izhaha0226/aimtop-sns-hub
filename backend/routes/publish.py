@@ -18,6 +18,7 @@ from models.channel import ChannelConnection
 from models.user import User
 from middleware.auth import get_current_user
 from services.sns_publisher import SNSPublisher
+from services.sns_oauth import decrypt_token
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,12 @@ def _mark_publish_failed(
     content.status = "failed"
     _reset_publish_evidence(content)
     content.publish_error = error_message[:500]
+
+
+def _channel_has_access_token(channel: ChannelConnection | None) -> bool:
+    if not channel or not channel.access_token:
+        return False
+    return bool(decrypt_token(channel.access_token))
 
 
 async def _get_content_or_404(content_id: uuid.UUID, db: AsyncSession) -> Content:
@@ -102,6 +109,14 @@ async def publish_content(
         )
         await db.commit()
         raise HTTPException(status_code=404, detail=content.publish_error)
+    if not _channel_has_access_token(channel):
+        _mark_publish_failed(
+            content,
+            channel_connection_id=channel.id,
+            error_message="연결 레코드는 있으나 access token 없음",
+        )
+        await db.commit()
+        raise HTTPException(status_code=400, detail=content.publish_error)
     if channel.token_expires_at and channel.token_expires_at <= datetime.now(timezone.utc):
         _mark_publish_failed(
             content,

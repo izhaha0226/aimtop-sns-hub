@@ -17,6 +17,7 @@ from models.content import Content
 from models.channel import ChannelConnection
 from services.channel_health_service import ChannelHealthService
 from services.sns_publisher import SNSPublisher
+from services.sns_oauth import decrypt_token
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,12 @@ def _mark_content_publish_failed(
     content.status = "failed"
     _reset_content_publish_evidence(content)
     content.publish_error = error_message[:500]
+
+
+def _channel_has_access_token(channel: ChannelConnection | None) -> bool:
+    if not channel or not channel.access_token:
+        return False
+    return bool(decrypt_token(channel.access_token))
 
 
 class SchedulerService:
@@ -92,6 +99,10 @@ class SchedulerService:
         channel = channel_result.scalar_one_or_none()
         if not channel:
             raise ValueError("채널 연결을 찾을 수 없습니다")
+        if not channel.is_connected:
+            raise ValueError("연결된 채널을 찾을 수 없습니다")
+        if not _channel_has_access_token(channel):
+            raise ValueError("연결 레코드는 있으나 access token 없음")
         if not SNSPublisher.is_supported_platform(channel.channel_type):
             raise ValueError(f"{channel.channel_type} 채널은 아직 실제 발행 자동화를 지원하지 않습니다")
         if channel.token_expires_at and channel.token_expires_at <= datetime.now(timezone.utc):
@@ -222,6 +233,14 @@ class SchedulerService:
                         )
                         await db.commit()
                         continue
+                    if not channel.is_connected:
+                        raise ValueError("연결된 채널을 찾을 수 없습니다")
+                    if not _channel_has_access_token(channel):
+                        raise ValueError("연결 레코드는 있으나 access token 없음")
+                    if not SNSPublisher.is_supported_platform(channel.channel_type):
+                        raise ValueError(f"{channel.channel_type} 채널은 아직 실제 발행 자동화를 지원하지 않습니다")
+                    if channel.token_expires_at and channel.token_expires_at <= datetime.now(timezone.utc):
+                        raise ValueError(f"{channel.channel_type} 채널 토큰이 만료되어 재인증이 필요합니다")
 
                     # 발행 실행
                     pub_result = await publisher.publish(channel, content)

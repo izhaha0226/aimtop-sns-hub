@@ -18,6 +18,7 @@ from middleware.auth import get_current_user
 from services.runtime_settings import get_runtime_setting
 from services.sns_publisher import SNSPublisher
 from services.benchmark_collector_service import BenchmarkCollectorService
+from services.sns_oauth import decrypt_token
 from services.llm.router import DEFAULT_PROVIDER_ROWS, DEFAULT_TASK_POLICIES
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
@@ -26,9 +27,16 @@ PUBLISH_FAILURE_CATEGORIES = [
     ("missing_evidence", "증거 누락", ("platform_post_id/published_url",)),
     ("unsupported_platform", "미지원 채널", ("실제 발행 자동화를 지원하지 않습니다",)),
     ("token_expired", "토큰 만료", ("토큰이 만료되어 재인증이 필요합니다",)),
+    ("token_missing", "토큰 없음", ("연결 레코드는 있으나 access token 없음",)),
     ("missing_channel", "채널/콘텐츠 누락", ("채널 연결을 찾을 수 없습니다", "채널 연결 ID가 필요합니다", "콘텐츠 또는 채널을 찾을 수 없습니다", "콘텐츠를 찾을 수 없습니다")),
     ("retrying", "재시도 중", ("예약 발행 재시도 중",)),
 ]
+
+
+def _channel_has_access_token(channel: ChannelConnection | None) -> bool:
+    if not channel or not channel.access_token:
+        return False
+    return bool(decrypt_token(channel.access_token))
 
 
 def _classify_publish_error(error_message: str | None) -> tuple[str, str]:
@@ -391,8 +399,12 @@ async def get_pipeline_readiness(
     supported_healthy_channels = 0
     reauth_required = 0
     unknown_token_channels = 0
+    token_missing_channels = 0
     for channel in connected_channels:
-        if channel.token_expires_at and channel.token_expires_at > soon:
+        has_access_token = _channel_has_access_token(channel)
+        if not has_access_token:
+            token_missing_channels += 1
+        if channel.token_expires_at and channel.token_expires_at > soon and has_access_token:
             healthy_channels += 1
             if SNSPublisher.is_supported_platform(channel.channel_type):
                 supported_healthy_channels += 1
@@ -458,6 +470,9 @@ async def get_pipeline_readiness(
     elif reauth_required > 0:
         oauth_status = "warning"
         oauth_summary = f"재인증이 필요한 채널 {reauth_required}개가 있어 OAuth 운영 상태가 불안정합니다"
+    elif token_missing_channels > 0:
+        oauth_status = "warning"
+        oauth_summary = f"연결은 되어 있지만 access token이 비어 있는 채널 {token_missing_channels}개가 있습니다"
     elif unknown_token_channels > 0:
         oauth_status = "warning"
         oauth_summary = f"토큰 만료시각을 모르는 채널 {unknown_token_channels}개가 있어 운영 판정이 불완전합니다"
@@ -480,6 +495,7 @@ async def get_pipeline_readiness(
                 "meta_app_secret_present": meta_app_secret_present,
                 "connected_channels": connected_count,
                 "reauth_required": reauth_required,
+                "token_missing_channels": token_missing_channels,
                 "unknown_token_channels": unknown_token_channels,
                 "supported_healthy_channels": supported_healthy_channels,
             },
@@ -493,6 +509,7 @@ async def get_pipeline_readiness(
                 else "warning"
                 if (
                     unsupported_connected_count > 0
+                    or token_missing_channels > 0
                     or unknown_token_channels > 0
                     or suspicious_published_without_evidence > 0
                     or failed_publish_count > 0
@@ -505,6 +522,7 @@ async def get_pipeline_readiness(
                 "supported_connected_channels": supported_connected_count,
                 "supported_healthy_channels": supported_healthy_channels,
                 "unsupported_connected_channels": unsupported_connected_count,
+                "token_missing_channels": token_missing_channels,
                 "unknown_token_channels": unknown_token_channels,
                 "published_evidence_count": published_evidence_count,
                 "suspicious_published_without_evidence": suspicious_published_without_evidence,
@@ -575,6 +593,7 @@ async def get_publish_observability(
     failed_missing_evidence = _count_failed_publish_category(failed_contents, "missing_evidence")
     failed_unsupported_platform = _count_failed_publish_category(failed_contents, "unsupported_platform")
     failed_token_expired = _count_failed_publish_category(failed_contents, "token_expired")
+    failed_token_missing = _count_failed_publish_category(failed_contents, "token_missing")
     failed_missing_channel = _count_failed_publish_category(failed_contents, "missing_channel")
     failed_retrying = _count_failed_publish_category(failed_contents, "retrying")
     failed_other = _count_failed_publish_category(failed_contents, "other")
@@ -624,6 +643,7 @@ async def get_publish_observability(
             "failed_missing_evidence": failed_missing_evidence,
             "failed_unsupported_platform": failed_unsupported_platform,
             "failed_token_expired": failed_token_expired,
+            "failed_token_missing": failed_token_missing,
             "failed_missing_channel": failed_missing_channel,
             "failed_retrying": failed_retrying,
             "failed_other": failed_other,
