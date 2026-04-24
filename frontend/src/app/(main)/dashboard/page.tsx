@@ -38,11 +38,60 @@ interface ChannelsHealth {
   }>
 }
 
+interface PipelineReadiness {
+  summary: {
+    ready: number
+    warning: number
+    blocked: number
+  }
+  items: Array<{
+    key: string
+    label: string
+    status: "ready" | "warning" | "blocked"
+    summary: string
+    details: Record<string, string | number | boolean | null>
+  }>
+}
+
+interface PublishObservability {
+  summary: {
+    published_with_evidence: number
+    published_without_evidence: number
+    failed_with_error: number
+    failed_missing_evidence: number
+    failed_unsupported_platform: number
+  }
+  published_items: Array<{
+    id: string
+    title: string
+    platform_post_id?: string | null
+    published_url?: string | null
+    published_at?: string | null
+    channel_connection_id?: string | null
+  }>
+  suspicious_items: Array<{
+    id: string
+    title: string
+    published_at?: string | null
+    updated_at?: string | null
+    channel_connection_id?: string | null
+  }>
+  failed_items: Array<{
+    id: string
+    title: string
+    publish_error?: string | null
+    updated_at?: string | null
+    channel_connection_id?: string | null
+  }>
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [activity, setActivity] = useState<ActivityItem[]>([])
   const [channelsHealth, setChannelsHealth] = useState<ChannelsHealth | null>(null)
+  const [pipelineReadiness, setPipelineReadiness] = useState<PipelineReadiness | null>(null)
+  const [publishObservability, setPublishObservability] = useState<PublishObservability | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -50,8 +99,10 @@ export default function DashboardPage() {
       api.get("/api/v1/dashboard/stats"),
       api.get("/api/v1/dashboard/recent-activity"),
       api.get("/api/v1/dashboard/channels-health"),
+      api.get("/api/v1/dashboard/pipeline-readiness"),
+      api.get("/api/v1/dashboard/publish-observability"),
     ])
-      .then(([statsRes, activityRes, healthRes]) => {
+      .then(([statsRes, activityRes, healthRes, pipelineRes, publishRes]) => {
         setStats(statsRes.data)
         const activityItems = Array.isArray(activityRes.data)
           ? activityRes.data
@@ -60,6 +111,8 @@ export default function DashboardPage() {
             : []
         setActivity(activityItems)
         setChannelsHealth(healthRes.data)
+        setPipelineReadiness(pipelineRes.data)
+        setPublishObservability(publishRes.data)
       })
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -112,6 +165,12 @@ export default function DashboardPage() {
     return "bg-gray-100 text-gray-600"
   }
 
+  const pipelineBadge = (status: "ready" | "warning" | "blocked") => {
+    if (status === "ready") return "bg-blue-50 text-blue-700"
+    if (status === "warning") return "bg-yellow-50 text-yellow-700"
+    return "bg-red-50 text-red-700"
+  }
+
   return (
     <div>
       <h1 className="text-xl font-bold mb-6">대시보드</h1>
@@ -130,6 +189,104 @@ export default function DashboardPage() {
                 <p className="text-xs text-gray-500 mt-0.5">{label}</p>
               </div>
             ))}
+          </div>
+
+          <div className="bg-white rounded-xl border p-5 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-700">핵심 파이프라인 준비도</h2>
+                <p className="text-xs text-gray-400 mt-1">생성 · OAuth · 발행 · 벤치마킹의 실제 준비 상태를 먼저 봅니다</p>
+              </div>
+              <div className="text-xs text-gray-500">
+                준비 {pipelineReadiness?.summary.ready ?? 0} · 경고 {pipelineReadiness?.summary.warning ?? 0} · 차단 {pipelineReadiness?.summary.blocked ?? 0}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              {(pipelineReadiness?.items || []).map((item) => (
+                <div key={item.key} className="rounded-lg border px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">{item.label}</p>
+                      <p className="text-xs text-gray-500 mt-1">{item.summary}</p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${pipelineBadge(item.status)}`}>{item.status}</span>
+                  </div>
+                  <div className="mt-3 space-y-1">
+                    {Object.entries(item.details).slice(0, 3).map(([key, value]) => (
+                      <div key={key} className="flex items-center justify-between text-xs text-gray-500 gap-3">
+                        <span>{key}</span>
+                        <span className="font-medium text-gray-700">{String(value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {(pipelineReadiness?.items || []).length === 0 && (
+                <div className="col-span-2 text-sm text-gray-400 py-4 text-center">파이프라인 상태를 불러오지 못했습니다</div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border p-5 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-700">발행 증거 / 실패 추적</h2>
+                <p className="text-xs text-gray-400 mt-1">증거 있는 성공, 증거 없는 published, 최근 실패 사유를 분리해서 봅니다</p>
+              </div>
+              <div className="text-xs text-gray-500 text-right">
+                <div>증거 {publishObservability?.summary.published_with_evidence ?? 0} · 의심 {publishObservability?.summary.published_without_evidence ?? 0} · 실패 {publishObservability?.summary.failed_with_error ?? 0}</div>
+                <div className="mt-1">증거누락 실패 {publishObservability?.summary.failed_missing_evidence ?? 0} · 미지원채널 실패 {publishObservability?.summary.failed_unsupported_platform ?? 0}</div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+              <div className="rounded-lg border p-4">
+                <h3 className="text-xs font-semibold text-gray-600 mb-3">최근 발행 증거</h3>
+                <div className="space-y-2">
+                  {(publishObservability?.published_items || []).slice(0, 5).map((item) => (
+                    <div key={item.id} className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
+                      <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">post_id: {item.platform_post_id || "-"}</p>
+                      <p className="text-[11px] text-gray-500 truncate">url: {item.published_url || "-"}</p>
+                    </div>
+                  ))}
+                  {(publishObservability?.published_items || []).length === 0 && (
+                    <div className="text-sm text-gray-400 py-4 text-center">아직 발행 증거가 없습니다</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-lg border p-4">
+                <h3 className="text-xs font-semibold text-gray-600 mb-3">증거 없는 published</h3>
+                <div className="space-y-2">
+                  {(publishObservability?.suspicious_items || []).slice(0, 5).map((item) => (
+                    <div key={item.id} className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
+                      <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
+                      <p className="text-[11px] text-amber-700 mt-1">published 상태지만 post_id / url 증거가 없습니다</p>
+                      <p className="text-[11px] text-gray-500 mt-1">업데이트 {item.updated_at ? new Date(item.updated_at).toLocaleString("ko-KR") : "-"}</p>
+                    </div>
+                  ))}
+                  {(publishObservability?.suspicious_items || []).length === 0 && (
+                    <div className="text-sm text-gray-400 py-4 text-center">증거 없는 published 항목이 없습니다</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-lg border p-4">
+                <h3 className="text-xs font-semibold text-gray-600 mb-3">최근 발행 실패</h3>
+                <div className="space-y-2">
+                  {(publishObservability?.failed_items || []).slice(0, 5).map((item) => (
+                    <div key={item.id} className="rounded-lg bg-red-50 border border-red-100 px-3 py-2">
+                      <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
+                      <p className="text-[11px] text-red-700 mt-1 line-clamp-2">{item.publish_error || "실패 사유 없음"}</p>
+                    </div>
+                  ))}
+                  {(publishObservability?.failed_items || []).length === 0 && (
+                    <div className="text-sm text-gray-400 py-4 text-center">최근 발행 실패가 없습니다</div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="bg-white rounded-xl border p-5 mb-6">
