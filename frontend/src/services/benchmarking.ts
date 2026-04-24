@@ -104,8 +104,14 @@ export interface BenchmarkAccountDiagnosticItem {
   last_refresh_status?: string | null
   last_refresh_status_label?: string | null
   last_refresh_message?: string | null
+  last_refresh_inserted?: number
   last_refresh_profile_id?: string | null
   last_refresh_profile_generated?: boolean
+  last_refresh_used_placeholder?: boolean
+  last_refresh_data_source?: string | null
+  last_refresh_data_source_label?: string | null
+  last_refresh_view_metric_type?: string | null
+  last_refresh_view_metric_label?: string | null
   last_refresh_at?: string | null
 }
 

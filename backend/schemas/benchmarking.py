@@ -111,8 +111,14 @@ class BenchmarkAccountDiagnosticResponse(BaseModel):
     last_refresh_status: str | None = None
     last_refresh_status_label: str | None = None
     last_refresh_message: str | None = None
+    last_refresh_inserted: int = 0
     last_refresh_profile_id: uuid.UUID | None = None
     last_refresh_profile_generated: bool = False
+    last_refresh_used_placeholder: bool = False
+    last_refresh_data_source: str | None = None
+    last_refresh_data_source_label: str | None = None
+    last_refresh_view_metric_type: str | None = None
+    last_refresh_view_metric_label: str | None = None
     last_refresh_at: datetime | None = None
 
 

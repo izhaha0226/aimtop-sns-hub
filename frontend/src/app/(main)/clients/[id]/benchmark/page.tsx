@@ -504,6 +504,10 @@ export default function ClientBenchmarkPage() {
                   const latestRefreshStatus = useRefreshMeta ? (refreshState?.status || null) : (diagnostic?.last_refresh_status || null)
                   const latestRefreshStatusLabel = useRefreshMeta ? (refreshState?.status_label || null) : (diagnostic?.last_refresh_status_label || null)
                   const latestRefreshMessage = useRefreshMeta ? (refreshState?.message || null) : (diagnostic?.last_refresh_message || null)
+                  const latestRefreshInserted = useRefreshMeta ? (refreshState?.inserted ?? 0) : (diagnostic?.last_refresh_inserted ?? 0)
+                  const latestRefreshDataSourceLabel = useRefreshMeta ? (refreshState?.data_source_label || null) : (diagnostic?.last_refresh_data_source_label || null)
+                  const latestRefreshViewMetricLabel = useRefreshMeta ? (refreshState?.view_metric_label || null) : (diagnostic?.last_refresh_view_metric_label || null)
+                  const latestRefreshUsedPlaceholder = useRefreshMeta ? Boolean(refreshState?.used_placeholder) : Boolean(diagnostic?.last_refresh_used_placeholder)
                   const latestProfileGenerated = useRefreshMeta
                     ? Boolean(refreshState?.profile_generated || refreshState?.profile_id)
                     : Boolean(diagnostic?.last_refresh_profile_generated || diagnostic?.last_refresh_profile_id)
@@ -563,14 +567,18 @@ export default function ClientBenchmarkPage() {
                               <div className="flex flex-wrap items-center gap-2">
                                 <div className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${badgeTone(accountState.status)}`}>
                                   {accountState.status_label || accountState.status}
-                                  {refreshState ? ` · ${refreshState.inserted > 0 ? `${refreshState.inserted}건 적재` : '적재 없음'}` : diagnostic ? ` · 실데이터 ${diagnostic.live_post_count} · 샘플 ${diagnostic.placeholder_post_count}` : ""}
+                                  {latestRefreshAt
+                                    ? ` · ${latestRefreshInserted > 0 ? `${latestRefreshInserted}건 적재` : '적재 없음'}`
+                                    : diagnostic
+                                      ? ` · 실데이터 ${diagnostic.live_post_count} · 샘플 ${diagnostic.placeholder_post_count}`
+                                      : ""}
                                 </div>
                                 {accountState.view_metric_label && (
                                   <div className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-sky-50 text-sky-700 border-sky-200">
                                     {accountState.view_metric_label}
                                   </div>
                                 )}
-                                {accountState.used_placeholder && (
+                                {(accountState.used_placeholder || latestRefreshUsedPlaceholder) && (
                                   <div className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-orange-50 text-orange-700 border-orange-200">
                                     placeholder fallback
                                   </div>
@@ -601,7 +609,8 @@ export default function ClientBenchmarkPage() {
                                   </div>
                                 )}
                               </div>
-                              {accountState.data_source_label && <div className="text-[11px] text-gray-600">데이터 소스: {accountState.data_source_label}</div>}
+                              {(accountState.data_source_label || latestRefreshDataSourceLabel) && <div className="text-[11px] text-gray-600">데이터 소스: {accountState.data_source_label || latestRefreshDataSourceLabel}</div>}
+                              {!accountState.view_metric_label && latestRefreshViewMetricLabel && <div className="text-[11px] text-gray-600">최근 측정 기준: {latestRefreshViewMetricLabel}</div>}
                               {accountState.source_channel_connected ? (
                                 <div className={`text-[11px] ${accountState.source_channel_has_token === false ? "text-amber-700" : "text-emerald-700"}`}>
                                   연결 채널: {accountState.source_channel_account_name || accountState.source_channel_platform || item.platform}
