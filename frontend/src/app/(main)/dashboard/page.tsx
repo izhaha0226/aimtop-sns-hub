@@ -38,6 +38,8 @@ interface ChannelsHealth {
   }>
 }
 
+type PipelineKey = "ai_generation" | "oauth_connections" | "publishing" | "benchmarking" | "unknown"
+
 interface PipelineReadiness {
   summary: {
     ready: number
@@ -45,7 +47,7 @@ interface PipelineReadiness {
     blocked: number
   }
   items: Array<{
-    key: string
+    key: PipelineKey | string
     label: string
     status: "ready" | "warning" | "blocked"
     summary: string
@@ -124,6 +126,57 @@ const EMPTY_PUBLISH_OBSERVABILITY: PublishObservability = {
   failed_items: [],
 }
 
+const PIPELINE_DETAIL_LABELS: Record<string, string> = {
+  active_task_policies: "활성 정책",
+  blocked_tasks: "막힌 정책",
+  fallback_only_tasks: "fallback 전용",
+  fallback_missing_tasks: "fallback 누락",
+  missing_provider_config_tasks: "설정 누락",
+  inactive_provider_tasks: "비활성 정책",
+  primary_ready_tasks: "기본 경로 가능",
+  fallback_ready_tasks: "fallback 가능",
+  openai_key_present: "OpenAI 키",
+  claude_cli_available: "Claude CLI",
+  primary_routes: "기본 경로",
+  fallback_routes: "Fallback 경로",
+  meta_app_id_present: "Meta App ID",
+  meta_app_secret_present: "Meta App Secret",
+  connected_channels: "연결 채널",
+  reauth_required: "재인증 필요",
+  supported_connected_channels: "지원 채널",
+  supported_healthy_channels: "건강한 지원 채널",
+  unsupported_connected_channels: "미지원 연결 채널",
+  unknown_token_channels: "토큰 상태 미확인",
+  published_evidence_count: "발행 증거 수",
+  suspicious_published_without_evidence: "증거 없는 published",
+  failed_publish_count: "발행 실패",
+  active_accounts: "활성 계정",
+  live_accounts: "실데이터 계정",
+  mixed_accounts: "혼재 계정",
+  placeholder_only_accounts: "샘플 대체 전용",
+  no_data_accounts: "실데이터 없음",
+  token_missing_accounts: "토큰 누락",
+  collector_error_accounts: "수집 오류",
+  manual_required_accounts: "수동 필요",
+  manual_supported_accounts: "수동 지원 플랫폼",
+  unimplemented_accounts: "미구현 플랫폼",
+  never_refreshed_accounts: "새로고침 없음",
+  stale_refresh_accounts: "24시간 초과",
+  inactive_accounts: "비활성 계정",
+  live_post_count: "실데이터 포스트",
+  placeholder_post_count: "샘플 포스트",
+  benchmark_accounts: "벤치 계정 수",
+  benchmark_posts: "벤치 포스트 수",
+}
+
+const PIPELINE_DETAIL_ORDER: Record<PipelineKey, string[]> = {
+  ai_generation: ["blocked_tasks", "fallback_only_tasks", "fallback_missing_tasks", "primary_ready_tasks", "openai_key_present", "claude_cli_available"],
+  oauth_connections: ["reauth_required", "connected_channels", "meta_app_id_present", "meta_app_secret_present"],
+  publishing: ["suspicious_published_without_evidence", "failed_publish_count", "unsupported_connected_channels", "unknown_token_channels", "supported_connected_channels", "supported_healthy_channels", "published_evidence_count"],
+  benchmarking: ["token_missing_accounts", "collector_error_accounts", "placeholder_only_accounts", "no_data_accounts", "never_refreshed_accounts", "stale_refresh_accounts", "live_accounts", "active_accounts"],
+  unknown: [],
+}
+
 function asRecord(value: unknown): Record<string, string | number | boolean | null> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, string | number | boolean | null>)
@@ -184,6 +237,29 @@ function normalizePublishObservability(value: unknown): PublishObservability {
     suspicious_items: Array.isArray(data.suspicious_items) ? data.suspicious_items : [],
     failed_items: Array.isArray(data.failed_items) ? data.failed_items : [],
   }
+}
+
+function normalizePipelineKey(value: string | undefined): PipelineKey {
+  if (value === "ai_generation" || value === "oauth_connections" || value === "publishing" || value === "benchmarking") {
+    return value
+  }
+  return "unknown"
+}
+
+function formatPipelineDetailValue(value: string | number | boolean | null | undefined): string {
+  if (typeof value === "boolean") return value ? "예" : "아니오"
+  if (value === null || value === undefined || value === "") return "-"
+  return String(value)
+}
+
+function getPipelineDetailEntries(key: string, details: Record<string, string | number | boolean | null>): Array<[string, string | number | boolean | null]> {
+  const normalizedKey = normalizePipelineKey(key)
+  const orderedKeys = PIPELINE_DETAIL_ORDER[normalizedKey] || []
+  const orderedEntries = orderedKeys
+    .filter((detailKey) => Object.prototype.hasOwnProperty.call(details, detailKey))
+    .map((detailKey) => [detailKey, details[detailKey]] as [string, string | number | boolean | null])
+  const remainingEntries = Object.entries(details).filter(([detailKey]) => !orderedKeys.includes(detailKey))
+  return [...orderedEntries, ...remainingEntries].slice(0, 6)
 }
 
 export default function DashboardPage() {
@@ -320,10 +396,10 @@ export default function DashboardPage() {
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${pipelineBadge(item.status)}`}>{item.status}</span>
                   </div>
                   <div className="mt-3 space-y-1">
-                    {Object.entries(item.details || {}).slice(0, 4).map(([key, value]) => (
+                    {getPipelineDetailEntries(item.key, item.details || {}).map(([key, value]) => (
                       <div key={key} className="flex items-center justify-between text-xs text-gray-500 gap-3">
-                        <span>{key}</span>
-                        <span className="font-medium text-gray-700">{String(value)}</span>
+                        <span>{PIPELINE_DETAIL_LABELS[key] || key}</span>
+                        <span className="font-medium text-gray-700 text-right">{formatPipelineDetailValue(value)}</span>
                       </div>
                     ))}
                   </div>
