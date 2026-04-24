@@ -25,6 +25,18 @@ def _reset_publish_evidence(content: Content) -> None:
     content.published_at = None
 
 
+def _mark_publish_failed(
+    content: Content,
+    *,
+    channel_connection_id: uuid.UUID | None,
+    error_message: str,
+) -> None:
+    content.channel_connection_id = channel_connection_id
+    content.status = "failed"
+    _reset_publish_evidence(content)
+    content.publish_error = error_message[:500]
+
+
 async def _get_content_or_404(content_id: uuid.UUID, db: AsyncSession) -> Content:
     result = await db.execute(
         select(Content).where(Content.id == content_id, Content.status != "trashed")
@@ -229,13 +241,32 @@ async def publish_now(
     if not target_channel_id:
         raise HTTPException(status_code=400, detail="발행할 채널을 선택해 주세요")
 
-    await _ensure_channel_token_valid(target_channel_id, db)
     channel_result = await db.execute(select(ChannelConnection).where(ChannelConnection.id == target_channel_id))
     channel = channel_result.scalar_one_or_none()
     if not channel or not channel.is_connected:
-        raise HTTPException(status_code=404, detail="연결된 채널을 찾을 수 없습니다")
+        _mark_publish_failed(
+            content,
+            channel_connection_id=target_channel_id,
+            error_message="연결된 채널을 찾을 수 없습니다",
+        )
+        await db.commit()
+        raise HTTPException(status_code=404, detail=content.publish_error)
+    if channel.token_expires_at and channel.token_expires_at <= datetime.now(timezone.utc):
+        _mark_publish_failed(
+            content,
+            channel_connection_id=target_channel_id,
+            error_message=f"{channel.channel_type} 채널 토큰이 만료되어 재인증이 필요합니다",
+        )
+        await db.commit()
+        raise HTTPException(status_code=400, detail=content.publish_error)
     if not SNSPublisher.is_supported_platform(channel.channel_type):
-        raise HTTPException(status_code=400, detail=f"{channel.channel_type} 채널은 아직 실제 발행 자동화를 지원하지 않습니다")
+        _mark_publish_failed(
+            content,
+            channel_connection_id=target_channel_id,
+            error_message=f"{channel.channel_type} 채널은 아직 실제 발행 자동화를 지원하지 않습니다",
+        )
+        await db.commit()
+        raise HTTPException(status_code=400, detail=content.publish_error)
 
     publisher = SNSPublisher()
     try:
@@ -248,9 +279,11 @@ async def publish_now(
         content.publish_error = None
 
         if not content.platform_post_id and not content.published_url:
-            content.status = "failed"
-            _reset_publish_evidence(content)
-            content.publish_error = "발행 응답에 platform_post_id/published_url 증거가 없어 published 처리하지 않았습니다"
+            _mark_publish_failed(
+                content,
+                channel_connection_id=target_channel_id,
+                error_message="발행 응답에 platform_post_id/published_url 증거가 없어 published 처리하지 않았습니다",
+            )
             await db.commit()
             raise HTTPException(status_code=502, detail=content.publish_error)
 
@@ -260,9 +293,10 @@ async def publish_now(
     except HTTPException:
         raise
     except Exception as e:
-        content.channel_connection_id = target_channel_id
-        content.status = "failed"
-        _reset_publish_evidence(content)
-        content.publish_error = str(e)
+        _mark_publish_failed(
+            content,
+            channel_connection_id=target_channel_id,
+            error_message=str(e),
+        )
         await db.commit()
         raise HTTPException(status_code=500, detail=f"발행 실패: {str(e)}")
