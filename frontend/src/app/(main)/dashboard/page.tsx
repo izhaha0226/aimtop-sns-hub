@@ -68,6 +68,8 @@ interface PublishObservability {
     published_url?: string | null
     published_at?: string | null
     channel_connection_id?: string | null
+    channel_type?: string | null
+    account_name?: string | null
   }>
   suspicious_items: Array<{
     id: string
@@ -75,6 +77,8 @@ interface PublishObservability {
     published_at?: string | null
     updated_at?: string | null
     channel_connection_id?: string | null
+    channel_type?: string | null
+    account_name?: string | null
   }>
   failed_items: Array<{
     id: string
@@ -82,6 +86,8 @@ interface PublishObservability {
     publish_error?: string | null
     updated_at?: string | null
     channel_connection_id?: string | null
+    channel_type?: string | null
+    account_name?: string | null
   }>
 }
 
@@ -212,7 +218,7 @@ export default function DashboardPage() {
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${pipelineBadge(item.status)}`}>{item.status}</span>
                   </div>
                   <div className="mt-3 space-y-1">
-                    {Object.entries(item.details).slice(0, 3).map(([key, value]) => (
+                    {Object.entries(item.details).slice(0, 4).map(([key, value]) => (
                       <div key={key} className="flex items-center justify-between text-xs text-gray-500 gap-3">
                         <span>{key}</span>
                         <span className="font-medium text-gray-700">{String(value)}</span>
@@ -246,6 +252,7 @@ export default function DashboardPage() {
                   {(publishObservability?.published_items || []).slice(0, 5).map((item) => (
                     <div key={item.id} className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
                       <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">채널: {item.channel_type || "-"}{item.account_name ? ` · ${item.account_name}` : ""}</p>
                       <p className="text-[11px] text-gray-500 mt-1">post_id: {item.platform_post_id || "-"}</p>
                       <p className="text-[11px] text-gray-500 truncate">url: {item.published_url || "-"}</p>
                     </div>
@@ -262,6 +269,7 @@ export default function DashboardPage() {
                   {(publishObservability?.suspicious_items || []).slice(0, 5).map((item) => (
                     <div key={item.id} className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
                       <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">채널: {item.channel_type || "-"}{item.account_name ? ` · ${item.account_name}` : ""}</p>
                       <p className="text-[11px] text-amber-700 mt-1">published 상태지만 post_id / url 증거가 없습니다</p>
                       <p className="text-[11px] text-gray-500 mt-1">업데이트 {item.updated_at ? new Date(item.updated_at).toLocaleString("ko-KR") : "-"}</p>
                     </div>
@@ -278,6 +286,7 @@ export default function DashboardPage() {
                   {(publishObservability?.failed_items || []).slice(0, 5).map((item) => (
                     <div key={item.id} className="rounded-lg bg-red-50 border border-red-100 px-3 py-2">
                       <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">채널: {item.channel_type || "-"}{item.account_name ? ` · ${item.account_name}` : ""}</p>
                       <p className="text-[11px] text-red-700 mt-1 line-clamp-2">{item.publish_error || "실패 사유 없음"}</p>
                     </div>
                   ))}

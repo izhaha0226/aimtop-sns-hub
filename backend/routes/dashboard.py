@@ -14,6 +14,7 @@ from models.benchmark_account import BenchmarkAccount
 from models.benchmark_post import BenchmarkPost
 from middleware.auth import get_current_user
 from services.runtime_settings import get_runtime_setting
+from services.sns_publisher import SNSPublisher
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
@@ -107,13 +108,22 @@ async def get_pipeline_readiness(
     connected_result = await db.execute(select(ChannelConnection).where(ChannelConnection.is_connected == True))
     connected_channels = connected_result.scalars().all()
     connected_count = len(connected_channels)
+    supported_channels = [channel for channel in connected_channels if SNSPublisher.is_supported_platform(channel.channel_type)]
+    supported_connected_count = len(supported_channels)
+    unsupported_connected_count = connected_count - supported_connected_count
     healthy_channels = 0
+    supported_healthy_channels = 0
     reauth_required = 0
+    unknown_token_channels = 0
     for channel in connected_channels:
         if channel.token_expires_at and channel.token_expires_at > soon:
             healthy_channels += 1
+            if SNSPublisher.is_supported_platform(channel.channel_type):
+                supported_healthy_channels += 1
         elif channel.token_expires_at and channel.token_expires_at <= now:
             reauth_required += 1
+        elif not channel.token_expires_at:
+            unknown_token_channels += 1
 
     benchmark_account_count = (await db.execute(select(func.count()).select_from(BenchmarkAccount))).scalar() or 0
     benchmark_post_count = (await db.execute(select(func.count()).select_from(BenchmarkPost))).scalar() or 0
@@ -180,15 +190,23 @@ async def get_pipeline_readiness(
             "label": "발행",
             "status": (
                 "blocked"
-                if connected_count == 0
+                if supported_connected_count == 0
                 else "warning"
-                if suspicious_published_without_evidence > 0 or failed_publish_count > 0 or healthy_channels == 0
+                if (
+                    unsupported_connected_count > 0
+                    or unknown_token_channels > 0
+                    or suspicious_published_without_evidence > 0
+                    or failed_publish_count > 0
+                    or supported_healthy_channels == 0
+                )
                 else "ready"
             ),
             "summary": "실발행 가능한 채널 상태와 증거 정합성",
             "details": {
-                "connected_channels": connected_count,
-                "healthy_channels": healthy_channels,
+                "supported_connected_channels": supported_connected_count,
+                "supported_healthy_channels": supported_healthy_channels,
+                "unsupported_connected_channels": unsupported_connected_count,
+                "unknown_token_channels": unknown_token_channels,
                 "published_evidence_count": published_evidence_count,
                 "suspicious_published_without_evidence": suspicious_published_without_evidence,
                 "failed_publish_count": failed_publish_count,
@@ -220,8 +238,51 @@ async def get_publish_observability(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    published_with_evidence = (
+        await db.execute(
+            select(func.count()).select_from(Content).where(
+                Content.status == "published",
+                (Content.platform_post_id.isnot(None) | Content.published_url.isnot(None)),
+            )
+        )
+    ).scalar() or 0
+    published_without_evidence = (
+        await db.execute(
+            select(func.count()).select_from(Content).where(
+                Content.status == "published",
+                Content.platform_post_id.is_(None),
+                Content.published_url.is_(None),
+            )
+        )
+    ).scalar() or 0
+    failed_with_error = (
+        await db.execute(
+            select(func.count()).select_from(Content).where(
+                Content.status == "failed",
+                Content.publish_error.isnot(None),
+            )
+        )
+    ).scalar() or 0
+    failed_missing_evidence = (
+        await db.execute(
+            select(func.count()).select_from(Content).where(
+                Content.status == "failed",
+                Content.publish_error.contains("platform_post_id/published_url"),
+            )
+        )
+    ).scalar() or 0
+    failed_unsupported_platform = (
+        await db.execute(
+            select(func.count()).select_from(Content).where(
+                Content.status == "failed",
+                Content.publish_error.contains("실제 발행 자동화를 지원하지 않습니다"),
+            )
+        )
+    ).scalar() or 0
+
     published_result = await db.execute(
-        select(Content)
+        select(Content, ChannelConnection)
+        .outerjoin(ChannelConnection, Content.channel_connection_id == ChannelConnection.id)
         .where(
             Content.status == "published",
             (Content.platform_post_id.isnot(None) | Content.published_url.isnot(None)),
@@ -229,10 +290,11 @@ async def get_publish_observability(
         .order_by(Content.published_at.desc().nullslast(), Content.updated_at.desc())
         .limit(10)
     )
-    published_items = published_result.scalars().all()
+    published_items = published_result.all()
 
     suspicious_result = await db.execute(
-        select(Content)
+        select(Content, ChannelConnection)
+        .outerjoin(ChannelConnection, Content.channel_connection_id == ChannelConnection.id)
         .where(
             Content.status == "published",
             Content.platform_post_id.is_(None),
@@ -241,10 +303,11 @@ async def get_publish_observability(
         .order_by(Content.published_at.desc().nullslast(), Content.updated_at.desc())
         .limit(10)
     )
-    suspicious_items = suspicious_result.scalars().all()
+    suspicious_items = suspicious_result.all()
 
     failed_result = await db.execute(
-        select(Content)
+        select(Content, ChannelConnection)
+        .outerjoin(ChannelConnection, Content.channel_connection_id == ChannelConnection.id)
         .where(
             Content.status == "failed",
             Content.publish_error.isnot(None),
@@ -252,22 +315,13 @@ async def get_publish_observability(
         .order_by(Content.updated_at.desc())
         .limit(10)
     )
-    failed_items = failed_result.scalars().all()
-
-    failed_missing_evidence = sum(
-        1 for item in failed_items
-        if item.publish_error and "platform_post_id/published_url" in item.publish_error
-    )
-    failed_unsupported_platform = sum(
-        1 for item in failed_items
-        if item.publish_error and "실제 발행 자동화를 지원하지 않습니다" in item.publish_error
-    )
+    failed_items = failed_result.all()
 
     return {
         "summary": {
-            "published_with_evidence": len(published_items),
-            "published_without_evidence": len(suspicious_items),
-            "failed_with_error": len(failed_items),
+            "published_with_evidence": published_with_evidence,
+            "published_without_evidence": published_without_evidence,
+            "failed_with_error": failed_with_error,
             "failed_missing_evidence": failed_missing_evidence,
             "failed_unsupported_platform": failed_unsupported_platform,
         },
@@ -279,8 +333,10 @@ async def get_publish_observability(
                 "published_url": item.published_url,
                 "published_at": item.published_at.isoformat() if item.published_at else None,
                 "channel_connection_id": str(item.channel_connection_id) if item.channel_connection_id else None,
+                "channel_type": channel.channel_type if channel else None,
+                "account_name": channel.account_name if channel else None,
             }
-            for item in published_items
+            for item, channel in published_items
         ],
         "suspicious_items": [
             {
@@ -289,8 +345,10 @@ async def get_publish_observability(
                 "published_at": item.published_at.isoformat() if item.published_at else None,
                 "updated_at": item.updated_at.isoformat() if item.updated_at else None,
                 "channel_connection_id": str(item.channel_connection_id) if item.channel_connection_id else None,
+                "channel_type": channel.channel_type if channel else None,
+                "account_name": channel.account_name if channel else None,
             }
-            for item in suspicious_items
+            for item, channel in suspicious_items
         ],
         "failed_items": [
             {
@@ -299,8 +357,10 @@ async def get_publish_observability(
                 "publish_error": item.publish_error,
                 "updated_at": item.updated_at.isoformat() if item.updated_at else None,
                 "channel_connection_id": str(item.channel_connection_id) if item.channel_connection_id else None,
+                "channel_type": channel.channel_type if channel else None,
+                "account_name": channel.account_name if channel else None,
             }
-            for item in failed_items
+            for item, channel in failed_items
         ],
     }
 
