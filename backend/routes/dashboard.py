@@ -103,6 +103,11 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
     manual_supported_rows = [row for row in active_rows if row.get("support_level") == "manual"]
     unimplemented_rows = [row for row in active_rows if row.get("support_level") == "unimplemented"]
     live_supported_rows = [row for row in active_rows if row.get("support_level") == "live"]
+    usable_live_supported_rows = [
+        row
+        for row in live_supported_rows
+        if row.get("source_channel_connected") and row.get("source_channel_has_token")
+    ]
     duplicate_source_rows = [row for row in active_rows if row.get("source_channel_duplicate_warning")]
     never_refreshed_rows = [row for row in active_rows if not row.get("last_refresh_at")]
     stale_refresh_rows = [
@@ -113,7 +118,7 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
         and row["last_refresh_at"] < stale_cutoff
     ]
 
-    blocked = len(active_rows) == 0 or (len(live_supported_rows) == 0 and len(live_rows) == 0 and len(mixed_rows) == 0)
+    blocked = len(active_rows) == 0 or (len(usable_live_supported_rows) == 0 and len(live_rows) == 0 and len(mixed_rows) == 0)
     warning = (
         len(mixed_rows) > 0
         or len(placeholder_rows) > 0
@@ -130,7 +135,10 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
 
     if blocked:
         status = "blocked"
-        summary = "활성 벤치마킹 계정 또는 직접 실수집 가능한 계정이 아직 부족합니다"
+        if len(active_rows) == 0:
+            summary = "활성 벤치마킹 계정이 아직 없습니다"
+        else:
+            summary = "실수집 지원 계정은 있어도 현재 토큰까지 갖춘 직접 실수집 가능 계정이 없습니다"
     elif warning:
         status = "warning"
         if len(never_refreshed_rows) > 0 or len(stale_refresh_rows) > 0:
@@ -147,6 +155,7 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
         "details": {
             "active_accounts": len(active_rows),
             "live_supported_accounts": len(live_supported_rows),
+            "usable_live_supported_accounts": len(usable_live_supported_rows),
             "live_accounts": len(live_rows),
             "mixed_accounts": len(mixed_rows),
             "placeholder_only_accounts": len(placeholder_rows),
