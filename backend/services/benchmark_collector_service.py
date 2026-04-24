@@ -6,8 +6,9 @@ from types import SimpleNamespace
 import uuid
 
 import httpx
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from models.action_language_profile import ActionLanguageProfile
 from models.benchmark_account import BenchmarkAccount
@@ -130,13 +131,18 @@ class BenchmarkCollectorService:
                 industry_category=client.industry_category,
                 platform=account.platform,
             )
-        return {
+
+        refreshed_at = datetime.now(timezone.utc)
+        response_payload = {
             **status_payload,
             "status_label": STATUS_LABELS.get(status_payload.get("status", ""), status_payload.get("status")),
             "inserted": inserted,
             "profile_id": profile.id if profile else None,
             "used_placeholder": used_placeholder or bool(status_payload.get("used_placeholder")),
+            "refreshed_at": refreshed_at,
         }
+        await self._store_refresh_result(account, response_payload)
+        return response_payload
 
     async def get_top_posts(self, client_id: uuid.UUID, platform: str, top_k: int = 10) -> list[BenchmarkPost]:
         platform_normalized = platform.lower()
@@ -382,6 +388,7 @@ class BenchmarkCollectorService:
         source_channel_has_token = self._channel_has_token(source_channel)
         posts = await self._get_posts_for_account(account.id)
         post_summary = self._summarize_posts(posts)
+        last_refresh = self._get_last_refresh_result(account)
 
         diagnostic = {
             "account_id": account.id,
@@ -400,6 +407,10 @@ class BenchmarkCollectorService:
             "source_channel_account_name": getattr(source_channel, "account_name", None) if source_channel else None,
             "source_channel_missing_reason": None,
             "source_channel_has_token": source_channel_has_token,
+            "last_refresh_status": last_refresh.get("status"),
+            "last_refresh_status_label": last_refresh.get("status_label"),
+            "last_refresh_message": last_refresh.get("message"),
+            "last_refresh_at": self._parse_refresh_datetime(last_refresh.get("refreshed_at")),
             **post_summary,
         }
 
@@ -427,6 +438,13 @@ class BenchmarkCollectorService:
         if not source_channel_has_token:
             diagnostic["message"] = "채널은 연결된 것처럼 보이지만 복호화 가능한 access token이 없습니다."
             diagnostic["source_channel_missing_reason"] = "연결 레코드는 있으나 access token 없음"
+            return diagnostic
+
+        if diagnostic["live_post_count"] == 0 and diagnostic["placeholder_post_count"] == 0 and diagnostic.get("last_refresh_status") == "collector_error":
+            diagnostic["status"] = "collector_error"
+            diagnostic["status_label"] = STATUS_LABELS.get("collector_error")
+            diagnostic["message"] = diagnostic.get("last_refresh_message") or "최근 실수집 중 오류가 발생했습니다."
+            diagnostic["source_channel_missing_reason"] = diagnostic.get("source_channel_missing_reason") or "최근 새로고침에서 collector 오류 발생"
             return diagnostic
 
         if diagnostic["live_post_count"] > 0 and diagnostic["placeholder_post_count"] > 0:
@@ -512,6 +530,46 @@ class BenchmarkCollectorService:
         if platform in MANUAL_SUPPORTED_PLATFORMS:
             return "manual"
         return "unimplemented"
+
+    def _get_last_refresh_result(self, account: BenchmarkAccount) -> dict:
+        metadata = account.metadata_json or {}
+        last_refresh = metadata.get("last_refresh")
+        return last_refresh if isinstance(last_refresh, dict) else {}
+
+    def _parse_refresh_datetime(self, value: object) -> datetime | None:
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                return None
+        return None
+
+    async def _store_refresh_result(self, account: BenchmarkAccount, payload: dict) -> None:
+        metadata = dict(account.metadata_json or {})
+        metadata["last_refresh"] = {
+            "status": payload.get("status"),
+            "status_label": payload.get("status_label"),
+            "message": payload.get("message"),
+            "inserted": int(payload.get("inserted") or 0),
+            "used_placeholder": bool(payload.get("used_placeholder")),
+            "data_source": payload.get("data_source"),
+            "data_source_label": payload.get("data_source_label"),
+            "view_metric_type": payload.get("view_metric_type"),
+            "view_metric_label": payload.get("view_metric_label"),
+            "source_channel_connected": bool(payload.get("source_channel_connected")),
+            "source_channel_platform": payload.get("source_channel_platform"),
+            "source_channel_account_name": payload.get("source_channel_account_name"),
+            "source_channel_missing_reason": payload.get("source_channel_missing_reason"),
+            "refreshed_at": payload.get("refreshed_at").isoformat() if isinstance(payload.get("refreshed_at"), datetime) else None,
+        }
+        account.metadata_json = metadata
+        flag_modified(account, "metadata_json")
+        await self.db.commit()
+        await self.db.refresh(account)
 
     def _channel_has_token(self, source_channel: ChannelConnection | None) -> bool:
         if not source_channel or not source_channel.access_token:

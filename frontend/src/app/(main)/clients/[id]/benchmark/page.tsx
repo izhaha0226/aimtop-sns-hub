@@ -70,6 +70,13 @@ function badgeTone(status?: string) {
   return "bg-gray-100 text-gray-700 border-gray-200"
 }
 
+function formatDateTime(value?: string | null) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleString("ko-KR")
+}
+
 function postSourceLabel(post: BenchmarkPostItem) {
   const source = String(post.raw_payload?.source || "")
   if (source === "youtube_api_live") return "실데이터"
@@ -164,6 +171,7 @@ export default function ClientBenchmarkPage() {
     const activeRows = diagnostics.filter((item) => item.is_active)
     return {
       blockedCount: activeRows.filter((item) => item.status === "manual_ingest_required").length,
+      collectorErrorCount: activeRows.filter((item) => item.status === "collector_error").length,
       mixedCount: activeRows.filter((item) => item.status === "live_collected_mixed").length,
       noDataCount: activeRows.filter((item) => item.status === "no_data_collected").length,
       placeholderOnlyCount: activeRows.filter((item) => item.status === "placeholder_fallback").length,
@@ -211,6 +219,14 @@ export default function ClientBenchmarkPage() {
       }
     }
 
+    if (diagnosticSummary.collectorErrorCount > 0) {
+      return {
+        status: "warning" as const,
+        title: "최근 수집 오류 발생",
+        detail: `최근 새로고침 기준 collector 오류 계정 ${diagnosticSummary.collectorErrorCount}개가 있습니다. 실데이터 없음과 구분해서 먼저 원인 확인이 필요합니다.`,
+      }
+    }
+
     if (diagnosticSummary.mixedCount > 0) {
       return {
         status: "warning" as const,
@@ -250,7 +266,7 @@ export default function ClientBenchmarkPage() {
       title: "직접 실데이터 없음",
       detail: "계정은 등록되어 있지만 현재 클라이언트 기준 실수집 상태를 아직 확인하지 못했습니다. 연결 채널/토큰/collector 상태를 확인해야 합니다.",
     }
-  }, [diagnosticSummary.actualMetricCount, diagnosticSummary.blockedCount, diagnosticSummary.liveAccountCount, diagnosticSummary.mixedCount, diagnosticSummary.noDataCount, diagnosticSummary.placeholderOnlyCount, diagnosticSummary.tokenMissingCount, platformAccounts.length, platformSupportLevel])
+  }, [diagnosticSummary.actualMetricCount, diagnosticSummary.blockedCount, diagnosticSummary.collectorErrorCount, diagnosticSummary.liveAccountCount, diagnosticSummary.mixedCount, diagnosticSummary.noDataCount, diagnosticSummary.placeholderOnlyCount, diagnosticSummary.tokenMissingCount, platformAccounts.length, platformSupportLevel])
 
   const profileSummary = useMemo(() => {
     if (!profile) {
@@ -369,7 +385,7 @@ export default function ClientBenchmarkPage() {
         <div className="rounded-xl border bg-white p-4">
           <div className="text-xs text-gray-500">등록/활성 계정</div>
           <div className="mt-2 text-sm font-semibold text-gray-900">{platformAccounts.length}개 등록 · {activePlatformAccounts.length}개 활성</div>
-          <div className="mt-2 text-xs text-gray-500">비활성 {Math.max(platformAccounts.length - activePlatformAccounts.length, 0)}개 · 토큰누락 {diagnosticSummary.tokenMissingCount}개</div>
+          <div className="mt-2 text-xs text-gray-500">비활성 {Math.max(platformAccounts.length - activePlatformAccounts.length, 0)}개 · 토큰누락 {diagnosticSummary.tokenMissingCount}개 · 수집오류 {diagnosticSummary.collectorErrorCount}개</div>
         </div>
         <div className="rounded-xl border bg-white p-4">
           <div className="text-xs text-gray-500">직접 실데이터 정합성</div>
@@ -516,9 +532,15 @@ export default function ClientBenchmarkPage() {
                               {accountState.source_channel_connected
                                 ? <div className="text-[11px] text-emerald-700">연결 채널: {accountState.source_channel_account_name || accountState.source_channel_platform || item.platform}</div>
                                 : <div className="text-[11px] text-amber-700">연결 상태: {accountState.source_channel_missing_reason || "연결 채널 확인 필요"}</div>}
+                              {diagnostic?.last_refresh_at && (
+                                <div className="text-[11px] text-gray-500">마지막 새로고침: {formatDateTime(diagnostic.last_refresh_at) || diagnostic.last_refresh_at}</div>
+                              )}
                             </div>
                           )}
                           {accountState?.message && <div className="text-[11px] text-gray-600">{accountState.message}</div>}
+                          {!refreshState && diagnostic?.last_refresh_status === "collector_error" && diagnostic.last_refresh_message && (
+                            <div className="text-[11px] text-red-700">최근 수집 오류: {diagnostic.last_refresh_message}</div>
+                          )}
                         </>
                       )}
                     </div>

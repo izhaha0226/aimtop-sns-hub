@@ -76,6 +76,7 @@ class RefreshAccountResponse(BaseModel):
     source_channel_platform: str | None = None
     source_channel_account_name: str | None = None
     source_channel_missing_reason: str | None = None
+    refreshed_at: datetime | None = None
 
 
 class BenchmarkAccountDiagnosticResponse(BaseModel):
@@ -105,6 +106,10 @@ class BenchmarkAccountDiagnosticResponse(BaseModel):
     view_metric_type: str | None = None
     view_metric_label: str | None = None
     used_placeholder: bool = False
+    last_refresh_status: str | None = None
+    last_refresh_status_label: str | None = None
+    last_refresh_message: str | None = None
+    last_refresh_at: datetime | None = None
 
 
 class ActionLanguageProfileResponse(BaseModel):

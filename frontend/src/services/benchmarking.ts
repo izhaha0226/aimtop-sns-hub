@@ -69,6 +69,7 @@ export interface RefreshAccountResult {
   source_channel_platform?: string | null
   source_channel_account_name?: string | null
   source_channel_missing_reason?: string | null
+  refreshed_at?: string | null
 }
 
 export interface BenchmarkAccountDiagnosticItem {
@@ -98,6 +99,10 @@ export interface BenchmarkAccountDiagnosticItem {
   view_metric_type?: string | null
   view_metric_label?: string | null
   used_placeholder: boolean
+  last_refresh_status?: string | null
+  last_refresh_status_label?: string | null
+  last_refresh_message?: string | null
+  last_refresh_at?: string | null
 }
 
 export const benchmarkingService = {
