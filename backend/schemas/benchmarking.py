@@ -15,6 +15,7 @@ class BenchmarkAccountCreateRequest(BaseModel):
 
 
 class BenchmarkAccountUpdateRequest(BaseModel):
+    handle: str | None = None
     purpose: str | None = None
     source_type: str | None = None
     memo: str | None = None
@@ -55,10 +56,30 @@ class BenchmarkPostResponse(BaseModel):
     engagement_rate: float = 0.0
     benchmark_score: float = 0.0
     published_at: datetime | None = None
+    raw_payload: dict | None = None
+
+
+class RefreshAccountResponse(BaseModel):
+    status: str
+    status_label: str | None = None
+    message: str
+    inserted: int = 0
+    profile_id: uuid.UUID | None = None
+    live_supported: bool = False
+    platform: str | None = None
+    used_placeholder: bool = False
+    data_source: str | None = None
+    data_source_label: str | None = None
+    view_metric_type: str | None = None
+    view_metric_label: str | None = None
+    source_channel_connected: bool = False
+    source_channel_platform: str | None = None
+    source_channel_account_name: str | None = None
+    source_channel_missing_reason: str | None = None
 
 
 class ActionLanguageProfileResponse(BaseModel):
-    id: uuid.UUID
+    id: uuid.UUID | None = None
     client_id: uuid.UUID
     platform: str
     source_scope: str
@@ -69,6 +90,11 @@ class ActionLanguageProfileResponse(BaseModel):
     recommended_prompt_rules: str | None = None
     profile_version: int = 1
     updated_at: datetime | None = None
+    source_client_id: uuid.UUID | None = None
+    industry_category: str | None = None
+    sample_count: int = 0
+
+    model_config = {"from_attributes": True}
 
 
 class TopPostsQuery(BaseModel):

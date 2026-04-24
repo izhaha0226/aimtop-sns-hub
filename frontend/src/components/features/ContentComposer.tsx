@@ -22,6 +22,7 @@ type BenchmarkChannel = {
 type Client = {
   id: string
   name: string
+  industry_category?: string
 }
 
 type SlideItem = {
@@ -63,8 +64,8 @@ export default function ContentComposer({ mode }: Props) {
   const [conceptLoading, setConceptLoading] = useState(false)
   const [conceptSets, setConceptSets] = useState<ConceptSet[]>([])
   const [engineProviders, setEngineProviders] = useState<LLMProviderConfigItem[]>([])
-  const [engineProvider, setEngineProvider] = useState("claude")
-  const [engineModel, setEngineModel] = useState("claude-sonnet-4-6")
+  const [engineProvider, setEngineProvider] = useState("gpt")
+  const [engineModel, setEngineModel] = useState("gpt-5.4")
   const [benchmarkTopK, setBenchmarkTopK] = useState(10)
   const [benchmarkWindowDays, setBenchmarkWindowDays] = useState(30)
   const [applyBenchmarkPattern, setApplyBenchmarkPattern] = useState(true)
@@ -251,7 +252,8 @@ export default function ContentComposer({ mode }: Props) {
       const result = await aiService.generateImage({
         prompt: `${promptBase}${slidePrompt ? ` | ${slidePrompt}` : ""}. ${mode === "card_news" ? "카드뉴스 스타일, 마케팅 비주얼" : "SNS 포스트용 고품질 이미지"}`,
         size: mode === "card_news" ? "1024x1024" : "1024x768",
-        model: "quality",
+        model: "gpt-image-2.0",
+        quality: mode === "card_news" ? "medium" : undefined,
       })
       if (result.image_url) {
         setForm((prev) => ({ ...prev, media_urls: [...prev.media_urls, result.image_url] }))
@@ -519,7 +521,23 @@ export default function ContentComposer({ mode }: Props) {
               </label>
               {actionProfile && (
                 <div className="rounded-xl border bg-gray-50 p-3 space-y-2">
-                  <div className="text-xs text-gray-400">액션 랭귀지 프로필</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-xs text-gray-400">액션 랭귀지 프로필</div>
+                    <span className={`px-2 py-1 rounded-full text-[11px] border ${actionProfile.source_scope === "industry_fallback" ? "bg-violet-50 text-violet-700 border-violet-200" : "bg-blue-50 text-blue-700 border-blue-200"}`}>
+                      {actionProfile.source_scope === "industry_fallback" ? "업종 fallback" : "직접 학습"}
+                    </span>
+                    {actionProfile.industry_category && (
+                      <span className="px-2 py-1 rounded-full text-[11px] border bg-emerald-50 text-emerald-700 border-emerald-200">
+                        업종 {actionProfile.industry_category}
+                      </span>
+                    )}
+                    <span className="px-2 py-1 rounded-full text-[11px] border bg-gray-100 text-gray-700 border-gray-200">
+                      샘플 {actionProfile.sample_count || 0}
+                    </span>
+                  </div>
+                  {selectedClient?.industry_category && (
+                    <div className="text-[11px] text-gray-500">선택 클라이언트 업종: {selectedClient.industry_category}</div>
+                  )}
                   <div className="flex flex-wrap gap-2">{(actionProfile.top_hooks_json || []).slice(0, 3).map((item) => <span key={item.pattern} className="px-2 py-1 rounded-full bg-blue-50 text-blue-700 text-xs">훅 {item.pattern}</span>)}</div>
                   <div className="flex flex-wrap gap-2">{(actionProfile.top_ctas_json || []).slice(0, 3).map((item) => <span key={item.pattern} className="px-2 py-1 rounded-full bg-yellow-50 text-yellow-700 text-xs">CTA {item.pattern}</span>)}</div>
                 </div>

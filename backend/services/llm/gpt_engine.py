@@ -36,7 +36,7 @@ class GPTEngine:
         started = time.perf_counter()
         api_key, base_url = await self._resolve_client_config()
         payload = {
-            "model": model or "gpt-4.1-mini",
+            "model": model or "gpt-5.4",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.3,
             "max_tokens": max_tokens,

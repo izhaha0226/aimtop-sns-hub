@@ -70,14 +70,28 @@ async def publish_content(
         )
 
     channel = await _get_channel_or_404(channel_connection_id, db)
+    if not SNSPublisher.is_supported_platform(channel.channel_type):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{channel.channel_type} 채널은 아직 실제 발행 자동화를 지원하지 않습니다",
+        )
 
     try:
         result = await publisher.publish(channel, content)
+        platform_post_id = result.get("platform_post_id")
+        published_url = result.get("url")
+
+        if not platform_post_id and not published_url:
+            content.status = "failed"
+            content.channel_connection_id = channel.id
+            content.publish_error = "발행 응답에 platform_post_id/published_url 증거가 없어 published 처리하지 않았습니다"
+            await db.commit()
+            raise HTTPException(status_code=502, detail=content.publish_error)
 
         # 발행 성공: 콘텐츠 상태 업데이트
         content.status = "published"
-        content.platform_post_id = result.get("platform_post_id")
-        content.published_url = result.get("url")
+        content.platform_post_id = platform_post_id
+        content.published_url = published_url
         content.published_at = datetime.now(timezone.utc)
         content.channel_connection_id = channel.id
         content.publish_error = None
@@ -87,18 +101,20 @@ async def publish_content(
 
         logger.info(
             f"Content {content_id} published to {channel.channel_type}: "
-            f"post_id={result.get('platform_post_id')}"
+            f"post_id={platform_post_id}"
         )
 
         return {
             "status": "published",
             "content_id": str(content_id),
             "platform": channel.channel_type,
-            "platform_post_id": result.get("platform_post_id"),
-            "published_url": result.get("url"),
+            "platform_post_id": platform_post_id,
+            "published_url": published_url,
             "published_at": content.published_at.isoformat(),
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         # 발행 실패: 에러 기록
         content.status = "failed"
@@ -149,6 +165,8 @@ async def preview_publish(
         warnings.append(f"트윗은 280자 제한입니다 (현재: {len(caption)}자)")
     if channel.channel_type == "instagram" and not content.media_urls:
         warnings.append("Instagram은 이미지가 필요합니다")
+    if channel.channel_type == "threads" and content.media_urls:
+        warnings.append("Threads 이미지는 공개 접근 가능한 HTTPS URL이어야 합니다")
     if channel.channel_type == "youtube" and not content.title:
         warnings.append("YouTube는 제목이 필요합니다")
 

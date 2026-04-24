@@ -19,6 +19,7 @@ from models.llm_task_policy import LLMTaskPolicy
 from models.benchmark_account import BenchmarkAccount
 from models.benchmark_post import BenchmarkPost
 from models.action_language_profile import ActionLanguageProfile
+from models.industry_action_language_profile import IndustryActionLanguageProfile
 
 __all__ = [
     "Base",
@@ -45,4 +46,5 @@ __all__ = [
     "BenchmarkAccount",
     "BenchmarkPost",
     "ActionLanguageProfile",
+    "IndustryActionLanguageProfile",
 ]

@@ -46,9 +46,36 @@ function metadataInputValue(platform: string, metadata?: Record<string, unknown>
 function badgeTone(status?: string) {
   if (!status) return "bg-gray-100 text-gray-700 border-gray-200"
   if (status.includes("live_collected")) return "bg-green-50 text-green-700 border-green-200"
+  if (status.includes("placeholder")) return "bg-orange-50 text-orange-700 border-orange-200"
   if (status.includes("manual")) return "bg-amber-50 text-amber-700 border-amber-200"
   if (status.includes("error")) return "bg-red-50 text-red-700 border-red-200"
   return "bg-gray-100 text-gray-700 border-gray-200"
+}
+
+function postSourceLabel(post: BenchmarkPostItem) {
+  const source = String(post.raw_payload?.source || "")
+  if (source === "youtube_api_live") return "실데이터"
+  if (source === "x_api_live") return "실데이터"
+  if (source === "instagram_business_discovery") return "실데이터"
+  if (source === "facebook_page_posts") return "실데이터"
+  if (source === "placeholder_benchmark_pipeline") return "샘플 대체"
+  return "미상"
+}
+
+function postSourceTone(post: BenchmarkPostItem) {
+  const source = String(post.raw_payload?.source || "")
+  if (source === "placeholder_benchmark_pipeline") return "bg-orange-50 text-orange-700 border-orange-200"
+  if (source) return "bg-green-50 text-green-700 border-green-200"
+  return "bg-gray-100 text-gray-700 border-gray-200"
+}
+
+function postMetricLabel(post: BenchmarkPostItem) {
+  const metric = String(post.raw_payload?.view_metric || "")
+  if (metric === "actual") return "실조회수"
+  if (metric === "proxy_from_public_metrics") return "프록시 조회수"
+  if (metric === "proxy_from_like_comment") return "프록시 조회수"
+  if (metric === "proxy_from_engagement") return "프록시 조회수"
+  return "조회수"
 }
 
 export default function ClientBenchmarkPage() {
@@ -272,8 +299,26 @@ export default function ClientBenchmarkPage() {
                           )}
                           {item.memo && <div className="text-[11px] text-gray-500">memo: {item.memo}</div>}
                           {refreshState && (
-                            <div className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${badgeTone(refreshState.status)}`}>
-                              {refreshState.status} · {refreshState.inserted}건
+                            <div className="space-y-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${badgeTone(refreshState.status)}`}>
+                                  {refreshState.status_label || refreshState.status} · {refreshState.inserted > 0 ? `${refreshState.inserted}건 적재` : '적재 없음'}
+                                </div>
+                                {refreshState.view_metric_label && (
+                                  <div className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-sky-50 text-sky-700 border-sky-200">
+                                    {refreshState.view_metric_label}
+                                  </div>
+                                )}
+                                {refreshState.used_placeholder && (
+                                  <div className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-orange-50 text-orange-700 border-orange-200">
+                                    placeholder fallback
+                                  </div>
+                                )}
+                              </div>
+                              {refreshState.data_source_label && <div className="text-[11px] text-gray-600">데이터 소스: {refreshState.data_source_label}</div>}
+                              {refreshState.source_channel_connected
+                                ? <div className="text-[11px] text-emerald-700">연결 채널: {refreshState.source_channel_account_name || refreshState.source_channel_platform || item.platform}</div>
+                                : <div className="text-[11px] text-amber-700">연결 상태: {refreshState.source_channel_missing_reason || "연결 채널 확인 필요"}</div>}
                             </div>
                           )}
                           {refreshState?.message && <div className="text-[11px] text-gray-600">{refreshState.message}</div>}
@@ -287,8 +332,18 @@ export default function ClientBenchmarkPage() {
 
             <div className="bg-white rounded-xl border p-4 lg:col-span-2">
               <h2 className="font-semibold mb-3">액션 랭귀지 프로필</h2>
+              <div className="mb-3 rounded-lg border bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                실데이터와 샘플 대체가 함께 있을 수 있습니다. 샘플 대체는 실제 벤치마킹 성과가 아니라 운영 화면 검증용 fallback입니다.
+              </div>
               {!profile ? <div className="text-sm text-gray-400">아직 프로필이 없습니다.</div> : (
                 <div className="space-y-4 text-sm">
+                  <div className="flex flex-wrap gap-2">
+                    <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${profile.source_scope === "industry_fallback" ? "bg-violet-50 text-violet-700 border-violet-200" : "bg-blue-50 text-blue-700 border-blue-200"}`}>
+                      {profile.source_scope === "industry_fallback" ? "업종 fallback" : "직접 학습"}
+                    </span>
+                    {profile.industry_category && <span className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-emerald-50 text-emerald-700 border-emerald-200">업종 {profile.industry_category}</span>}
+                    <span className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-gray-100 text-gray-700 border-gray-200">샘플 {profile.sample_count || 0}</span>
+                  </div>
                   <div>
                     <div className="text-xs text-gray-400 mb-1">Top Hooks</div>
                     <div className="flex flex-wrap gap-2">{(profile.top_hooks_json || []).map((item) => <span key={item.pattern} className="px-2 py-1 bg-blue-50 text-blue-700 rounded-full text-xs">{item.pattern} ({item.count})</span>)}</div>
@@ -311,11 +366,15 @@ export default function ClientBenchmarkPage() {
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <div className="font-medium text-sm">#{index + 1} {post.hook_text || post.content_text?.slice(0, 60) || "제목 없음"}</div>
-                      <div className="text-xs text-gray-500 mt-1">CTA: {post.cta_text || "없음"}</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${postSourceTone(post)}`}>{postSourceLabel(post)}</span>
+                        <span className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-sky-50 text-sky-700 border-sky-200">{postMetricLabel(post)}</span>
+                      </div>
+                      <div className="text-xs text-gray-500 mt-2">CTA: {post.cta_text || "없음"}</div>
                       {post.post_url && <a href={post.post_url} target="_blank" rel="noreferrer" className="text-xs text-blue-600 mt-1 inline-block">원문 보기</a>}
                     </div>
                     <div className="text-right text-xs text-gray-500">
-                      <div>조회수 {post.view_count.toLocaleString()}</div>
+                      <div>{postMetricLabel(post)} {post.view_count.toLocaleString()}</div>
                       <div>참여율 {post.engagement_rate}%</div>
                       <div>점수 {post.benchmark_score}</div>
                     </div>

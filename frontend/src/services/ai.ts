@@ -24,6 +24,7 @@ export interface GenerateImagePayload {
   prompt: string
   size?: string
   model?: string
+  quality?: "low" | "medium" | "high"
 }
 
 export interface GenerateImageResponse {

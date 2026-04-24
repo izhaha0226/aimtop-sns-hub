@@ -85,7 +85,7 @@ export default function ClientDetailPage() {
       setNotice({ type: "success", text: `${platform} 연동이 완료되었습니다.` })
       void load()
     } else {
-      setNotice({ type: "error", text: `${platform} 연동 실패${message ? `: ${decodeURIComponent(message)}` : ""}` })
+      setNotice({ type: "error", text: `${platform} 연동 실패${message ? `: ${message}` : ""}` })
     }
 
     router.replace(`/clients/${id}`)
@@ -156,8 +156,9 @@ export default function ClientDetailPage() {
       const frontendRedirect = `${origin}/clients/${id}`
       const authUrl = await oauthService.getAuthUrl(platform, id, redirectUri, frontendRedirect)
       window.location.href = authUrl
-    } catch {
-      setNotice({ type: "error", text: `${platform} 인증 URL 생성에 실패했습니다.` })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${platform} 인증 URL 생성에 실패했습니다.`
+      setNotice({ type: "error", text: message })
       setAuthLoading(null)
     }
   }
@@ -177,8 +178,19 @@ export default function ClientDetailPage() {
     }
   }
 
-  const connectedMap = new Map(channels.filter((channel) => channel.is_connected).map((channel) => [channel.channel_type, channel]))
-  const reauthChannels = channels.filter((channel) => channel.is_connected && getTokenHealth(channel.token_expires_at) === "reauth_required")
+  const channelMap = channels.reduce<Map<string, ChannelConnection>>((map, channel) => {
+    if (!map.has(channel.channel_type)) map.set(channel.channel_type, channel)
+    return map
+  }, new Map())
+
+  const connectedMap = channels.reduce<Map<string, ChannelConnection>>((map, channel) => {
+    if (channel.is_connected && !map.has(channel.channel_type)) map.set(channel.channel_type, channel)
+    return map
+  }, new Map())
+
+  const reauthChannels = Array.from(connectedMap.values()).filter(
+    (channel) => getTokenHealth(channel.token_expires_at) === "reauth_required"
+  )
 
   const tokenMeta = (tokenExpiresAt?: string | null) => {
     const health = getTokenHealth(tokenExpiresAt)
@@ -268,8 +280,11 @@ export default function ClientDetailPage() {
 
         <div className="grid grid-cols-2 gap-4">
           {CHANNEL_CARDS.map((channel) => {
+            const channelState = channelMap.get(channel.id)
             const connected = connectedMap.get(channel.id)
             const tokenStatus = tokenMeta(connected?.token_expires_at)
+            const hasSavedChannel = Boolean(channelState)
+            const disconnectedReason = hasSavedChannel && !connected ? "토큰 없음 또는 OAuth 미완료" : null
             return (
               <div
                 key={channel.id}
@@ -284,6 +299,8 @@ export default function ClientDetailPage() {
                       <h3 className="font-semibold">{channel.label}</h3>
                       {connected ? (
                         <span className="text-[11px] px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">연동됨</span>
+                      ) : hasSavedChannel ? (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-orange-50 text-orange-700 border border-orange-200">토큰 없음</span>
                       ) : channel.enabled ? (
                         <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">미연동</span>
                       ) : (
@@ -297,14 +314,17 @@ export default function ClientDetailPage() {
                       )}
                     </div>
                     <p className="text-sm text-gray-500 mt-1">{channel.desc}</p>
-                    {connected?.account_name && (
-                      <p className="text-xs text-gray-500 mt-2">계정: {connected.account_name}</p>
+                    {(connected?.account_name || channelState?.account_name) && (
+                      <p className="text-xs text-gray-500 mt-2">계정: {connected?.account_name || channelState?.account_name}</p>
                     )}
                     {connected?.connected_at && (
                       <p className="text-xs text-gray-400 mt-1">연결일: {new Date(connected.connected_at).toLocaleString("ko-KR")}</p>
                     )}
                     {connected?.token_expires_at && (
                       <p className="text-xs text-gray-400 mt-1">만료시각: {new Date(connected.token_expires_at).toLocaleString("ko-KR")}</p>
+                    )}
+                    {disconnectedReason && (
+                      <p className="text-xs text-orange-700 mt-2">상태: {disconnectedReason}</p>
                     )}
                   </div>
 

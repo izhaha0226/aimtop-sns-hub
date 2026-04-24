@@ -1,6 +1,6 @@
 """
 SNS 플랫폼별 발행 엔진
-Instagram Graph API, YouTube Data API v3, Naver Blog API, X API v2
+Instagram Graph API, Threads API, YouTube Data API v3, Naver Blog API, X API v2
 """
 
 import logging
@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 class SNSPublisher:
     """SNS 플랫폼별 콘텐츠 발행"""
 
+    SUPPORTED_PLATFORMS = {"instagram", "threads", "youtube", "blog", "x"}
+
+    @classmethod
+    def is_supported_platform(cls, platform: str) -> bool:
+        return platform in cls.SUPPORTED_PLATFORMS
+
     async def publish(self, account, content) -> dict:
         """
         계정 플랫폼에 맞게 콘텐츠 발행
@@ -26,6 +32,8 @@ class SNSPublisher:
         platform = account.channel_type
         if platform == "instagram":
             return await self._publish_instagram(account, content)
+        elif platform == "threads":
+            return await self._publish_threads(account, content)
         elif platform == "youtube":
             return await self._publish_youtube(account, content)
         elif platform == "blog":
@@ -89,6 +97,82 @@ class SNSPublisher:
             permalink = resp.json().get("permalink", f"https://www.instagram.com/p/{post_id}/")
 
             logger.info(f"Instagram published: {post_id}")
+            return {
+                "platform_post_id": post_id,
+                "url": permalink,
+                "published_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+    async def _publish_threads(self, account, content) -> dict:
+        """
+        Threads API를 통한 텍스트/단일 이미지 발행
+        1단계: 컨테이너 생성
+        2단계: 컨테이너 발행
+        """
+        access_token = decrypt_token(account.access_token)
+        if not access_token:
+            raise ValueError("Threads access token is missing")
+
+        threads_user_id = self._resolve_threads_user_id(account)
+        if not threads_user_id:
+            raise ValueError("Threads user id를 찾을 수 없습니다")
+
+        text = self._build_caption(content)
+        media_url = (content.media_urls or [None])[0]
+        base_url = "https://graph.threads.net/v1.0"
+        create_params = {
+            "access_token": access_token,
+            "text": text,
+            "media_type": "IMAGE" if media_url else "TEXT",
+        }
+        if media_url:
+            create_params["image_url"] = media_url
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            create_resp = await client.post(
+                f"{base_url}/{threads_user_id}/threads",
+                data=create_params,
+            )
+            if create_resp.status_code not in (200, 201):
+                logger.error("Threads container creation failed: %s", create_resp.text)
+                raise ValueError(f"Threads container failed: {create_resp.text}")
+
+            creation_id = (create_resp.json() or {}).get("id")
+            if not creation_id:
+                raise ValueError(f"Threads creation id missing: {create_resp.text}")
+
+            publish_resp = await client.post(
+                f"{base_url}/{threads_user_id}/threads_publish",
+                data={
+                    "access_token": access_token,
+                    "creation_id": creation_id,
+                },
+            )
+            if publish_resp.status_code not in (200, 201):
+                logger.error("Threads publish failed: %s", publish_resp.text)
+                raise ValueError(f"Threads publish failed: {publish_resp.text}")
+
+            post_id = (publish_resp.json() or {}).get("id")
+            if not post_id:
+                raise ValueError(f"Threads post id missing: {publish_resp.text}")
+
+            permalink = None
+            permalink_resp = await client.get(
+                f"{base_url}/{post_id}",
+                params={
+                    "fields": "permalink",
+                    "access_token": access_token,
+                },
+            )
+            if permalink_resp.status_code == 200:
+                permalink = (permalink_resp.json() or {}).get("permalink")
+
+            if not permalink:
+                username = self._resolve_threads_username(account)
+                if username:
+                    permalink = f"https://www.threads.net/@{username}/post/{post_id}"
+
+            logger.info("Threads published: %s", post_id)
             return {
                 "platform_post_id": post_id,
                 "url": permalink,
@@ -230,3 +314,16 @@ class SNSPublisher:
         if max_length and len(caption) > max_length:
             caption = caption[: max_length - 3] + "..."
         return caption
+
+    @staticmethod
+    def _resolve_threads_user_id(account) -> str | None:
+        extra = account.extra_data or {}
+        return extra.get("id") or extra.get("threads_user_id") or account.account_id
+
+    @staticmethod
+    def _resolve_threads_username(account) -> str | None:
+        extra = account.extra_data or {}
+        username = extra.get("username") or account.account_name
+        if not username:
+            return None
+        return str(username).lstrip("@")

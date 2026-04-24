@@ -1,13 +1,14 @@
 "use client"
 import { Bell, ChevronDown, CheckCheck, LogOut, User } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useAuth } from "@/hooks/useAuth"
-import { useRouter } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { useSelectedClient } from "@/hooks/useSelectedClient"
 import { notificationsService, type NotificationItem } from "@/services/notifications"
 
 export default function Header() {
   const { user, logout } = useAuth()
+  const params = useParams<{ id?: string | string[] }>()
   const { clients, selectedClientId, selectClient } = useSelectedClient()
   const [profileOpen, setProfileOpen] = useState(false)
   const [clientOpen, setClientOpen] = useState(false)
@@ -46,6 +47,22 @@ export default function Header() {
     return () => window.clearInterval(timer)
   }, [])
 
+  const routeClientId = useMemo(() => {
+    if (!params?.id) return ""
+    return Array.isArray(params.id) ? params.id[0] || "" : params.id
+  }, [params])
+
+  const activeClientId = routeClientId || selectedClientId
+  const activeClientName = clients.find((client) => client.id === activeClientId)?.name || ""
+  const hideClientSelector = Boolean(routeClientId)
+
+  useEffect(() => {
+    if (!routeClientId) return
+    if (!clients.some((client) => client.id === routeClientId)) return
+    if (selectedClientId === routeClientId) return
+    selectClient(routeClientId)
+  }, [clients, routeClientId, selectedClientId, selectClient])
+
   useEffect(() => {
     function handleOutsideClick(event: MouseEvent) {
       const target = event.target as Node
@@ -76,34 +93,36 @@ export default function Header() {
   return (
     <header className="bg-white border-b px-6 py-3 flex items-center justify-between shrink-0">
       <div className="relative" ref={clientRef}>
-        <button
-          onClick={() => setClientOpen((v) => !v)}
-          className="flex items-center gap-2 text-sm font-medium border rounded-lg px-3 py-1.5 hover:bg-gray-50 min-w-[180px] justify-between"
-        >
-          <span className="truncate">
-            {clients.find((client) => client.id === selectedClientId)?.name || "클라이언트 선택"}
-          </span>
-          <ChevronDown size={14} />
-        </button>
-        {clientOpen && (
-          <div className="absolute left-0 mt-1 w-64 bg-white border rounded-lg shadow-lg z-20 p-1">
-            {clients.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-gray-400">클라이언트가 없습니다</div>
-            ) : (
-              clients.map((client) => (
-                <button
-                  key={client.id}
-                  onClick={() => {
-                    selectClient(client.id)
-                    setClientOpen(false)
-                  }}
-                  className={`w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-gray-50 ${selectedClientId === client.id ? "bg-blue-50 text-blue-700" : "text-gray-700"}`}
-                >
-                  {client.name}
-                </button>
-              ))
+        {!hideClientSelector && (
+          <>
+            <button
+              onClick={() => setClientOpen((v) => !v)}
+              className="flex items-center gap-2 text-sm font-medium border rounded-lg px-3 py-1.5 hover:bg-gray-50 min-w-[180px] justify-between"
+            >
+              <span className="truncate">{activeClientName || "클라이언트 선택"}</span>
+              <ChevronDown size={14} />
+            </button>
+            {clientOpen && (
+              <div className="absolute left-0 mt-1 w-64 bg-white border rounded-lg shadow-lg z-20 p-1">
+                {clients.length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-gray-400">클라이언트가 없습니다</div>
+                ) : (
+                  clients.map((client) => (
+                    <button
+                      key={client.id}
+                      onClick={() => {
+                        selectClient(client.id)
+                        setClientOpen(false)
+                      }}
+                      className={`w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-gray-50 ${activeClientId === client.id ? "bg-blue-50 text-blue-700" : "text-gray-700"}`}
+                    >
+                      {client.name}
+                    </button>
+                  ))
+                )}
+              </div>
             )}
-          </div>
+          </>
         )}
       </div>
 

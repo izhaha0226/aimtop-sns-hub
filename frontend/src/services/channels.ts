@@ -11,6 +11,13 @@ export interface ChannelConnection {
   token_expires_at?: string | null
 }
 
+export const AUTO_PUBLISH_SUPPORTED_CHANNELS = ["instagram", "youtube", "x", "blog"] as const
+
+export function isAutoPublishSupported(channelType?: string | null) {
+  if (!channelType) return false
+  return AUTO_PUBLISH_SUPPORTED_CHANNELS.includes(channelType as (typeof AUTO_PUBLISH_SUPPORTED_CHANNELS)[number])
+}
+
 export type TokenHealth = "healthy" | "expiring" | "reauth_required" | "unknown"
 
 export function getTokenHealth(tokenExpiresAt?: string | null): TokenHealth {

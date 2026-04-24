@@ -32,8 +32,8 @@ class LLMProviderConfigUpdateRequest(BaseModel):
 class LLMTaskPolicyResponse(BaseModel):
     task_type: str
     routing_mode: str = "manual"
-    primary_provider: str = "claude"
-    primary_model: str = "claude-sonnet-4-6"
+    primary_provider: str = "gpt"
+    primary_model: str = "gpt-5.4"
     fallback_provider: str | None = None
     fallback_model: str | None = None
     top_k: int = 10

@@ -49,6 +49,9 @@ async def api_generate_copy(
                     "top_hooks": benchmark_profile_row.top_hooks_json or [],
                     "top_ctas": benchmark_profile_row.top_ctas_json or [],
                     "recommended_prompt_rules": benchmark_profile_row.recommended_prompt_rules or "",
+                    "source_scope": getattr(benchmark_profile_row, "source_scope", "unknown"),
+                    "industry_category": getattr(benchmark_profile_row, "industry_category", None),
+                    "sample_count": getattr(benchmark_profile_row, "sample_count", 0),
                 }
         result = await generate_copy(
             platform=req.platform,
@@ -79,6 +82,7 @@ async def api_generate_image(req: GenerateImageRequest):
             prompt=req.prompt,
             size=req.size,
             model=req.model,
+            quality=req.quality,
         )
         return GenerateImageResponse(**result)
     except RuntimeError as e:

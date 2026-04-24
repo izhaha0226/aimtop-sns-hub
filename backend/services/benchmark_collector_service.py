@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import re
+from types import SimpleNamespace
 import uuid
 
 import httpx
@@ -12,12 +13,37 @@ from models.action_language_profile import ActionLanguageProfile
 from models.benchmark_account import BenchmarkAccount
 from models.benchmark_post import BenchmarkPost
 from models.channel import ChannelConnection
+from models.client import Client
+from models.industry_action_language_profile import IndustryActionLanguageProfile
 from services.action_language_service import build_action_language_profile
 from services.benchmark_scoring_service import calculate_benchmark_score
 from services.sns_oauth import decrypt_token
 
 HASHTAG_RE = re.compile(r"#\w+")
 CTA_RE = re.compile(r"(저장|댓글|문의|신청|클릭|링크|팔로우|구독|DM)")
+
+STATUS_LABELS = {
+    "live_collected": "실데이터 수집",
+    "live_collected_proxy_views": "실데이터 수집(조회수 프록시)",
+    "manual_ingest_required": "수동 확인 필요",
+    "collector_error": "수집 오류",
+    "placeholder_fallback": "샘플 대체",
+}
+
+VIEW_METRIC_LABELS = {
+    "actual": "실조회수",
+    "proxy_from_public_metrics": "공개지표 기반 프록시 조회수",
+    "proxy_from_like_comment": "좋아요/댓글 기반 프록시 조회수",
+    "proxy_from_engagement": "참여도 기반 프록시 조회수",
+}
+
+DATA_SOURCE_LABELS = {
+    "youtube_api_live": "YouTube 실데이터 API",
+    "x_api_live": "X 실데이터 API",
+    "instagram_business_discovery": "Instagram Business Discovery",
+    "facebook_page_posts": "Facebook 페이지 포스트 API",
+    "placeholder_benchmark_pipeline": "샘플 placeholder 데이터",
+}
 
 
 class BenchmarkCollectorService:
@@ -61,41 +87,56 @@ class BenchmarkCollectorService:
                 "message": f"실수집 중 오류가 발생했습니다: {e}",
                 "live_supported": False,
                 "platform": account.platform,
+                "source_channel_connected": False,
             }
             posts = []
 
+        used_placeholder = False
         if not posts:
-            posts = self._build_placeholder_posts(account, top_k=top_k, window_days=window_days)
             status_payload = {
                 **status_payload,
-                "status": status_payload.get("status") or "manual_ingest_required",
-                "message": status_payload.get("message") or "실채널 수집기를 아직 지원하지 않아 샘플 데이터로 대체했습니다.",
-                "live_supported": False,
+                "used_placeholder": False,
+                "message": status_payload.get("message") or "실데이터를 적재하지 못했습니다. 샘플 데이터로 대체하지 않습니다.",
             }
 
-        inserted = await self._insert_posts(account, posts, window_days=window_days)
+        inserted = await self._insert_posts(account, posts, window_days=window_days) if posts else 0
         profile = await self.rebuild_action_language_profile(account.client_id, account.platform)
+        client = await self._get_client(account.client_id)
+        if client:
+            await self.rebuild_industry_action_language_profile(
+                industry_category=client.industry_category,
+                platform=account.platform,
+            )
         return {
             **status_payload,
+            "status_label": STATUS_LABELS.get(status_payload.get("status", ""), status_payload.get("status")),
             "inserted": inserted,
-            "profile_id": str(profile.id) if profile else None,
+            "profile_id": profile.id if profile else None,
+            "used_placeholder": used_placeholder or bool(status_payload.get("used_placeholder")),
         }
 
     async def get_top_posts(self, client_id: uuid.UUID, platform: str, top_k: int = 10) -> list[BenchmarkPost]:
-        result = await self.db.execute(
-            select(BenchmarkPost)
-            .where(BenchmarkPost.client_id == client_id, BenchmarkPost.platform == platform)
-            .order_by(desc(BenchmarkPost.benchmark_score), desc(BenchmarkPost.view_count))
-            .limit(top_k)
+        platform_normalized = platform.lower()
+        direct_posts = await self._query_top_posts_for_client(client_id, platform_normalized, top_k=top_k)
+        if direct_posts:
+            return direct_posts
+
+        client = await self._get_client(client_id)
+        if not client:
+            return []
+        return await self._query_top_posts_for_industry(
+            industry_category=client.industry_category,
+            platform=platform_normalized,
+            top_k=top_k,
         )
-        return list(result.scalars().all())
 
     async def rebuild_action_language_profile(self, client_id: uuid.UUID, platform: str) -> ActionLanguageProfile | None:
-        posts = await self.get_top_posts(client_id, platform, top_k=20)
+        platform_normalized = platform.lower()
+        posts = await self._query_top_posts_for_client(client_id, platform_normalized, top_k=20)
         if not posts:
             return None
         profile_data = build_action_language_profile(
-            platform,
+            platform_normalized,
             [
                 {
                     "content_text": p.content_text,
@@ -108,14 +149,14 @@ class BenchmarkCollectorService:
         result = await self.db.execute(
             select(ActionLanguageProfile).where(
                 ActionLanguageProfile.client_id == client_id,
-                ActionLanguageProfile.platform == platform,
+                ActionLanguageProfile.platform == platform_normalized,
             )
         )
         row = result.scalar_one_or_none()
         if row is None:
             row = ActionLanguageProfile(
                 client_id=client_id,
-                platform=platform,
+                platform=platform_normalized,
                 source_scope="manual_benchmark",
             )
             self.db.add(row)
@@ -127,16 +168,182 @@ class BenchmarkCollectorService:
         row.profile_version = (row.profile_version or 0) + 1
         await self.db.commit()
         await self.db.refresh(row)
-        return row
 
-    async def get_action_language_profile(self, client_id: uuid.UUID, platform: str) -> ActionLanguageProfile | None:
+        client = await self._get_client(client_id)
+        return self._decorate_profile(
+            row,
+            source_scope="client_direct",
+            industry_category=getattr(client, "industry_category", None),
+            source_client_id=client_id,
+            sample_count=len(posts),
+        )
+
+    async def get_action_language_profile(self, client_id: uuid.UUID, platform: str) -> ActionLanguageProfile | SimpleNamespace | None:
+        platform_normalized = platform.lower()
+        client = await self._get_client(client_id)
+        if client is None:
+            return None
+
         result = await self.db.execute(
             select(ActionLanguageProfile).where(
                 ActionLanguageProfile.client_id == client_id,
-                ActionLanguageProfile.platform == platform,
+                ActionLanguageProfile.platform == platform_normalized,
+            )
+        )
+        direct_profile = result.scalar_one_or_none()
+        direct_posts = await self._query_top_posts_for_client(client_id, platform_normalized, top_k=20)
+        if direct_profile is not None and direct_posts:
+            return self._decorate_profile(
+                direct_profile,
+                source_scope="client_direct",
+                industry_category=client.industry_category,
+                source_client_id=client_id,
+                sample_count=len(direct_posts),
+            )
+
+        industry_profile = await self.get_industry_action_language_profile(
+            industry_category=client.industry_category,
+            platform=platform_normalized,
+        )
+        if industry_profile is None:
+            industry_profile = await self.rebuild_industry_action_language_profile(
+                industry_category=client.industry_category,
+                platform=platform_normalized,
+            )
+        if industry_profile is None:
+            return None
+
+        return SimpleNamespace(
+            id=getattr(industry_profile, "id", None),
+            client_id=client_id,
+            platform=platform_normalized,
+            source_scope="industry_fallback",
+            top_hooks_json=industry_profile.top_hooks_json or [],
+            top_ctas_json=industry_profile.top_ctas_json or [],
+            tone_patterns_json=industry_profile.tone_patterns_json or {},
+            format_patterns_json=industry_profile.format_patterns_json or {},
+            recommended_prompt_rules=industry_profile.recommended_prompt_rules or "",
+            profile_version=industry_profile.profile_version or 0,
+            updated_at=getattr(industry_profile, "updated_at", datetime.now(timezone.utc)),
+            source_client_id=None,
+            industry_category=client.industry_category,
+            sample_count=getattr(industry_profile, "sample_count", 0),
+        )
+
+    async def get_industry_action_language_profile(
+        self,
+        industry_category: str,
+        platform: str,
+        format_type: str | None = None,
+    ) -> IndustryActionLanguageProfile | None:
+        result = await self.db.execute(
+            select(IndustryActionLanguageProfile).where(
+                IndustryActionLanguageProfile.industry_category == industry_category,
+                IndustryActionLanguageProfile.platform == platform.lower(),
+                IndustryActionLanguageProfile.format_type == format_type,
             )
         )
         return result.scalar_one_or_none()
+
+    async def rebuild_industry_action_language_profile(
+        self,
+        industry_category: str,
+        platform: str,
+        format_type: str | None = None,
+    ) -> IndustryActionLanguageProfile | None:
+        platform_normalized = platform.lower()
+        posts = await self._query_top_posts_for_industry(
+            industry_category=industry_category,
+            platform=platform_normalized,
+            top_k=20,
+        )
+        if not posts:
+            return None
+
+        profile_data = build_action_language_profile(
+            platform_normalized,
+            [
+                {
+                    "content_text": p.content_text,
+                    "hook_text": p.hook_text,
+                    "cta_text": p.cta_text,
+                }
+                for p in posts
+            ],
+        )
+        recommended_rules = (profile_data.get("recommended_prompt_rules") or "").strip()
+        industry_rule = (
+            f"이 프로필은 업종 공용 캐시({industry_category}) 기준입니다. 특정 경쟁사 문구를 복제하지 말고 구조만 참고할 것."
+        )
+        result = await self.db.execute(
+            select(IndustryActionLanguageProfile).where(
+                IndustryActionLanguageProfile.industry_category == industry_category,
+                IndustryActionLanguageProfile.platform == platform_normalized,
+                IndustryActionLanguageProfile.format_type == format_type,
+            )
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            row = IndustryActionLanguageProfile(
+                industry_category=industry_category,
+                platform=platform_normalized,
+                format_type=format_type,
+                source_scope="industry_cache",
+            )
+            self.db.add(row)
+
+        row.top_hooks_json = profile_data.get("top_hooks") or []
+        row.top_ctas_json = profile_data.get("top_ctas") or []
+        row.tone_patterns_json = profile_data.get("tone_patterns") or {}
+        row.format_patterns_json = profile_data.get("format_patterns") or {}
+        row.recommended_prompt_rules = f"{recommended_rules} {industry_rule}".strip()
+        row.sample_count = len(posts)
+        row.profile_version = (row.profile_version or 0) + 1
+        await self.db.commit()
+        await self.db.refresh(row)
+        return row
+
+    async def _get_client(self, client_id: uuid.UUID) -> Client | None:
+        result = await self.db.execute(select(Client).where(Client.id == client_id, Client.is_deleted.is_(False)))
+        return result.scalar_one_or_none()
+
+    async def _query_top_posts_for_client(self, client_id: uuid.UUID, platform: str, top_k: int) -> list[BenchmarkPost]:
+        result = await self.db.execute(
+            select(BenchmarkPost)
+            .where(BenchmarkPost.client_id == client_id, BenchmarkPost.platform == platform)
+            .order_by(desc(BenchmarkPost.benchmark_score), desc(BenchmarkPost.view_count))
+            .limit(top_k)
+        )
+        return list(result.scalars().all())
+
+    async def _query_top_posts_for_industry(self, industry_category: str, platform: str, top_k: int) -> list[BenchmarkPost]:
+        result = await self.db.execute(
+            select(BenchmarkPost)
+            .join(Client, Client.id == BenchmarkPost.client_id)
+            .where(
+                BenchmarkPost.platform == platform,
+                Client.industry_category == industry_category,
+                Client.is_deleted.is_(False),
+            )
+            .order_by(desc(BenchmarkPost.benchmark_score), desc(BenchmarkPost.view_count))
+            .limit(top_k)
+        )
+        return list(result.scalars().all())
+
+    def _decorate_profile(
+        self,
+        profile: ActionLanguageProfile,
+        *,
+        source_scope: str,
+        industry_category: str | None,
+        source_client_id: uuid.UUID | None,
+        sample_count: int,
+    ) -> ActionLanguageProfile:
+        profile.source_scope = source_scope
+        setattr(profile, "industry_category", industry_category)
+        setattr(profile, "source_client_id", source_client_id)
+        setattr(profile, "sample_count", sample_count)
+        return profile
 
     async def _clear_existing_posts(self, benchmark_account_id: uuid.UUID) -> None:
         existing = await self.db.execute(select(BenchmarkPost).where(BenchmarkPost.benchmark_account_id == benchmark_account_id))
@@ -176,6 +383,7 @@ class BenchmarkCollectorService:
     async def _collect_live_posts(self, account: BenchmarkAccount, top_k: int, window_days: int) -> tuple[list[dict], dict]:
         platform = account.platform.lower()
         source_channel = await self._get_source_channel(account.client_id, platform)
+        source_channel_account_name = getattr(source_channel, "account_name", None) if source_channel else None
         if platform == "youtube":
             if not source_channel:
                 return [], {
@@ -183,6 +391,9 @@ class BenchmarkCollectorService:
                     "message": "YouTube 실수집에는 이 클라이언트의 연결된 YouTube 채널 토큰이 필요합니다.",
                     "live_supported": False,
                     "platform": platform,
+                    "source_channel_connected": False,
+                    "source_channel_platform": platform,
+                    "source_channel_missing_reason": "연결된 YouTube 채널 토큰 없음",
                 }
             posts = await self._collect_youtube_posts(account, source_channel, top_k=top_k, window_days=window_days)
             return posts, {
@@ -190,6 +401,13 @@ class BenchmarkCollectorService:
                 "message": "YouTube 실데이터 수집 완료",
                 "live_supported": True,
                 "platform": platform,
+                "source_channel_connected": True,
+                "source_channel_platform": platform,
+                "source_channel_account_name": source_channel_account_name,
+                "data_source": "youtube_api_live",
+                "data_source_label": DATA_SOURCE_LABELS["youtube_api_live"],
+                "view_metric_type": "actual",
+                "view_metric_label": VIEW_METRIC_LABELS["actual"],
             }
         if platform == "x":
             if not source_channel:
@@ -198,6 +416,9 @@ class BenchmarkCollectorService:
                     "message": "X 실수집에는 이 클라이언트의 연결된 X 채널 토큰이 필요합니다.",
                     "live_supported": False,
                     "platform": platform,
+                    "source_channel_connected": False,
+                    "source_channel_platform": platform,
+                    "source_channel_missing_reason": "연결된 X 채널 토큰 없음",
                 }
             posts = await self._collect_x_posts(account, source_channel, top_k=top_k)
             return posts, {
@@ -205,6 +426,13 @@ class BenchmarkCollectorService:
                 "message": "X 공개 지표 기반 실수집 완료 (조회수는 공개 지표 프록시 추정)",
                 "live_supported": True,
                 "platform": platform,
+                "source_channel_connected": True,
+                "source_channel_platform": platform,
+                "source_channel_account_name": source_channel_account_name,
+                "data_source": "x_api_live",
+                "data_source_label": DATA_SOURCE_LABELS["x_api_live"],
+                "view_metric_type": "proxy_from_public_metrics",
+                "view_metric_label": VIEW_METRIC_LABELS["proxy_from_public_metrics"],
             }
         if platform == "instagram":
             if not source_channel:
@@ -213,6 +441,9 @@ class BenchmarkCollectorService:
                     "message": "Instagram 실수집에는 이 클라이언트의 연결된 Instagram 채널 토큰이 필요합니다.",
                     "live_supported": False,
                     "platform": platform,
+                    "source_channel_connected": False,
+                    "source_channel_platform": platform,
+                    "source_channel_missing_reason": "연결된 Instagram 채널 토큰 없음",
                 }
             posts = await self._collect_instagram_posts(account, source_channel, top_k=top_k)
             return posts, {
@@ -220,6 +451,13 @@ class BenchmarkCollectorService:
                 "message": "Instagram Business Discovery 기반 실데이터 수집 완료",
                 "live_supported": True,
                 "platform": platform,
+                "source_channel_connected": True,
+                "source_channel_platform": platform,
+                "source_channel_account_name": source_channel_account_name,
+                "data_source": "instagram_business_discovery",
+                "data_source_label": DATA_SOURCE_LABELS["instagram_business_discovery"],
+                "view_metric_type": "proxy_from_like_comment",
+                "view_metric_label": VIEW_METRIC_LABELS["proxy_from_like_comment"],
             }
         if platform == "facebook":
             if not source_channel:
@@ -228,6 +466,9 @@ class BenchmarkCollectorService:
                     "message": "Facebook 실수집에는 이 클라이언트의 연결된 Facebook 페이지 토큰이 필요합니다.",
                     "live_supported": False,
                     "platform": platform,
+                    "source_channel_connected": False,
+                    "source_channel_platform": platform,
+                    "source_channel_missing_reason": "연결된 Facebook 페이지 토큰 없음",
                 }
             posts = await self._collect_facebook_posts(account, source_channel, top_k=top_k)
             return posts, {
@@ -235,6 +476,13 @@ class BenchmarkCollectorService:
                 "message": "Facebook 페이지 포스트 실데이터 수집 완료 (조회수는 참여도 프록시 추정)",
                 "live_supported": True,
                 "platform": platform,
+                "source_channel_connected": True,
+                "source_channel_platform": platform,
+                "source_channel_account_name": source_channel_account_name,
+                "data_source": "facebook_page_posts",
+                "data_source_label": DATA_SOURCE_LABELS["facebook_page_posts"],
+                "view_metric_type": "proxy_from_engagement",
+                "view_metric_label": VIEW_METRIC_LABELS["proxy_from_engagement"],
             }
         if platform == "threads":
             return [], {
@@ -242,12 +490,18 @@ class BenchmarkCollectorService:
                 "message": "Threads는 공개 벤치마킹용 안정 API가 아직 부족해 수동 수집 대상으로 유지합니다.",
                 "live_supported": False,
                 "platform": platform,
+                "source_channel_connected": False,
+                "source_channel_platform": platform,
+                "source_channel_missing_reason": "Threads 공개 벤치마킹 안정 API 미지원",
             }
         return [], {
             "status": "manual_ingest_required",
             "message": f"{platform} 실수집기는 아직 미구현입니다.",
             "live_supported": False,
             "platform": platform,
+            "source_channel_connected": False,
+            "source_channel_platform": platform,
+            "source_channel_missing_reason": f"{platform} 실수집기 미구현",
         }
 
     async def _get_source_channel(self, client_id: uuid.UUID, platform: str) -> ChannelConnection | None:

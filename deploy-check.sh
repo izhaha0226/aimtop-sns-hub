@@ -17,6 +17,10 @@ echo "================================================"
 echo ""
 echo "📦 [1/6] Frontend 빌드 체크..."
 cd frontend
+python3 - <<'PY' >/dev/null 2>&1
+import shutil
+shutil.rmtree('.next', ignore_errors=True)
+PY
 if npm run build > /dev/null 2>&1; then
     echo "  ✅ Next.js 빌드 성공"
 else
@@ -29,7 +33,11 @@ cd ..
 echo ""
 echo "📦 [2/6] Backend main import 체크..."
 cd backend
-if python3 -c "import main" 2>/dev/null; then
+PYTHON_BIN="./.venv/bin/python"
+if [ ! -x "$PYTHON_BIN" ]; then
+    PYTHON_BIN="python3"
+fi
+if "$PYTHON_BIN" -c "from main import app; print('ok')" >/dev/null 2>&1; then
     echo "  ✅ main.py import 성공"
 else
     echo "  ❌ main.py import 실패!"

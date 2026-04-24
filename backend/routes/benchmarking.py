@@ -12,6 +12,7 @@ from schemas.benchmarking import (
     BenchmarkAccountResponse,
     BenchmarkAccountUpdateRequest,
     BenchmarkPostResponse,
+    RefreshAccountResponse,
 )
 from services.benchmark_collector_service import BenchmarkCollectorService
 
@@ -52,7 +53,7 @@ async def update_account(
     return await svc.update_account(account, **body.model_dump(exclude_none=True))
 
 
-@router.post("/accounts/{account_id}/refresh")
+@router.post("/accounts/{account_id}/refresh", response_model=RefreshAccountResponse)
 async def refresh_account(
     account_id: uuid.UUID,
     top_k: int = Query(default=10, ge=1, le=50),

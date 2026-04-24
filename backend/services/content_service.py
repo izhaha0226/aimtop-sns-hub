@@ -130,8 +130,4 @@ class ContentService:
         content = await self.get_or_404(content_id)
         if content.status not in ("approved", "scheduled"):
             raise HTTPException(status_code=400, detail="승인된 콘텐츠만 발행 가능합니다")
-        content.status = "published"
-        content.published_at = datetime.now(timezone.utc)
-        await self.db.commit()
-        await self.db.refresh(content)
-        return content
+        raise HTTPException(status_code=400, detail="즉시 발행은 채널 선택과 실제 발행 검증이 필요한 /api/v1/contents/{content_id}/publish-now 경로만 사용해 주세요")

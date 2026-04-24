@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PROVIDER_ROWS = [
     {
-        "provider_name": "claude",
-        "model_name": "claude-sonnet-4-6",
-        "label": "Claude Sonnet 4.6",
+        "provider_name": "gpt",
+        "model_name": "gpt-5.4",
+        "label": "GPT-5.4",
         "is_default": True,
         "supports_json": True,
         "supports_reasoning": True,
@@ -27,9 +27,19 @@ DEFAULT_PROVIDER_ROWS = [
         "timeout_seconds": 60,
     },
     {
-        "provider_name": "gpt",
-        "model_name": "gpt-4.1-mini",
-        "label": "GPT-4.1 mini",
+        "provider_name": "claude",
+        "model_name": "claude-opus-5.7",
+        "label": "Claude Opus 5.7",
+        "is_default": False,
+        "supports_json": True,
+        "supports_reasoning": True,
+        "max_tokens": 4096,
+        "timeout_seconds": 60,
+    },
+    {
+        "provider_name": "claude",
+        "model_name": "claude-opus-5.6",
+        "label": "Claude Opus 5.6",
         "is_default": False,
         "supports_json": True,
         "supports_reasoning": True,
@@ -41,38 +51,38 @@ DEFAULT_PROVIDER_ROWS = [
 DEFAULT_TASK_POLICIES = {
     "strategy": {
         "routing_mode": "manual",
-        "primary_provider": "claude",
-        "primary_model": "claude-sonnet-4-6",
-        "fallback_provider": "gpt",
-        "fallback_model": "gpt-4.1-mini",
+        "primary_provider": "gpt",
+        "primary_model": "gpt-5.4",
+        "fallback_provider": "claude",
+        "fallback_model": "claude-opus-5.7",
     },
     "benchmark_analysis": {
         "routing_mode": "manual",
-        "primary_provider": "claude",
-        "primary_model": "claude-sonnet-4-6",
-        "fallback_provider": "gpt",
-        "fallback_model": "gpt-4.1-mini",
+        "primary_provider": "gpt",
+        "primary_model": "gpt-5.4",
+        "fallback_provider": "claude",
+        "fallback_model": "claude-opus-5.7",
     },
     "copy_generation": {
         "routing_mode": "manual",
-        "primary_provider": "claude",
-        "primary_model": "claude-sonnet-4-6",
-        "fallback_provider": "gpt",
-        "fallback_model": "gpt-4.1-mini",
+        "primary_provider": "gpt",
+        "primary_model": "gpt-5.4",
+        "fallback_provider": "claude",
+        "fallback_model": "claude-opus-5.7",
     },
     "report_summary": {
         "routing_mode": "manual",
-        "primary_provider": "claude",
-        "primary_model": "claude-sonnet-4-6",
-        "fallback_provider": "gpt",
-        "fallback_model": "gpt-4.1-mini",
+        "primary_provider": "gpt",
+        "primary_model": "gpt-5.4",
+        "fallback_provider": "claude",
+        "fallback_model": "claude-opus-5.7",
     },
     "comment_reply_draft": {
         "routing_mode": "manual",
-        "primary_provider": "claude",
-        "primary_model": "claude-sonnet-4-6",
-        "fallback_provider": "gpt",
-        "fallback_model": "gpt-4.1-mini",
+        "primary_provider": "gpt",
+        "primary_model": "gpt-5.4",
+        "fallback_provider": "claude",
+        "fallback_model": "claude-opus-5.7",
     },
 }
 
@@ -132,10 +142,10 @@ class LLMRouter:
     async def _resolve_route(self, task_type: str, override: dict | None = None) -> tuple[str, str, int, tuple[str, str, int] | None]:
         override = override or {}
         policy = await self._get_task_policy(task_type)
-        provider = override.get("provider") or policy.get("primary_provider") or "claude"
-        model = override.get("model") or policy.get("primary_model") or "claude-sonnet-4-6"
+        provider = override.get("provider") or policy.get("primary_provider") or "gpt"
+        model = override.get("model") or policy.get("primary_model") or "gpt-5.4"
         provider_cfg = await self._get_provider_config(provider, model)
-        timeout = provider_cfg.timeout_seconds if provider_cfg else 60
+        timeout = int(override.get("timeout") or (provider_cfg.timeout_seconds if provider_cfg else 60))
 
         fallback = None
         fallback_enabled = override.get("fallback_enabled")
@@ -146,7 +156,7 @@ class LLMRouter:
             fallback = (
                 policy["fallback_provider"],
                 policy["fallback_model"],
-                fallback_cfg.timeout_seconds if fallback_cfg else 60,
+                int(override.get("timeout") or (fallback_cfg.timeout_seconds if fallback_cfg else 60)),
             )
 
         return provider, model, timeout, fallback

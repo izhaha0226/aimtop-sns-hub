@@ -32,10 +32,11 @@ export interface BenchmarkPostItem {
   engagement_rate: number
   benchmark_score: number
   published_at?: string | null
+  raw_payload?: Record<string, unknown> | null
 }
 
 export interface ActionLanguageProfileItem {
-  id: string
+  id?: string | null
   client_id: string
   platform: string
   source_scope: string
@@ -46,15 +47,28 @@ export interface ActionLanguageProfileItem {
   recommended_prompt_rules?: string | null
   profile_version: number
   updated_at?: string | null
+  source_client_id?: string | null
+  industry_category?: string | null
+  sample_count?: number
 }
 
 export interface RefreshAccountResult {
   status: string
+  status_label?: string | null
   message: string
   inserted: number
   profile_id?: string | null
   live_supported?: boolean
   platform?: string
+  used_placeholder?: boolean
+  data_source?: string | null
+  data_source_label?: string | null
+  view_metric_type?: string | null
+  view_metric_label?: string | null
+  source_channel_connected?: boolean
+  source_channel_platform?: string | null
+  source_channel_account_name?: string | null
+  source_channel_missing_reason?: string | null
 }
 
 export const benchmarkingService = {
