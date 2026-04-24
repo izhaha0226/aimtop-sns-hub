@@ -287,13 +287,11 @@ export default function ClientBenchmarkPage() {
       }
     }
 
-    if (diagnosticSummary.liveAccountCount > 0) {
+    if (diagnosticSummary.liveAccountCount > 0 && (diagnosticSummary.placeholderOnlyCount > 0 || diagnosticSummary.blockedCount > 0 || diagnosticSummary.noDataCount > 0)) {
       return {
-        status: "ready" as const,
-        title: "직접 실데이터 확보",
-        detail: diagnosticSummary.actualMetricCount > 0
-          ? "현재 클라이언트 계정 기준 실조회수 데이터가 포함되어 있습니다."
-          : "현재 클라이언트 계정 기준 실수집은 되었지만 조회수는 프록시 지표입니다.",
+        status: "warning" as const,
+        title: "부분 실데이터 확보",
+        detail: `실데이터 계정 ${diagnosticSummary.liveAccountCount}개가 있어도 샘플 대체 ${diagnosticSummary.placeholderOnlyCount}개, 연결/collector 이슈 ${diagnosticSummary.blockedCount}개, 미적재 ${diagnosticSummary.noDataCount}개가 함께 남아 있습니다. 현재 플랫폼 전체를 ready로 보면 안 됩니다.`,
       }
     }
 
@@ -310,6 +308,16 @@ export default function ClientBenchmarkPage() {
         status: "warning" as const,
         title: "직접 실데이터 없음",
         detail: `연결/collector 이슈 계정 ${diagnosticSummary.blockedCount}개, 아직 적재되지 않은 계정 ${diagnosticSummary.noDataCount}개가 있습니다.`,
+      }
+    }
+
+    if (diagnosticSummary.liveAccountCount > 0) {
+      return {
+        status: "ready" as const,
+        title: "직접 실데이터 확보",
+        detail: diagnosticSummary.actualMetricCount > 0
+          ? "현재 클라이언트 계정 기준 실조회수 데이터가 포함되어 있습니다."
+          : "현재 클라이언트 계정 기준 실수집은 되었지만 조회수는 프록시 지표입니다.",
       }
     }
 
