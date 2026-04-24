@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { benchmarkingService, type ActionLanguageProfileItem, type BenchmarkAccountItem, type BenchmarkPostItem, type RefreshAccountResult } from "@/services/benchmarking"
+import { benchmarkingService, type ActionLanguageProfileItem, type BenchmarkAccountDiagnosticItem, type BenchmarkAccountItem, type BenchmarkPostItem, type RefreshAccountResult } from "@/services/benchmarking"
 
 const PLATFORMS = ["instagram", "facebook", "x", "threads", "kakao", "tiktok", "linkedin", "youtube"]
 
@@ -64,7 +64,8 @@ function badgeTone(status?: string) {
   if (!status) return "bg-gray-100 text-gray-700 border-gray-200"
   if (status.includes("live_collected")) return "bg-green-50 text-green-700 border-green-200"
   if (status.includes("placeholder")) return "bg-orange-50 text-orange-700 border-orange-200"
-  if (status.includes("manual")) return "bg-amber-50 text-amber-700 border-amber-200"
+  if (status.includes("manual") || status.includes("no_data")) return "bg-amber-50 text-amber-700 border-amber-200"
+  if (status.includes("inactive")) return "bg-gray-100 text-gray-700 border-gray-200"
   if (status.includes("error")) return "bg-red-50 text-red-700 border-red-200"
   return "bg-gray-100 text-gray-700 border-gray-200"
 }
@@ -99,6 +100,7 @@ export default function ClientBenchmarkPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const [accounts, setAccounts] = useState<BenchmarkAccountItem[]>([])
+  const [diagnostics, setDiagnostics] = useState<BenchmarkAccountDiagnosticItem[]>([])
   const [topPosts, setTopPosts] = useState<BenchmarkPostItem[]>([])
   const [profile, setProfile] = useState<ActionLanguageProfileItem | null>(null)
   const [platform, setPlatform] = useState("instagram")
@@ -115,12 +117,14 @@ export default function ClientBenchmarkPage() {
   const load = useCallback(async (currentPlatform = platform, currentTopK = topK) => {
     setLoading(true)
     try {
-      const [accountRows, topPostRows, profileRow] = await Promise.all([
+      const [accountRows, diagnosticRows, topPostRows, profileRow] = await Promise.all([
         benchmarkingService.listAccounts(id),
+        benchmarkingService.listAccountDiagnostics(id, currentPlatform),
         benchmarkingService.getTopPosts(id, currentPlatform, currentTopK),
         benchmarkingService.getActionProfile(id, currentPlatform),
       ])
       setAccounts(accountRows)
+      setDiagnostics(diagnosticRows)
       setTopPosts(topPostRows)
       setProfile(profileRow)
     } finally {
@@ -132,6 +136,10 @@ export default function ClientBenchmarkPage() {
   useEffect(() => { void load(platform, topK) }, [load, platform, topK])
 
   const platformAccounts = useMemo(() => accounts.filter((item) => item.platform === platform), [accounts, platform])
+  const diagnosticMap = useMemo(() => diagnostics.reduce<Record<string, BenchmarkAccountDiagnosticItem>>((acc, item) => {
+    acc[item.account_id] = item
+    return acc
+  }, {}), [diagnostics])
 
   const platformSupportLevel = PLATFORM_SUPPORT_LEVEL[platform] || "unimplemented"
   const activePlatformAccounts = useMemo(() => platformAccounts.filter((item) => item.is_active), [platformAccounts])
@@ -151,6 +159,17 @@ export default function ClientBenchmarkPage() {
       total: topPosts.length,
     }
   }, [topPosts])
+
+  const diagnosticSummary = useMemo(() => {
+    const activeRows = diagnostics.filter((item) => item.is_active)
+    return {
+      blockedCount: activeRows.filter((item) => item.status === "manual_ingest_required").length,
+      mixedCount: activeRows.filter((item) => item.status === "live_collected_mixed").length,
+      noDataCount: activeRows.filter((item) => item.status === "no_data_collected").length,
+      tokenMissingCount: activeRows.filter((item) => item.source_channel_connected && !item.source_channel_has_token).length,
+      inactiveCount: diagnostics.filter((item) => !item.is_active).length,
+    }
+  }, [diagnostics])
 
   const readiness = useMemo(() => {
     if (platformAccounts.length === 0) {
@@ -177,6 +196,14 @@ export default function ClientBenchmarkPage() {
       }
     }
 
+    if (diagnosticSummary.tokenMissingCount > 0) {
+      return {
+        status: "warning" as const,
+        title: "토큰 누락 연결 있음",
+        detail: `연결된 채널처럼 보이지만 access token이 없는 계정 ${diagnosticSummary.tokenMissingCount}개가 있습니다. 가짜 연동 상태를 먼저 정리해야 합니다.`,
+      }
+    }
+
     if (dataSummary.liveCount > 0 && dataSummary.placeholderCount === 0) {
       return {
         status: "ready" as const,
@@ -193,6 +220,14 @@ export default function ClientBenchmarkPage() {
       }
     }
 
+    if (diagnosticSummary.mixedCount > 0) {
+      return {
+        status: "warning" as const,
+        title: "계정 단위 혼재 상태",
+        detail: `실데이터와 샘플 대체가 함께 있는 계정 ${diagnosticSummary.mixedCount}개가 있습니다.`,
+      }
+    }
+
     if (dataSummary.placeholderCount > 0) {
       return {
         status: "warning" as const,
@@ -201,12 +236,20 @@ export default function ClientBenchmarkPage() {
       }
     }
 
+    if (diagnosticSummary.blockedCount > 0 || diagnosticSummary.noDataCount > 0) {
+      return {
+        status: "warning" as const,
+        title: "실데이터 없음",
+        detail: `연결/collector 이슈 계정 ${diagnosticSummary.blockedCount}개, 아직 적재되지 않은 계정 ${diagnosticSummary.noDataCount}개가 있습니다.`,
+      }
+    }
+
     return {
       status: "warning" as const,
       title: "실데이터 없음",
       detail: "계정은 등록되어 있지만 아직 적재된 실데이터가 없습니다. 연결 채널/토큰/collector 상태를 확인해야 합니다.",
     }
-  }, [dataSummary.actualMetricCount, dataSummary.liveCount, dataSummary.placeholderCount, platformAccounts.length, platformSupportLevel])
+  }, [dataSummary.actualMetricCount, dataSummary.liveCount, dataSummary.placeholderCount, diagnosticSummary.blockedCount, diagnosticSummary.mixedCount, diagnosticSummary.noDataCount, diagnosticSummary.tokenMissingCount, platformAccounts.length, platformSupportLevel])
 
   const profileSummary = useMemo(() => {
     if (!profile) {
@@ -231,7 +274,7 @@ export default function ClientBenchmarkPage() {
     if (!form.handle.trim()) return
     setSaving(true)
     try {
-      const created = await benchmarkingService.createAccount({
+      await benchmarkingService.createAccount({
         client_id: id,
         platform,
         handle: form.handle.trim(),
@@ -240,8 +283,8 @@ export default function ClientBenchmarkPage() {
         memo: form.memo.trim() || undefined,
         metadata_json: parseMetadata(platform, form.metadataInput),
       })
-      setAccounts((prev) => [created, ...prev])
       setForm({ handle: "", purpose: "all", source_type: "manual", memo: "", metadataInput: "" })
+      await load(platform, topK)
     } finally {
       setSaving(false)
     }
@@ -274,7 +317,7 @@ export default function ClientBenchmarkPage() {
     if (!editingId) return
     setSaving(true)
     try {
-      const updated = await benchmarkingService.updateAccount(item.id, {
+      await benchmarkingService.updateAccount(item.id, {
         handle: editForm.handle,
         purpose: editForm.purpose,
         source_type: editForm.source_type,
@@ -282,16 +325,16 @@ export default function ClientBenchmarkPage() {
         is_active: editForm.is_active,
         metadata_json: parseMetadata(item.platform, editForm.metadataInput),
       })
-      setAccounts((prev) => prev.map((row) => row.id === updated.id ? updated : row))
       setEditingId(null)
+      await load(platform, topK)
     } finally {
       setSaving(false)
     }
   }
 
   async function toggleActive(item: BenchmarkAccountItem) {
-    const updated = await benchmarkingService.updateAccount(item.id, { is_active: !item.is_active })
-    setAccounts((prev) => prev.map((row) => row.id === updated.id ? updated : row))
+    await benchmarkingService.updateAccount(item.id, { is_active: !item.is_active })
+    await load(platform, topK)
   }
 
   return (
@@ -325,14 +368,14 @@ export default function ClientBenchmarkPage() {
         <div className="rounded-xl border bg-white p-4">
           <div className="text-xs text-gray-500">등록/활성 계정</div>
           <div className="mt-2 text-sm font-semibold text-gray-900">{platformAccounts.length}개 등록 · {activePlatformAccounts.length}개 활성</div>
-          <div className="mt-2 text-xs text-gray-500">비활성 계정 {Math.max(platformAccounts.length - activePlatformAccounts.length, 0)}개</div>
+          <div className="mt-2 text-xs text-gray-500">비활성 {Math.max(platformAccounts.length - activePlatformAccounts.length, 0)}개 · 토큰누락 {diagnosticSummary.tokenMissingCount}개</div>
         </div>
         <div className="rounded-xl border bg-white p-4">
           <div className="text-xs text-gray-500">실데이터 정합성</div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${readinessTone(readiness.status)}`}>{readiness.title}</span>
           </div>
-          <div className="mt-2 text-xs text-gray-500">실데이터 {dataSummary.liveCount} · 샘플대체 {dataSummary.placeholderCount} · 프록시조회수 {dataSummary.proxyMetricCount}</div>
+          <div className="mt-2 text-xs text-gray-500">실데이터 {dataSummary.liveCount} · 샘플대체 {dataSummary.placeholderCount} · 미적재 {diagnosticSummary.noDataCount}</div>
         </div>
         <div className="rounded-xl border bg-white p-4">
           <div className="text-xs text-gray-500">프로필 출처</div>
@@ -386,6 +429,8 @@ export default function ClientBenchmarkPage() {
               <div className="space-y-3 text-sm">
                 {platformAccounts.length === 0 ? <div className="text-gray-400">등록된 계정 없음</div> : platformAccounts.map((item) => {
                   const refreshState = statusMap[item.id]
+                  const diagnostic = diagnosticMap[item.id]
+                  const accountState = refreshState || diagnostic
                   const isEditing = editingId === item.id
                   return (
                     <div key={item.id} className="rounded-lg border px-3 py-3 space-y-2">
@@ -428,38 +473,45 @@ export default function ClientBenchmarkPage() {
                               </button>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${item.is_active ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-gray-100 text-gray-600 border-gray-200"}`}>{item.is_active ? "활성" : "비활성"}</span>
+                            {diagnostic?.support_label && <span className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-slate-50 text-slate-700 border-slate-200">{diagnostic.support_label}</span>}
                             <button onClick={() => void toggleActive(item)} className="text-[11px] text-gray-600 underline underline-offset-2">{item.is_active ? "비활성화" : "재활성화"}</button>
                           </div>
                           {item.metadata_json && (
                             <div className="text-[11px] text-gray-500 break-all">metadata: {JSON.stringify(item.metadata_json)}</div>
                           )}
                           {item.memo && <div className="text-[11px] text-gray-500">memo: {item.memo}</div>}
-                          {refreshState && (
+                          {accountState && (
                             <div className="space-y-2">
                               <div className="flex flex-wrap items-center gap-2">
-                                <div className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${badgeTone(refreshState.status)}`}>
-                                  {refreshState.status_label || refreshState.status} · {refreshState.inserted > 0 ? `${refreshState.inserted}건 적재` : '적재 없음'}
+                                <div className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${badgeTone(accountState.status)}`}>
+                                  {accountState.status_label || accountState.status}
+                                  {refreshState ? ` · ${refreshState.inserted > 0 ? `${refreshState.inserted}건 적재` : '적재 없음'}` : diagnostic ? ` · 실데이터 ${diagnostic.live_post_count} · 샘플 ${diagnostic.placeholder_post_count}` : ""}
                                 </div>
-                                {refreshState.view_metric_label && (
+                                {accountState.view_metric_label && (
                                   <div className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-sky-50 text-sky-700 border-sky-200">
-                                    {refreshState.view_metric_label}
+                                    {accountState.view_metric_label}
                                   </div>
                                 )}
-                                {refreshState.used_placeholder && (
+                                {accountState.used_placeholder && (
                                   <div className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-orange-50 text-orange-700 border-orange-200">
                                     placeholder fallback
                                   </div>
                                 )}
+                                {diagnostic && !diagnostic.source_channel_has_token && diagnostic.source_channel_connected && (
+                                  <div className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-rose-50 text-rose-700 border-rose-200">
+                                    토큰 없음
+                                  </div>
+                                )}
                               </div>
-                              {refreshState.data_source_label && <div className="text-[11px] text-gray-600">데이터 소스: {refreshState.data_source_label}</div>}
-                              {refreshState.source_channel_connected
-                                ? <div className="text-[11px] text-emerald-700">연결 채널: {refreshState.source_channel_account_name || refreshState.source_channel_platform || item.platform}</div>
-                                : <div className="text-[11px] text-amber-700">연결 상태: {refreshState.source_channel_missing_reason || "연결 채널 확인 필요"}</div>}
+                              {accountState.data_source_label && <div className="text-[11px] text-gray-600">데이터 소스: {accountState.data_source_label}</div>}
+                              {accountState.source_channel_connected
+                                ? <div className="text-[11px] text-emerald-700">연결 채널: {accountState.source_channel_account_name || accountState.source_channel_platform || item.platform}</div>
+                                : <div className="text-[11px] text-amber-700">연결 상태: {accountState.source_channel_missing_reason || "연결 채널 확인 필요"}</div>}
                             </div>
                           )}
-                          {refreshState?.message && <div className="text-[11px] text-gray-600">{refreshState.message}</div>}
+                          {accountState?.message && <div className="text-[11px] text-gray-600">{accountState.message}</div>}
                         </>
                       )}
                     </div>

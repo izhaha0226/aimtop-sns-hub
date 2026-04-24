@@ -71,6 +71,35 @@ export interface RefreshAccountResult {
   source_channel_missing_reason?: string | null
 }
 
+export interface BenchmarkAccountDiagnosticItem {
+  account_id: string
+  client_id: string
+  platform: string
+  handle: string
+  is_active: boolean
+  support_level: string
+  support_label: string
+  status: string
+  status_label?: string | null
+  message: string
+  live_supported: boolean
+  source_channel_connected: boolean
+  source_channel_platform?: string | null
+  source_channel_account_name?: string | null
+  source_channel_missing_reason?: string | null
+  source_channel_has_token: boolean
+  live_post_count: number
+  placeholder_post_count: number
+  actual_metric_count: number
+  proxy_metric_count: number
+  total_post_count: number
+  data_source?: string | null
+  data_source_label?: string | null
+  view_metric_type?: string | null
+  view_metric_label?: string | null
+  used_placeholder: boolean
+}
+
 export const benchmarkingService = {
   async listAccounts(clientId?: string) {
     const res = await api.get("/api/v1/benchmarking/accounts", { params: clientId ? { client_id: clientId } : {} })
@@ -92,6 +121,16 @@ export const benchmarkingService = {
       params: { top_k: topK, window_days: windowDays },
     })
     return res.data as RefreshAccountResult
+  },
+
+  async listAccountDiagnostics(clientId: string, platform?: string) {
+    const res = await api.get("/api/v1/benchmarking/account-diagnostics", {
+      params: {
+        client_id: clientId,
+        ...(platform ? { platform } : {}),
+      },
+    })
+    return Array.isArray(res.data) ? (res.data as BenchmarkAccountDiagnosticItem[]) : []
   },
 
   async getTopPosts(clientId: string, platform: string, topK = 10) {

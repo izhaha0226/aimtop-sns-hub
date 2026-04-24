@@ -45,6 +45,15 @@ DATA_SOURCE_LABELS = {
     "placeholder_benchmark_pipeline": "샘플 placeholder 데이터",
 }
 
+SUPPORT_LEVEL_LABELS = {
+    "live": "실수집 지원",
+    "manual": "수동 확인 필요",
+    "unimplemented": "미구현",
+}
+
+LIVE_SUPPORTED_PLATFORMS = {"youtube", "x", "instagram", "facebook"}
+MANUAL_SUPPORTED_PLATFORMS = {"threads"}
+
 
 class BenchmarkCollectorService:
     def __init__(self, db: AsyncSession):
@@ -75,6 +84,20 @@ class BenchmarkCollectorService:
     async def get_account(self, account_id: uuid.UUID) -> BenchmarkAccount | None:
         result = await self.db.execute(select(BenchmarkAccount).where(BenchmarkAccount.id == account_id))
         return result.scalar_one_or_none()
+
+    async def list_account_diagnostics(
+        self,
+        client_id: uuid.UUID,
+        platform: str | None = None,
+    ) -> list[dict]:
+        platform_normalized = platform.lower() if platform else None
+        accounts = await self.list_accounts(client_id)
+        diagnostics: list[dict] = []
+        for account in accounts:
+            if platform_normalized and account.platform.lower() != platform_normalized:
+                continue
+            diagnostics.append(await self._build_account_diagnostic(account))
+        return diagnostics
 
     async def refresh_account(self, account: BenchmarkAccount, top_k: int = 10, window_days: int = 30) -> dict:
         await self._clear_existing_posts(account.id)
@@ -350,6 +373,150 @@ class BenchmarkCollectorService:
         for row in existing.scalars().all():
             await self.db.delete(row)
         await self.db.flush()
+
+    async def _build_account_diagnostic(self, account: BenchmarkAccount) -> dict:
+        platform = account.platform.lower()
+        support_level = self._get_support_level(platform)
+        support_label = SUPPORT_LEVEL_LABELS[support_level]
+        source_channel = await self._get_source_channel(account.client_id, platform)
+        source_channel_has_token = self._channel_has_token(source_channel)
+        posts = await self._get_posts_for_account(account.id)
+        post_summary = self._summarize_posts(posts)
+
+        diagnostic = {
+            "account_id": account.id,
+            "client_id": account.client_id,
+            "platform": platform,
+            "handle": account.handle,
+            "is_active": bool(account.is_active),
+            "support_level": support_level,
+            "support_label": support_label,
+            "status": "manual_ingest_required",
+            "status_label": STATUS_LABELS.get("manual_ingest_required"),
+            "message": "운영 진단을 계산하지 못했습니다.",
+            "live_supported": support_level == "live",
+            "source_channel_connected": bool(source_channel),
+            "source_channel_platform": platform,
+            "source_channel_account_name": getattr(source_channel, "account_name", None) if source_channel else None,
+            "source_channel_missing_reason": None,
+            "source_channel_has_token": source_channel_has_token,
+            **post_summary,
+        }
+
+        if not account.is_active:
+            diagnostic["status"] = "inactive"
+            diagnostic["status_label"] = "비활성"
+            diagnostic["message"] = "이 계정은 비활성 상태입니다. 활성화 후에만 실수집/수동 점검 대상에 포함됩니다."
+            return diagnostic
+
+        if support_level == "unimplemented":
+            diagnostic["message"] = f"{platform} 실수집기는 아직 구현되지 않았습니다."
+            diagnostic["source_channel_missing_reason"] = f"{platform} 실수집기 미구현"
+            return diagnostic
+
+        if support_level == "manual":
+            diagnostic["message"] = "현재 플랫폼은 자동 실수집이 아니라 운영자가 수동으로 확인해야 합니다."
+            diagnostic["source_channel_missing_reason"] = "자동 실수집 미지원"
+            return diagnostic
+
+        if not source_channel:
+            diagnostic["message"] = f"{platform} 실수집에는 연결된 소스 채널이 필요합니다."
+            diagnostic["source_channel_missing_reason"] = f"연결된 {platform} 채널 토큰 없음"
+            return diagnostic
+
+        if not source_channel_has_token:
+            diagnostic["message"] = "채널은 연결된 것처럼 보이지만 복호화 가능한 access token이 없습니다."
+            diagnostic["source_channel_missing_reason"] = "연결 레코드는 있으나 access token 없음"
+            return diagnostic
+
+        if diagnostic["live_post_count"] > 0 and diagnostic["placeholder_post_count"] > 0:
+            diagnostic["status"] = "live_collected_mixed"
+            diagnostic["status_label"] = "실데이터/샘플 혼재"
+            diagnostic["message"] = "실데이터와 샘플 대체가 함께 있습니다. 운영 판단 시 분리해서 봐야 합니다."
+            return diagnostic
+
+        if diagnostic["live_post_count"] > 0:
+            if diagnostic["actual_metric_count"] > 0 and diagnostic["proxy_metric_count"] == 0:
+                diagnostic["status"] = "live_collected"
+                diagnostic["status_label"] = STATUS_LABELS.get("live_collected")
+                diagnostic["message"] = "실데이터가 적재되어 있습니다."
+                diagnostic["view_metric_type"] = diagnostic["view_metric_type"] or "actual"
+                diagnostic["view_metric_label"] = diagnostic["view_metric_label"] or VIEW_METRIC_LABELS.get("actual")
+            else:
+                diagnostic["status"] = "live_collected_proxy_views"
+                diagnostic["status_label"] = STATUS_LABELS.get("live_collected_proxy_views")
+                diagnostic["message"] = "실데이터는 적재되어 있으나 조회수는 프록시 지표 기준입니다."
+            return diagnostic
+
+        if diagnostic["placeholder_post_count"] > 0:
+            diagnostic["status"] = "placeholder_fallback"
+            diagnostic["status_label"] = STATUS_LABELS.get("placeholder_fallback")
+            diagnostic["message"] = "현재 적재된 포스트는 샘플 대체 데이터입니다."
+            return diagnostic
+
+        diagnostic["status"] = "no_data_collected"
+        diagnostic["status_label"] = "실데이터 없음"
+        diagnostic["message"] = "연결은 가능하지만 아직 적재된 실데이터가 없습니다. 새로고침 후 collector 상태를 확인해야 합니다."
+        return diagnostic
+
+    async def _get_posts_for_account(self, benchmark_account_id: uuid.UUID) -> list[BenchmarkPost]:
+        result = await self.db.execute(
+            select(BenchmarkPost)
+            .where(BenchmarkPost.benchmark_account_id == benchmark_account_id)
+            .order_by(desc(BenchmarkPost.benchmark_score), desc(BenchmarkPost.view_count))
+        )
+        return list(result.scalars().all())
+
+    def _summarize_posts(self, posts: list[BenchmarkPost]) -> dict:
+        live_post_count = 0
+        placeholder_post_count = 0
+        actual_metric_count = 0
+        proxy_metric_count = 0
+        data_sources: list[str] = []
+        view_metrics: list[str] = []
+
+        for post in posts:
+            raw_payload = post.raw_payload or {}
+            source = str(raw_payload.get("source") or "")
+            metric = str(raw_payload.get("view_metric") or "")
+            if source == "placeholder_benchmark_pipeline":
+                placeholder_post_count += 1
+            elif source:
+                live_post_count += 1
+                data_sources.append(source)
+            if metric == "actual":
+                actual_metric_count += 1
+                view_metrics.append(metric)
+            elif metric.startswith("proxy_"):
+                proxy_metric_count += 1
+                view_metrics.append(metric)
+
+        data_source = data_sources[0] if len(set(data_sources)) == 1 and data_sources else None
+        view_metric_type = view_metrics[0] if len(set(view_metrics)) == 1 and view_metrics else None
+        return {
+            "live_post_count": live_post_count,
+            "placeholder_post_count": placeholder_post_count,
+            "actual_metric_count": actual_metric_count,
+            "proxy_metric_count": proxy_metric_count,
+            "total_post_count": len(posts),
+            "data_source": data_source,
+            "data_source_label": DATA_SOURCE_LABELS.get(data_source) if data_source else None,
+            "view_metric_type": view_metric_type,
+            "view_metric_label": VIEW_METRIC_LABELS.get(view_metric_type) if view_metric_type else None,
+            "used_placeholder": placeholder_post_count > 0,
+        }
+
+    def _get_support_level(self, platform: str) -> str:
+        if platform in LIVE_SUPPORTED_PLATFORMS:
+            return "live"
+        if platform in MANUAL_SUPPORTED_PLATFORMS:
+            return "manual"
+        return "unimplemented"
+
+    def _channel_has_token(self, source_channel: ChannelConnection | None) -> bool:
+        if not source_channel or not source_channel.access_token:
+            return False
+        return bool(decrypt_token(source_channel.access_token))
 
     async def _insert_posts(self, account: BenchmarkAccount, posts: list[dict], window_days: int) -> int:
         inserted = 0

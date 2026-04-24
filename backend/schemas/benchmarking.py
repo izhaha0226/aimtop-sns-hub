@@ -78,6 +78,35 @@ class RefreshAccountResponse(BaseModel):
     source_channel_missing_reason: str | None = None
 
 
+class BenchmarkAccountDiagnosticResponse(BaseModel):
+    account_id: uuid.UUID
+    client_id: uuid.UUID
+    platform: str
+    handle: str
+    is_active: bool = True
+    support_level: str
+    support_label: str
+    status: str
+    status_label: str | None = None
+    message: str
+    live_supported: bool = False
+    source_channel_connected: bool = False
+    source_channel_platform: str | None = None
+    source_channel_account_name: str | None = None
+    source_channel_missing_reason: str | None = None
+    source_channel_has_token: bool = False
+    live_post_count: int = 0
+    placeholder_post_count: int = 0
+    actual_metric_count: int = 0
+    proxy_metric_count: int = 0
+    total_post_count: int = 0
+    data_source: str | None = None
+    data_source_label: str | None = None
+    view_metric_type: str | None = None
+    view_metric_label: str | None = None
+    used_placeholder: bool = False
+
+
 class ActionLanguageProfileResponse(BaseModel):
     id: uuid.UUID | None = None
     client_id: uuid.UUID
