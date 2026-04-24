@@ -447,6 +447,21 @@ async def get_pipeline_readiness(
         claude_cli_available=claude_cli_available,
     )
 
+    oauth_status = "ready"
+    oauth_summary = "Meta/외부 채널 연동 준비 상태"
+    if not meta_app_id_present or not meta_app_secret_present:
+        oauth_status = "blocked"
+        oauth_summary = "Meta OAuth 환경변수가 비어 있어 시작 자체가 불가합니다"
+    elif connected_count == 0:
+        oauth_status = "warning"
+        oauth_summary = "연동 키는 있지만 실제 연결된 채널이 아직 없습니다"
+    elif reauth_required > 0:
+        oauth_status = "warning"
+        oauth_summary = f"재인증이 필요한 채널 {reauth_required}개가 있어 OAuth 운영 상태가 불안정합니다"
+    elif unknown_token_channels > 0:
+        oauth_status = "warning"
+        oauth_summary = f"토큰 만료시각을 모르는 채널 {unknown_token_channels}개가 있어 운영 판정이 불완전합니다"
+
     items = [
         {
             "key": "ai_generation",
@@ -458,13 +473,15 @@ async def get_pipeline_readiness(
         {
             "key": "oauth_connections",
             "label": "OAuth 연동",
-            "status": "ready" if meta_app_id_present and meta_app_secret_present else "blocked",
-            "summary": "Meta/외부 채널 연동 준비 상태",
+            "status": oauth_status,
+            "summary": oauth_summary,
             "details": {
                 "meta_app_id_present": meta_app_id_present,
                 "meta_app_secret_present": meta_app_secret_present,
                 "connected_channels": connected_count,
                 "reauth_required": reauth_required,
+                "unknown_token_channels": unknown_token_channels,
+                "supported_healthy_channels": supported_healthy_channels,
             },
         },
         {

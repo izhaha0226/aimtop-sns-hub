@@ -173,7 +173,7 @@ const PIPELINE_DETAIL_LABELS: Record<string, string> = {
 
 const PIPELINE_DETAIL_ORDER: Record<PipelineKey, string[]> = {
   ai_generation: ["blocked_tasks", "fallback_only_tasks", "fallback_missing_tasks", "primary_ready_tasks", "openai_key_present", "claude_cli_available"],
-  oauth_connections: ["reauth_required", "connected_channels", "meta_app_id_present", "meta_app_secret_present"],
+  oauth_connections: ["reauth_required", "unknown_token_channels", "connected_channels", "supported_healthy_channels", "meta_app_id_present", "meta_app_secret_present"],
   publishing: ["suspicious_published_without_evidence", "failed_publish_count", "unsupported_connected_channels", "unknown_token_channels", "supported_connected_channels", "supported_healthy_channels", "published_evidence_count"],
   benchmarking: ["token_missing_accounts", "duplicate_source_accounts", "duplicate_source_connections", "collector_error_accounts", "placeholder_only_accounts", "no_data_accounts", "never_refreshed_accounts", "stale_refresh_accounts", "live_accounts", "active_accounts"],
   unknown: [],
