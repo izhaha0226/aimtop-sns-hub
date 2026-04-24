@@ -9,6 +9,7 @@ from core.database import get_db
 from models.content import Content
 from models.approval import Approval
 from models.channel import ChannelConnection
+from models.schedule import Schedule
 from models.user import User
 from models.benchmark_account import BenchmarkAccount
 from models.benchmark_post import BenchmarkPost
@@ -49,6 +50,24 @@ def _classify_publish_error(error_message: str | None) -> tuple[str, str]:
 
 def _count_failed_publish_category(contents: list[Content], category_key: str) -> int:
     return sum(1 for content in contents if _classify_publish_error(content.publish_error)[0] == category_key)
+
+
+def _pick_latest_schedule_for_content(
+    schedules_by_content: dict[str, list[Schedule]],
+    content_id: uuid.UUID | None,
+) -> Schedule | None:
+    if not content_id:
+        return None
+    schedules = schedules_by_content.get(str(content_id)) or []
+    if not schedules:
+        return None
+    return max(
+        schedules,
+        key=lambda schedule: (
+            schedule.updated_at or schedule.created_at,
+            schedule.created_at,
+        ),
+    )
 
 
 def _summarize_publishing_readiness(
@@ -640,6 +659,15 @@ async def get_publish_observability(
     failed_missing_channel = _count_failed_publish_category(failed_contents, "missing_channel")
     failed_retrying = _count_failed_publish_category(failed_contents, "retrying")
     failed_other = _count_failed_publish_category(failed_contents, "other")
+    retry_pending_schedules = (
+        await db.execute(
+            select(func.count()).select_from(Schedule).where(
+                Schedule.status == "pending",
+                Schedule.retry_count > 0,
+                Schedule.error_message.isnot(None),
+            )
+        )
+    ).scalar() or 0
 
     published_result = await db.execute(
         select(Content, ChannelConnection)
@@ -678,6 +706,23 @@ async def get_publish_observability(
     )
     failed_items = failed_result.all()
 
+    content_ids = {
+        item.id
+        for item, _channel in [*suspicious_items, *failed_items]
+        if getattr(item, "id", None)
+    }
+    schedules_by_content: dict[str, list[Schedule]] = {}
+    if content_ids:
+        schedule_rows = (
+            await db.execute(
+                select(Schedule)
+                .where(Schedule.content_id.in_(list(content_ids)))
+                .order_by(Schedule.updated_at.desc().nullslast(), Schedule.created_at.desc())
+            )
+        ).scalars().all()
+        for schedule in schedule_rows:
+            schedules_by_content.setdefault(str(schedule.content_id), []).append(schedule)
+
     return {
         "summary": {
             "published_with_evidence": published_with_evidence,
@@ -689,6 +734,7 @@ async def get_publish_observability(
             "failed_token_missing": failed_token_missing,
             "failed_missing_channel": failed_missing_channel,
             "failed_retrying": failed_retrying,
+            "retry_pending_schedules": retry_pending_schedules,
             "failed_other": failed_other,
         },
         "published_items": [
@@ -710,6 +756,12 @@ async def get_publish_observability(
                 "title": item.title,
                 "published_at": item.published_at.isoformat() if item.published_at else None,
                 "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+                "schedule_status": (
+                    latest_schedule.status if (latest_schedule := _pick_latest_schedule_for_content(schedules_by_content, item.id)) else None
+                ),
+                "schedule_retry_count": latest_schedule.retry_count if latest_schedule else 0,
+                "schedule_error_message": latest_schedule.error_message if latest_schedule else None,
+                "schedule_scheduled_at": latest_schedule.scheduled_at.isoformat() if latest_schedule and latest_schedule.scheduled_at else None,
                 "channel_connection_id": str(item.channel_connection_id) if item.channel_connection_id else None,
                 "channel_type": channel.channel_type if channel else None,
                 "account_name": channel.account_name if channel else None,
@@ -724,6 +776,12 @@ async def get_publish_observability(
                 "failure_category": _classify_publish_error(item.publish_error)[0],
                 "failure_label": _classify_publish_error(item.publish_error)[1],
                 "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+                "schedule_status": (
+                    latest_schedule.status if (latest_schedule := _pick_latest_schedule_for_content(schedules_by_content, item.id)) else None
+                ),
+                "schedule_retry_count": latest_schedule.retry_count if latest_schedule else 0,
+                "schedule_error_message": latest_schedule.error_message if latest_schedule else None,
+                "schedule_scheduled_at": latest_schedule.scheduled_at.isoformat() if latest_schedule and latest_schedule.scheduled_at else None,
                 "channel_connection_id": str(item.channel_connection_id) if item.channel_connection_id else None,
                 "channel_type": channel.channel_type if channel else None,
                 "account_name": channel.account_name if channel else None,

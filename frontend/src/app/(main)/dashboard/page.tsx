@@ -66,6 +66,7 @@ interface PublishObservability {
     failed_token_missing: number
     failed_missing_channel: number
     failed_retrying: number
+    retry_pending_schedules: number
     failed_other: number
   }
   published_items: Array<{
@@ -83,6 +84,10 @@ interface PublishObservability {
     title: string
     published_at?: string | null
     updated_at?: string | null
+    schedule_status?: string | null
+    schedule_retry_count?: number
+    schedule_error_message?: string | null
+    schedule_scheduled_at?: string | null
     channel_connection_id?: string | null
     channel_type?: string | null
     account_name?: string | null
@@ -94,6 +99,10 @@ interface PublishObservability {
     failure_category?: string | null
     failure_label?: string | null
     updated_at?: string | null
+    schedule_status?: string | null
+    schedule_retry_count?: number
+    schedule_error_message?: string | null
+    schedule_scheduled_at?: string | null
     channel_connection_id?: string | null
     channel_type?: string | null
     account_name?: string | null
@@ -121,6 +130,7 @@ const EMPTY_PUBLISH_OBSERVABILITY: PublishObservability = {
     failed_token_missing: 0,
     failed_missing_channel: 0,
     failed_retrying: 0,
+    retry_pending_schedules: 0,
     failed_other: 0,
   },
   published_items: [],
@@ -241,6 +251,7 @@ function normalizePublishObservability(value: unknown): PublishObservability {
       failed_token_missing: Number(data.summary?.failed_token_missing ?? 0),
       failed_missing_channel: Number(data.summary?.failed_missing_channel ?? 0),
       failed_retrying: Number(data.summary?.failed_retrying ?? 0),
+      retry_pending_schedules: Number(data.summary?.retry_pending_schedules ?? 0),
       failed_other: Number(data.summary?.failed_other ?? 0),
     },
     published_items: Array.isArray(data.published_items) ? data.published_items : [],
@@ -431,7 +442,7 @@ export default function DashboardPage() {
               <div className="text-xs text-gray-500 text-right">
                 <div>증거 {publishObservability?.summary.published_with_evidence ?? 0} · 의심 {publishObservability?.summary.published_without_evidence ?? 0} · 실패 {publishObservability?.summary.failed_with_error ?? 0}</div>
                 <div className="mt-1">증거누락 {publishObservability?.summary.failed_missing_evidence ?? 0} · 미지원채널 {publishObservability?.summary.failed_unsupported_platform ?? 0} · 토큰만료 {publishObservability?.summary.failed_token_expired ?? 0}</div>
-                <div className="mt-1">토큰없음 {publishObservability?.summary.failed_token_missing ?? 0} · 채널/콘텐츠 누락 {publishObservability?.summary.failed_missing_channel ?? 0} · 재시도중 {publishObservability?.summary.failed_retrying ?? 0} · 기타 {publishObservability?.summary.failed_other ?? 0}</div>
+                <div className="mt-1">토큰없음 {publishObservability?.summary.failed_token_missing ?? 0} · 채널/콘텐츠 누락 {publishObservability?.summary.failed_missing_channel ?? 0} · 재시도 실패표시 {publishObservability?.summary.failed_retrying ?? 0} · 재시도 대기 예약 {publishObservability?.summary.retry_pending_schedules ?? 0} · 기타 {publishObservability?.summary.failed_other ?? 0}</div>
               </div>
             </div>
 
@@ -461,6 +472,9 @@ export default function DashboardPage() {
                       <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
                       <p className="text-[11px] text-gray-500 mt-1">채널: {item.channel_type || "-"}{item.account_name ? ` · ${item.account_name}` : ""}</p>
                       <p className="text-[11px] text-amber-700 mt-1">published 상태지만 post_id / url 증거가 없습니다</p>
+                      {item.schedule_status === "pending" && (item.schedule_retry_count ?? 0) > 0 && (
+                        <p className="text-[11px] text-amber-700 mt-1">예약 재시도 대기 {item.schedule_retry_count}회 · 다음 예정 {item.schedule_scheduled_at ? new Date(item.schedule_scheduled_at).toLocaleString("ko-KR") : "-"}</p>
+                      )}
                       <p className="text-[11px] text-gray-500 mt-1">업데이트 {item.updated_at ? new Date(item.updated_at).toLocaleString("ko-KR") : "-"}</p>
                     </div>
                   ))}
@@ -480,7 +494,10 @@ export default function DashboardPage() {
                         <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium ${failureBadge(item.failure_category)}`}>{item.failure_label || "기타 오류"}</span>
                       </div>
                       <p className="text-[11px] text-gray-500 mt-1">채널: {item.channel_type || "-"}{item.account_name ? ` · ${item.account_name}` : ""}</p>
-                      <p className="text-[11px] text-red-700 mt-1 line-clamp-2">{item.publish_error || "실패 사유 없음"}</p>
+                      {item.schedule_status === "pending" && (item.schedule_retry_count ?? 0) > 0 && (
+                        <p className="text-[11px] text-amber-700 mt-1">예약 재시도 대기 {item.schedule_retry_count}회 · 다음 예정 {item.schedule_scheduled_at ? new Date(item.schedule_scheduled_at).toLocaleString("ko-KR") : "-"}</p>
+                      )}
+                      <p className="text-[11px] text-red-700 mt-1 line-clamp-2">{item.publish_error || item.schedule_error_message || "실패 사유 없음"}</p>
                     </div>
                   ))}
                   {(publishObservability?.failed_items || []).length === 0 && (
