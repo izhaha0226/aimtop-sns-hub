@@ -146,6 +146,7 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
         "summary": summary,
         "details": {
             "active_accounts": len(active_rows),
+            "live_supported_accounts": len(live_supported_rows),
             "live_accounts": len(live_rows),
             "mixed_accounts": len(mixed_rows),
             "placeholder_only_accounts": len(placeholder_rows),
@@ -162,6 +163,8 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
             "inactive_accounts": max(len(diagnostics) - len(active_rows), 0),
             "live_post_count": sum(int(row.get("live_post_count") or 0) for row in active_rows),
             "placeholder_post_count": sum(int(row.get("placeholder_post_count") or 0) for row in active_rows),
+            "actual_metric_posts": sum(int(row.get("actual_metric_count") or 0) for row in active_rows),
+            "proxy_metric_posts": sum(int(row.get("proxy_metric_count") or 0) for row in active_rows),
         },
     }
 

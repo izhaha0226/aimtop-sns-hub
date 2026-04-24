@@ -154,6 +154,7 @@ const PIPELINE_DETAIL_LABELS: Record<string, string> = {
   suspicious_published_without_evidence: "증거 없는 published",
   failed_publish_count: "발행 실패",
   active_accounts: "활성 계정",
+  live_supported_accounts: "실수집 지원 계정",
   live_accounts: "실데이터 계정",
   mixed_accounts: "혼재 계정",
   placeholder_only_accounts: "샘플 대체 전용",
@@ -170,6 +171,8 @@ const PIPELINE_DETAIL_LABELS: Record<string, string> = {
   inactive_accounts: "비활성 계정",
   live_post_count: "실데이터 포스트",
   placeholder_post_count: "샘플 포스트",
+  actual_metric_posts: "실조회수 포스트",
+  proxy_metric_posts: "프록시조회수 포스트",
   benchmark_accounts: "벤치 계정 수",
   benchmark_posts: "벤치 포스트 수",
 }
@@ -178,7 +181,7 @@ const PIPELINE_DETAIL_ORDER: Record<PipelineKey, string[]> = {
   ai_generation: ["blocked_tasks", "fallback_only_tasks", "fallback_missing_tasks", "primary_ready_tasks", "openai_key_present", "claude_cli_available"],
   oauth_connections: ["reauth_required", "token_missing_channels", "unknown_token_channels", "connected_channels", "supported_healthy_channels", "meta_app_id_present", "meta_app_secret_present"],
   publishing: ["suspicious_published_without_evidence", "failed_publish_count", "token_missing_channels", "unsupported_connected_channels", "unknown_token_channels", "supported_connected_channels", "supported_healthy_channels", "published_evidence_count"],
-  benchmarking: ["token_missing_accounts", "duplicate_source_accounts", "duplicate_source_connections", "collector_error_accounts", "placeholder_only_accounts", "no_data_accounts", "never_refreshed_accounts", "stale_refresh_accounts", "live_accounts", "active_accounts"],
+  benchmarking: ["token_missing_accounts", "collector_error_accounts", "manual_required_accounts", "unimplemented_accounts", "no_data_accounts", "never_refreshed_accounts", "stale_refresh_accounts", "duplicate_source_accounts", "duplicate_source_connections", "live_supported_accounts", "live_accounts", "actual_metric_posts", "proxy_metric_posts", "active_accounts"],
   unknown: [],
 }
 
@@ -265,7 +268,8 @@ function getPipelineDetailEntries(key: string, details: Record<string, string | 
     .filter((detailKey) => Object.prototype.hasOwnProperty.call(details, detailKey))
     .map((detailKey) => [detailKey, details[detailKey]] as [string, string | number | boolean | null])
   const remainingEntries = Object.entries(details).filter(([detailKey]) => !orderedKeys.includes(detailKey))
-  return [...orderedEntries, ...remainingEntries].slice(0, 6)
+  const limit = normalizedKey === "benchmarking" ? 10 : normalizedKey === "publishing" ? 8 : 6
+  return [...orderedEntries, ...remainingEntries].slice(0, limit)
 }
 
 export default function DashboardPage() {
