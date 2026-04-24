@@ -28,6 +28,23 @@ const PLATFORM_SUPPORT: Record<string, string> = {
   kakao: "미구현",
 }
 
+const PLATFORM_SUPPORT_LEVEL: Record<string, "live" | "manual" | "unimplemented"> = {
+  instagram: "live",
+  facebook: "live",
+  x: "live",
+  youtube: "live",
+  threads: "manual",
+  tiktok: "unimplemented",
+  linkedin: "unimplemented",
+  kakao: "unimplemented",
+}
+
+function readinessTone(status: "ready" | "warning" | "blocked") {
+  if (status === "ready") return "bg-emerald-50 text-emerald-700 border-emerald-200"
+  if (status === "warning") return "bg-amber-50 text-amber-700 border-amber-200"
+  return "bg-rose-50 text-rose-700 border-rose-200"
+}
+
 function parseMetadata(platform: string, raw: string) {
   const value = raw.trim()
   if (!value) return undefined
@@ -115,6 +132,100 @@ export default function ClientBenchmarkPage() {
   useEffect(() => { void load(platform, topK) }, [load, platform, topK])
 
   const platformAccounts = useMemo(() => accounts.filter((item) => item.platform === platform), [accounts, platform])
+
+  const platformSupportLevel = PLATFORM_SUPPORT_LEVEL[platform] || "unimplemented"
+  const activePlatformAccounts = useMemo(() => platformAccounts.filter((item) => item.is_active), [platformAccounts])
+  const dataSummary = useMemo(() => {
+    const liveCount = topPosts.filter((post) => postSourceLabel(post) === "실데이터").length
+    const placeholderCount = topPosts.filter((post) => postSourceLabel(post) === "샘플 대체").length
+    const actualMetricCount = topPosts.filter((post) => String(post.raw_payload?.view_metric || "") === "actual").length
+    const proxyMetricCount = topPosts.filter((post) => {
+      const metric = String(post.raw_payload?.view_metric || "")
+      return metric.startsWith("proxy_")
+    }).length
+    return {
+      liveCount,
+      placeholderCount,
+      actualMetricCount,
+      proxyMetricCount,
+      total: topPosts.length,
+    }
+  }, [topPosts])
+
+  const readiness = useMemo(() => {
+    if (platformAccounts.length === 0) {
+      return {
+        status: "blocked" as const,
+        title: "계정 미등록",
+        detail: "이 플랫폼의 벤치마킹 계정을 먼저 등록해야 현재 상태를 판단할 수 있습니다.",
+      }
+    }
+
+    if (platformSupportLevel === "unimplemented") {
+      return {
+        status: "blocked" as const,
+        title: "실수집기 미구현",
+        detail: "현재 플랫폼은 운영 화면에서 준비 상태만 확인 가능하며 실벤치마킹 적재는 아직 지원되지 않습니다.",
+      }
+    }
+
+    if (platformSupportLevel === "manual") {
+      return {
+        status: "warning" as const,
+        title: "수동 확인 필요",
+        detail: "자동 실수집이 아니라 운영자가 직접 수집/입력 여부를 확인해야 하는 플랫폼입니다.",
+      }
+    }
+
+    if (dataSummary.liveCount > 0 && dataSummary.placeholderCount === 0) {
+      return {
+        status: "ready" as const,
+        title: "실데이터 확보",
+        detail: dataSummary.actualMetricCount > 0 ? "실조회수 데이터가 포함되어 있습니다." : "실수집은 되었지만 조회수는 프록시 지표입니다.",
+      }
+    }
+
+    if (dataSummary.liveCount > 0 && dataSummary.placeholderCount > 0) {
+      return {
+        status: "warning" as const,
+        title: "실데이터/샘플 혼재",
+        detail: "일부는 실수집, 일부는 샘플 대체 또는 미수집 상태입니다. 운영 판단 시 분리해서 봐야 합니다.",
+      }
+    }
+
+    if (dataSummary.placeholderCount > 0) {
+      return {
+        status: "warning" as const,
+        title: "샘플 대체만 존재",
+        detail: "현재 화면의 top posts는 실데이터가 아니라 placeholder fallback일 가능성이 큽니다.",
+      }
+    }
+
+    return {
+      status: "warning" as const,
+      title: "실데이터 없음",
+      detail: "계정은 등록되어 있지만 아직 적재된 실데이터가 없습니다. 연결 채널/토큰/collector 상태를 확인해야 합니다.",
+    }
+  }, [dataSummary.actualMetricCount, dataSummary.liveCount, dataSummary.placeholderCount, platformAccounts.length, platformSupportLevel])
+
+  const profileSummary = useMemo(() => {
+    if (!profile) {
+      return {
+        title: "프로필 없음",
+        detail: "아직 액션 랭귀지 프로필이 생성되지 않았습니다.",
+      }
+    }
+    if (profile.source_scope === "industry_fallback") {
+      return {
+        title: "업종 fallback",
+        detail: `${profile.industry_category || "미분류 업종"} 기준 샘플 ${profile.sample_count || 0}개로 생성된 공용 프로필입니다.`,
+      }
+    }
+    return {
+      title: "직접 학습",
+      detail: `현재 클라이언트 데이터 ${profile.sample_count || 0}개 기준으로 생성된 직접 학습 프로필입니다.`,
+    }
+  }, [profile])
 
   async function handleCreateAccount() {
     if (!form.handle.trim()) return
@@ -205,8 +316,35 @@ export default function ClientBenchmarkPage() {
         ))}
       </div>
 
-      <div className="rounded-xl border bg-slate-50 px-4 py-3 text-xs text-slate-700">
-        현재 지원 상태: {PLATFORM_SUPPORT[platform] || "미정"}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-xl border bg-white p-4">
+          <div className="text-xs text-gray-500">플랫폼 지원 상태</div>
+          <div className="mt-2 text-sm font-semibold text-gray-900">{PLATFORM_SUPPORT[platform] || "미정"}</div>
+          <div className="mt-2 text-xs text-gray-500">{platformSupportLevel === "live" ? "실수집 가능" : platformSupportLevel === "manual" ? "수동 확인 필요" : "아직 미구현"}</div>
+        </div>
+        <div className="rounded-xl border bg-white p-4">
+          <div className="text-xs text-gray-500">등록/활성 계정</div>
+          <div className="mt-2 text-sm font-semibold text-gray-900">{platformAccounts.length}개 등록 · {activePlatformAccounts.length}개 활성</div>
+          <div className="mt-2 text-xs text-gray-500">비활성 계정 {Math.max(platformAccounts.length - activePlatformAccounts.length, 0)}개</div>
+        </div>
+        <div className="rounded-xl border bg-white p-4">
+          <div className="text-xs text-gray-500">실데이터 정합성</div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${readinessTone(readiness.status)}`}>{readiness.title}</span>
+          </div>
+          <div className="mt-2 text-xs text-gray-500">실데이터 {dataSummary.liveCount} · 샘플대체 {dataSummary.placeholderCount} · 프록시조회수 {dataSummary.proxyMetricCount}</div>
+        </div>
+        <div className="rounded-xl border bg-white p-4">
+          <div className="text-xs text-gray-500">프로필 출처</div>
+          <div className="mt-2 text-sm font-semibold text-gray-900">{profileSummary.title}</div>
+          <div className="mt-2 text-xs text-gray-500">{profile ? `샘플 ${profile.sample_count || 0}개` : "프로필 미생성"}</div>
+        </div>
+      </div>
+
+      <div className={`rounded-xl border px-4 py-3 text-xs ${readinessTone(readiness.status)}`}>
+        <div className="font-semibold">현재 운영 판정: {readiness.title}</div>
+        <div className="mt-1">{readiness.detail}</div>
+        <div className="mt-1 text-[11px] opacity-80">{profileSummary.detail}</div>
       </div>
 
       <div className="bg-white rounded-xl border p-5 space-y-4">
