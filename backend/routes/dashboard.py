@@ -12,10 +12,13 @@ from models.channel import ChannelConnection
 from models.user import User
 from models.benchmark_account import BenchmarkAccount
 from models.benchmark_post import BenchmarkPost
+from models.llm_provider_config import LLMProviderConfig
+from models.llm_task_policy import LLMTaskPolicy
 from middleware.auth import get_current_user
 from services.runtime_settings import get_runtime_setting
 from services.sns_publisher import SNSPublisher
 from services.benchmark_collector_service import BenchmarkCollectorService
+from services.llm.router import DEFAULT_PROVIDER_ROWS, DEFAULT_TASK_POLICIES
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
@@ -114,6 +117,176 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
             "inactive_accounts": max(len(diagnostics) - len(active_rows), 0),
             "live_post_count": sum(int(row.get("live_post_count") or 0) for row in active_rows),
             "placeholder_post_count": sum(int(row.get("placeholder_post_count") or 0) for row in active_rows),
+        },
+    }
+
+
+def _runtime_provider_available(provider_name: str | None, *, openai_key_present: bool, claude_cli_available: bool) -> bool:
+    if provider_name == "gpt":
+        return openai_key_present
+    if provider_name == "claude":
+        return claude_cli_available
+    return False
+
+
+async def _summarize_ai_generation_readiness(
+    db: AsyncSession,
+    *,
+    openai_key_present: bool,
+    claude_cli_available: bool,
+) -> dict:
+    provider_result = await db.execute(select(LLMProviderConfig))
+    provider_rows = list(provider_result.scalars().all())
+    provider_index = {(row.provider_name, row.model_name): row for row in provider_rows}
+    default_provider_index = {
+        (row["provider_name"], row["model_name"]): row
+        for row in DEFAULT_PROVIDER_ROWS
+    }
+
+    policy_result = await db.execute(
+        select(LLMTaskPolicy)
+        .where(LLMTaskPolicy.is_active == True)
+        .order_by(LLMTaskPolicy.task_type)
+    )
+    policy_rows = list(policy_result.scalars().all())
+    policies = [
+        {
+            "task_type": row.task_type,
+            "primary_provider": row.primary_provider,
+            "primary_model": row.primary_model,
+            "fallback_provider": row.fallback_provider,
+            "fallback_model": row.fallback_model,
+            "fallback_enabled": row.fallback_enabled,
+        }
+        for row in policy_rows
+    ] or [
+        {
+            "task_type": task_type,
+            "primary_provider": config.get("primary_provider"),
+            "primary_model": config.get("primary_model"),
+            "fallback_provider": config.get("fallback_provider"),
+            "fallback_model": config.get("fallback_model"),
+            "fallback_enabled": True,
+        }
+        for task_type, config in DEFAULT_TASK_POLICIES.items()
+    ]
+
+    blocked_tasks: list[str] = []
+    fallback_only_tasks: list[str] = []
+    fallback_missing_tasks: list[str] = []
+    missing_provider_config_tasks: list[str] = []
+    inactive_provider_tasks: list[str] = []
+    primary_routes: set[str] = set()
+    fallback_routes: set[str] = set()
+    primary_ready_tasks = 0
+    fallback_ready_tasks = 0
+
+    for policy in policies:
+        primary_provider = policy.get("primary_provider")
+        primary_model = policy.get("primary_model")
+        fallback_provider = policy.get("fallback_provider")
+        fallback_model = policy.get("fallback_model")
+        fallback_enabled = bool(policy.get("fallback_enabled"))
+        task_type = str(policy.get("task_type") or "unknown")
+
+        primary_key = (primary_provider, primary_model)
+        primary_cfg = provider_index.get(primary_key)
+        primary_default_cfg = default_provider_index.get(primary_key)
+        primary_config_present = primary_cfg is not None or primary_default_cfg is not None
+        primary_config_active = bool(getattr(primary_cfg, "is_active", True)) if primary_cfg is not None else primary_default_cfg is not None
+        primary_runtime_ready = _runtime_provider_available(
+            primary_provider,
+            openai_key_present=openai_key_present,
+            claude_cli_available=claude_cli_available,
+        )
+        primary_ready = bool(primary_provider and primary_model and primary_config_present and primary_config_active and primary_runtime_ready)
+        if primary_provider and primary_model:
+            primary_routes.add(f"{primary_provider}:{primary_model}")
+        if primary_ready:
+            primary_ready_tasks += 1
+        elif not primary_config_present:
+            missing_provider_config_tasks.append(task_type)
+        elif not primary_config_active:
+            inactive_provider_tasks.append(task_type)
+
+        fallback_ready = False
+        fallback_config_problem = False
+        if fallback_enabled and fallback_provider and fallback_model:
+            fallback_key = (fallback_provider, fallback_model)
+            fallback_cfg = provider_index.get(fallback_key)
+            fallback_default_cfg = default_provider_index.get(fallback_key)
+            fallback_config_present = fallback_cfg is not None or fallback_default_cfg is not None
+            fallback_config_active = bool(getattr(fallback_cfg, "is_active", True)) if fallback_cfg is not None else fallback_default_cfg is not None
+            fallback_runtime_ready = _runtime_provider_available(
+                fallback_provider,
+                openai_key_present=openai_key_present,
+                claude_cli_available=claude_cli_available,
+            )
+            fallback_ready = bool(fallback_config_present and fallback_config_active and fallback_runtime_ready)
+            fallback_routes.add(f"{fallback_provider}:{fallback_model}")
+            if fallback_ready:
+                fallback_ready_tasks += 1
+            elif not fallback_config_present:
+                missing_provider_config_tasks.append(task_type)
+                fallback_config_problem = True
+            elif not fallback_config_active:
+                inactive_provider_tasks.append(task_type)
+                fallback_config_problem = True
+        elif fallback_enabled:
+            fallback_config_problem = True
+
+        if not primary_ready and fallback_ready:
+            fallback_only_tasks.append(task_type)
+        elif primary_ready and fallback_enabled and not fallback_ready:
+            fallback_missing_tasks.append(task_type)
+
+        if not primary_ready and not fallback_ready:
+            blocked_tasks.append(task_type)
+        elif fallback_config_problem and not primary_ready:
+            blocked_tasks.append(task_type)
+
+    active_task_count = len(policies)
+    blocked_count = len(set(blocked_tasks))
+    fallback_only_count = len(set(fallback_only_tasks))
+    fallback_missing_count = len(set(fallback_missing_tasks))
+    missing_provider_config_count = len(set(missing_provider_config_tasks))
+    inactive_provider_count = len(set(inactive_provider_tasks))
+
+    if active_task_count == 0:
+        status = "blocked"
+        summary = "활성 AI 작업 정책이 없어 생성 경로를 판단할 수 없습니다"
+    elif blocked_count == active_task_count:
+        status = "blocked"
+        summary = "AI 생성 정책 전부가 현재 런타임 또는 설정 기준에서 막혀 있습니다"
+    elif blocked_count > 0:
+        status = "warning"
+        summary = f"AI 생성 정책 {blocked_count}개가 현재 막혀 있어 일부 작업은 생성이 실패할 수 있습니다"
+    elif fallback_only_count > 0:
+        status = "warning"
+        summary = f"AI 생성 정책 {fallback_only_count}개가 기본 경로 없이 fallback 경로에 의존합니다"
+    elif fallback_missing_count > 0 or missing_provider_config_count > 0 or inactive_provider_count > 0:
+        status = "warning"
+        summary = "AI 생성은 가능하지만 fallback/설정 활성 상태가 불완전해 장애 시 취약합니다"
+    else:
+        status = "ready"
+        summary = "활성 AI 생성 정책이 현재 설정과 런타임 기준에서 실행 가능합니다"
+
+    return {
+        "status": status,
+        "summary": summary,
+        "details": {
+            "active_task_policies": active_task_count,
+            "blocked_tasks": blocked_count,
+            "fallback_only_tasks": fallback_only_count,
+            "fallback_missing_tasks": fallback_missing_count,
+            "missing_provider_config_tasks": missing_provider_config_count,
+            "inactive_provider_tasks": inactive_provider_count,
+            "primary_ready_tasks": primary_ready_tasks,
+            "fallback_ready_tasks": fallback_ready_tasks,
+            "openai_key_present": openai_key_present,
+            "claude_cli_available": claude_cli_available,
+            "primary_routes": ", ".join(sorted(primary_routes)) or "-",
+            "fallback_routes": ", ".join(sorted(fallback_routes)) or "-",
         },
     }
 
@@ -264,21 +437,19 @@ async def get_pipeline_readiness(
     meta_app_id_present = bool(await get_runtime_setting("meta_app_id"))
     meta_app_secret_present = bool(await get_runtime_setting("meta_app_secret"))
     claude_cli_available = shutil.which("claude") is not None
+    ai_generation_summary = await _summarize_ai_generation_readiness(
+        db,
+        openai_key_present=openai_key_present,
+        claude_cli_available=claude_cli_available,
+    )
 
     items = [
         {
             "key": "ai_generation",
             "label": "AI 생성",
-            "status": "ready" if openai_key_present else "blocked",
-            "summary": "GPT 기본 생성 엔진 준비 상태",
-            "details": {
-                "primary_provider": "gpt",
-                "primary_model": "gpt-5.4",
-                "fallback_provider": "claude",
-                "fallback_model": "claude-opus-5.7",
-                "openai_key_present": openai_key_present,
-                "claude_cli_available": claude_cli_available,
-            },
+            "status": ai_generation_summary["status"],
+            "summary": ai_generation_summary["summary"],
+            "details": ai_generation_summary["details"],
         },
         {
             "key": "oauth_connections",
