@@ -65,6 +65,7 @@ class RefreshAccountResponse(BaseModel):
     message: str
     inserted: int = 0
     profile_id: uuid.UUID | None = None
+    profile_generated: bool = False
     live_supported: bool = False
     platform: str | None = None
     used_placeholder: bool = False
@@ -110,6 +111,8 @@ class BenchmarkAccountDiagnosticResponse(BaseModel):
     last_refresh_status: str | None = None
     last_refresh_status_label: str | None = None
     last_refresh_message: str | None = None
+    last_refresh_profile_id: uuid.UUID | None = None
+    last_refresh_profile_generated: bool = False
     last_refresh_at: datetime | None = None
 
 

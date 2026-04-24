@@ -141,6 +141,7 @@ class BenchmarkCollectorService:
             "status_label": STATUS_LABELS.get(status_payload.get("status", ""), status_payload.get("status")),
             "inserted": inserted,
             "profile_id": profile.id if profile else None,
+            "profile_generated": bool(profile and profile.id),
             "used_placeholder": used_placeholder or bool(status_payload.get("used_placeholder")),
             "refreshed_at": refreshed_at,
         }
@@ -413,6 +414,8 @@ class BenchmarkCollectorService:
             "last_refresh_status": last_refresh.get("status"),
             "last_refresh_status_label": last_refresh.get("status_label"),
             "last_refresh_message": last_refresh.get("message"),
+            "last_refresh_profile_id": last_refresh.get("profile_id"),
+            "last_refresh_profile_generated": bool(last_refresh.get("profile_generated") or last_refresh.get("profile_id")),
             "last_refresh_at": self._parse_refresh_datetime(last_refresh.get("refreshed_at")),
             **post_summary,
         }
@@ -570,6 +573,8 @@ class BenchmarkCollectorService:
             "status_label": payload.get("status_label"),
             "message": payload.get("message"),
             "inserted": int(payload.get("inserted") or 0),
+            "profile_id": str(payload.get("profile_id")) if payload.get("profile_id") else None,
+            "profile_generated": bool(payload.get("profile_generated") or payload.get("profile_id")),
             "used_placeholder": bool(payload.get("used_placeholder")),
             "data_source": payload.get("data_source"),
             "data_source_label": payload.get("data_source_label"),

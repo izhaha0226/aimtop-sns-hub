@@ -58,6 +58,7 @@ export interface RefreshAccountResult {
   message: string
   inserted: number
   profile_id?: string | null
+  profile_generated?: boolean
   live_supported?: boolean
   platform?: string
   used_placeholder?: boolean
@@ -103,6 +104,8 @@ export interface BenchmarkAccountDiagnosticItem {
   last_refresh_status?: string | null
   last_refresh_status_label?: string | null
   last_refresh_message?: string | null
+  last_refresh_profile_id?: string | null
+  last_refresh_profile_generated?: boolean
   last_refresh_at?: string | null
 }
 

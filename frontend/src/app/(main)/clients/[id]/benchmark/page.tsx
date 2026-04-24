@@ -504,6 +504,9 @@ export default function ClientBenchmarkPage() {
                   const latestRefreshStatus = useRefreshMeta ? (refreshState?.status || null) : (diagnostic?.last_refresh_status || null)
                   const latestRefreshStatusLabel = useRefreshMeta ? (refreshState?.status_label || null) : (diagnostic?.last_refresh_status_label || null)
                   const latestRefreshMessage = useRefreshMeta ? (refreshState?.message || null) : (diagnostic?.last_refresh_message || null)
+                  const latestProfileGenerated = useRefreshMeta
+                    ? Boolean(refreshState?.profile_generated || refreshState?.profile_id)
+                    : Boolean(diagnostic?.last_refresh_profile_generated || diagnostic?.last_refresh_profile_id)
                   const isEditing = editingId === item.id
                   return (
                     <div key={item.id} className="rounded-lg border px-3 py-3 space-y-2">
@@ -575,6 +578,11 @@ export default function ClientBenchmarkPage() {
                                 {latestRefreshStatusLabel && (
                                   <div className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${badgeTone(latestRefreshStatus || undefined)}`}>
                                     마지막 점검 {latestRefreshStatusLabel}
+                                  </div>
+                                )}
+                                {latestRefreshAt && (
+                                  <div className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${latestProfileGenerated ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-700 border-slate-200"}`}>
+                                    {latestProfileGenerated ? "프로필 생성됨" : "프로필 미생성"}
                                   </div>
                                 )}
                                 {!latestRefreshAt && item.is_active && (
