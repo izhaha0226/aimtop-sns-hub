@@ -78,6 +78,9 @@ class RefreshAccountResponse(BaseModel):
     source_channel_account_name: str | None = None
     source_channel_missing_reason: str | None = None
     source_channel_has_token: bool = False
+    source_channel_connection_count: int = 0
+    source_channel_duplicate_count: int = 0
+    source_channel_duplicate_warning: bool = False
     refreshed_at: datetime | None = None
 
 
@@ -98,6 +101,9 @@ class BenchmarkAccountDiagnosticResponse(BaseModel):
     source_channel_account_name: str | None = None
     source_channel_missing_reason: str | None = None
     source_channel_has_token: bool = False
+    source_channel_connection_count: int = 0
+    source_channel_duplicate_count: int = 0
+    source_channel_duplicate_warning: bool = False
     live_post_count: int = 0
     placeholder_post_count: int = 0
     actual_metric_count: int = 0

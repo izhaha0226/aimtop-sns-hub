@@ -608,6 +608,11 @@ export default function ClientBenchmarkPage() {
                                     토큰 없음
                                   </div>
                                 )}
+                                {accountState.source_channel_duplicate_warning && (
+                                  <div className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-violet-50 text-violet-700 border-violet-200">
+                                    중복 연결 {accountState.source_channel_connection_count || (accountState.source_channel_duplicate_count || 0) + 1}개
+                                  </div>
+                                )}
                               </div>
                               {(accountState.data_source_label || latestRefreshDataSourceLabel) && <div className="text-[11px] text-gray-600">데이터 소스: {accountState.data_source_label || latestRefreshDataSourceLabel}</div>}
                               {!accountState.view_metric_label && latestRefreshViewMetricLabel && <div className="text-[11px] text-gray-600">최근 측정 기준: {latestRefreshViewMetricLabel}</div>}
@@ -615,6 +620,7 @@ export default function ClientBenchmarkPage() {
                                 <div className={`text-[11px] ${accountState.source_channel_has_token === false ? "text-amber-700" : "text-emerald-700"}`}>
                                   연결 채널: {accountState.source_channel_account_name || accountState.source_channel_platform || item.platform}
                                   {accountState.source_channel_has_token === false ? ` · ${accountState.source_channel_missing_reason || "토큰 없음"}` : ""}
+                                  {accountState.source_channel_duplicate_warning ? ` · 동일 플랫폼 연결 ${accountState.source_channel_connection_count || (accountState.source_channel_duplicate_count || 0) + 1}개 중 사용 가능한 row 기준` : ""}
                                 </div>
                               ) : (
                                 <div className="text-[11px] text-amber-700">연결 상태: {accountState.source_channel_missing_reason || "연결 채널 확인 필요"}</div>

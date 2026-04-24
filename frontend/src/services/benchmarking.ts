@@ -71,6 +71,9 @@ export interface RefreshAccountResult {
   source_channel_account_name?: string | null
   source_channel_missing_reason?: string | null
   source_channel_has_token?: boolean
+  source_channel_connection_count?: number
+  source_channel_duplicate_count?: number
+  source_channel_duplicate_warning?: boolean
   refreshed_at?: string | null
 }
 
@@ -91,6 +94,9 @@ export interface BenchmarkAccountDiagnosticItem {
   source_channel_account_name?: string | null
   source_channel_missing_reason?: string | null
   source_channel_has_token: boolean
+  source_channel_connection_count: number
+  source_channel_duplicate_count: number
+  source_channel_duplicate_warning: boolean
   live_post_count: number
   placeholder_post_count: number
   actual_metric_count: number

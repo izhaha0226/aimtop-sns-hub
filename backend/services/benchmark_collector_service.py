@@ -388,8 +388,10 @@ class BenchmarkCollectorService:
         platform = account.platform.lower()
         support_level = self._get_support_level(platform)
         support_label = SUPPORT_LEVEL_LABELS[support_level]
-        source_channel = await self._get_source_channel(account.client_id, platform)
+        source_channels = await self._get_source_channels(account.client_id, platform)
+        source_channel = self._pick_best_source_channel(source_channels)
         source_channel_has_token = self._channel_has_token(source_channel)
+        source_channel_connection_count = len(source_channels)
         posts = await self._get_posts_for_account(account.id)
         post_summary = self._summarize_posts(posts)
         last_refresh = self._get_last_refresh_result(account)
@@ -411,6 +413,9 @@ class BenchmarkCollectorService:
             "source_channel_account_name": getattr(source_channel, "account_name", None) if source_channel else None,
             "source_channel_missing_reason": None,
             "source_channel_has_token": source_channel_has_token,
+            "source_channel_connection_count": source_channel_connection_count,
+            "source_channel_duplicate_count": max(source_channel_connection_count - 1, 0),
+            "source_channel_duplicate_warning": source_channel_connection_count > 1,
             "last_refresh_status": last_refresh.get("status"),
             "last_refresh_status_label": last_refresh.get("status_label"),
             "last_refresh_message": last_refresh.get("message"),
@@ -550,14 +555,19 @@ class BenchmarkCollectorService:
 
     async def _build_source_channel_context(self, client_id: uuid.UUID, platform: str) -> dict:
         platform_normalized = platform.lower()
-        source_channel = await self._get_source_channel(client_id, platform_normalized)
+        source_channels = await self._get_source_channels(client_id, platform_normalized)
+        source_channel = self._pick_best_source_channel(source_channels)
         source_channel_has_token = self._channel_has_token(source_channel)
+        source_channel_connection_count = len(source_channels)
         return {
             "source_channel_connected": bool(source_channel),
             "source_channel_platform": platform_normalized,
             "source_channel_account_name": getattr(source_channel, "account_name", None) if source_channel else None,
             "source_channel_missing_reason": None if not source_channel or source_channel_has_token else "연결 레코드는 있으나 access token 없음",
             "source_channel_has_token": source_channel_has_token,
+            "source_channel_connection_count": source_channel_connection_count,
+            "source_channel_duplicate_count": max(source_channel_connection_count - 1, 0),
+            "source_channel_duplicate_warning": source_channel_connection_count > 1,
         }
 
     def _parse_refresh_datetime(self, value: object) -> datetime | None:
@@ -591,6 +601,9 @@ class BenchmarkCollectorService:
             "source_channel_account_name": payload.get("source_channel_account_name"),
             "source_channel_missing_reason": payload.get("source_channel_missing_reason"),
             "source_channel_has_token": bool(payload.get("source_channel_has_token")),
+            "source_channel_connection_count": int(payload.get("source_channel_connection_count") or 0),
+            "source_channel_duplicate_count": int(payload.get("source_channel_duplicate_count") or 0),
+            "source_channel_duplicate_warning": bool(payload.get("source_channel_duplicate_warning")),
             "refreshed_at": payload.get("refreshed_at").isoformat() if isinstance(payload.get("refreshed_at"), datetime) else None,
         }
         account.metadata_json = metadata
@@ -634,9 +647,11 @@ class BenchmarkCollectorService:
 
     async def _collect_live_posts(self, account: BenchmarkAccount, top_k: int, window_days: int) -> tuple[list[dict], dict]:
         platform = account.platform.lower()
-        source_channel = await self._get_source_channel(account.client_id, platform)
+        source_channels = await self._get_source_channels(account.client_id, platform)
+        source_channel = self._pick_best_source_channel(source_channels)
         source_channel_account_name = getattr(source_channel, "account_name", None) if source_channel else None
         source_channel_has_token = self._channel_has_token(source_channel)
+        source_channel_connection_count = len(source_channels)
 
         def manual_payload(message: str, missing_reason: str, *, connected: bool | None = None) -> dict:
             is_connected = bool(source_channel) if connected is None else connected
@@ -650,6 +665,9 @@ class BenchmarkCollectorService:
                 "source_channel_account_name": source_channel_account_name,
                 "source_channel_missing_reason": missing_reason,
                 "source_channel_has_token": source_channel_has_token,
+                "source_channel_connection_count": source_channel_connection_count,
+                "source_channel_duplicate_count": max(source_channel_connection_count - 1, 0),
+                "source_channel_duplicate_warning": source_channel_connection_count > 1,
             }
 
         if platform == "youtube":
@@ -675,6 +693,9 @@ class BenchmarkCollectorService:
                 "source_channel_platform": platform,
                 "source_channel_account_name": source_channel_account_name,
                 "source_channel_has_token": True,
+                "source_channel_connection_count": source_channel_connection_count,
+                "source_channel_duplicate_count": max(source_channel_connection_count - 1, 0),
+                "source_channel_duplicate_warning": source_channel_connection_count > 1,
                 "data_source": "youtube_api_live",
                 "data_source_label": DATA_SOURCE_LABELS["youtube_api_live"],
                 "view_metric_type": "actual",
@@ -703,6 +724,9 @@ class BenchmarkCollectorService:
                 "source_channel_platform": platform,
                 "source_channel_account_name": source_channel_account_name,
                 "source_channel_has_token": True,
+                "source_channel_connection_count": source_channel_connection_count,
+                "source_channel_duplicate_count": max(source_channel_connection_count - 1, 0),
+                "source_channel_duplicate_warning": source_channel_connection_count > 1,
                 "data_source": "x_api_live",
                 "data_source_label": DATA_SOURCE_LABELS["x_api_live"],
                 "view_metric_type": "proxy_from_public_metrics",
@@ -731,6 +755,9 @@ class BenchmarkCollectorService:
                 "source_channel_platform": platform,
                 "source_channel_account_name": source_channel_account_name,
                 "source_channel_has_token": True,
+                "source_channel_connection_count": source_channel_connection_count,
+                "source_channel_duplicate_count": max(source_channel_connection_count - 1, 0),
+                "source_channel_duplicate_warning": source_channel_connection_count > 1,
                 "data_source": "instagram_business_discovery",
                 "data_source_label": DATA_SOURCE_LABELS["instagram_business_discovery"],
                 "view_metric_type": "proxy_from_like_comment",
@@ -759,6 +786,9 @@ class BenchmarkCollectorService:
                 "source_channel_platform": platform,
                 "source_channel_account_name": source_channel_account_name,
                 "source_channel_has_token": True,
+                "source_channel_connection_count": source_channel_connection_count,
+                "source_channel_duplicate_count": max(source_channel_connection_count - 1, 0),
+                "source_channel_duplicate_warning": source_channel_connection_count > 1,
                 "data_source": "facebook_page_posts",
                 "data_source_label": DATA_SOURCE_LABELS["facebook_page_posts"],
                 "view_metric_type": "proxy_from_engagement",
@@ -774,7 +804,7 @@ class BenchmarkCollectorService:
             f"{platform} 실수집기 미구현",
         )
 
-    async def _get_source_channel(self, client_id: uuid.UUID, platform: str) -> ChannelConnection | None:
+    async def _get_source_channels(self, client_id: uuid.UUID, platform: str) -> list[ChannelConnection]:
         result = await self.db.execute(
             select(ChannelConnection)
             .where(
@@ -782,9 +812,21 @@ class BenchmarkCollectorService:
                 ChannelConnection.channel_type == platform,
                 ChannelConnection.is_connected.is_(True),
             )
-            .order_by(ChannelConnection.updated_at.desc())
+            .order_by(ChannelConnection.updated_at.desc(), ChannelConnection.created_at.desc())
         )
-        return result.scalars().first()
+        return list(result.scalars().all())
+
+    def _pick_best_source_channel(self, channels: list[ChannelConnection]) -> ChannelConnection | None:
+        if not channels:
+            return None
+        for channel in channels:
+            if self._channel_has_token(channel):
+                return channel
+        return channels[0]
+
+    async def _get_source_channel(self, client_id: uuid.UUID, platform: str) -> ChannelConnection | None:
+        channels = await self._get_source_channels(client_id, platform)
+        return self._pick_best_source_channel(channels)
 
     async def _collect_youtube_posts(
         self,
