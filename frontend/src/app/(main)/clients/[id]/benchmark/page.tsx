@@ -143,7 +143,7 @@ export default function ClientBenchmarkPage() {
 
   const platformSupportLevel = PLATFORM_SUPPORT_LEVEL[platform] || "unimplemented"
   const activePlatformAccounts = useMemo(() => platformAccounts.filter((item) => item.is_active), [platformAccounts])
-  const dataSummary = useMemo(() => {
+  const topPostsSummary = useMemo(() => {
     const liveCount = topPosts.filter((post) => postSourceLabel(post) === "실데이터").length
     const placeholderCount = topPosts.filter((post) => postSourceLabel(post) === "샘플 대체").length
     const actualMetricCount = topPosts.filter((post) => String(post.raw_payload?.view_metric || "") === "actual").length
@@ -166,6 +166,13 @@ export default function ClientBenchmarkPage() {
       blockedCount: activeRows.filter((item) => item.status === "manual_ingest_required").length,
       mixedCount: activeRows.filter((item) => item.status === "live_collected_mixed").length,
       noDataCount: activeRows.filter((item) => item.status === "no_data_collected").length,
+      placeholderOnlyCount: activeRows.filter((item) => item.status === "placeholder_fallback").length,
+      liveAccountCount: activeRows.filter((item) => item.status === "live_collected" || item.status === "live_collected_proxy_views").length,
+      livePostCount: activeRows.reduce((sum, item) => sum + item.live_post_count, 0),
+      placeholderPostCount: activeRows.reduce((sum, item) => sum + item.placeholder_post_count, 0),
+      actualMetricCount: activeRows.reduce((sum, item) => sum + item.actual_metric_count, 0),
+      proxyMetricCount: activeRows.reduce((sum, item) => sum + item.proxy_metric_count, 0),
+      totalPostCount: activeRows.reduce((sum, item) => sum + item.total_post_count, 0),
       tokenMissingCount: activeRows.filter((item) => item.source_channel_connected && !item.source_channel_has_token).length,
       inactiveCount: diagnostics.filter((item) => !item.is_active).length,
     }
@@ -204,52 +211,46 @@ export default function ClientBenchmarkPage() {
       }
     }
 
-    if (dataSummary.liveCount > 0 && dataSummary.placeholderCount === 0) {
-      return {
-        status: "ready" as const,
-        title: "실데이터 확보",
-        detail: dataSummary.actualMetricCount > 0 ? "실조회수 데이터가 포함되어 있습니다." : "실수집은 되었지만 조회수는 프록시 지표입니다.",
-      }
-    }
-
-    if (dataSummary.liveCount > 0 && dataSummary.placeholderCount > 0) {
-      return {
-        status: "warning" as const,
-        title: "실데이터/샘플 혼재",
-        detail: "일부는 실수집, 일부는 샘플 대체 또는 미수집 상태입니다. 운영 판단 시 분리해서 봐야 합니다.",
-      }
-    }
-
     if (diagnosticSummary.mixedCount > 0) {
       return {
         status: "warning" as const,
-        title: "계정 단위 혼재 상태",
-        detail: `실데이터와 샘플 대체가 함께 있는 계정 ${diagnosticSummary.mixedCount}개가 있습니다.`,
+        title: "실데이터/샘플 혼재",
+        detail: `실데이터와 샘플 대체가 함께 있는 계정 ${diagnosticSummary.mixedCount}개가 있습니다. 운영 판단 시 분리해서 봐야 합니다.`,
       }
     }
 
-    if (dataSummary.placeholderCount > 0) {
+    if (diagnosticSummary.liveAccountCount > 0) {
+      return {
+        status: "ready" as const,
+        title: "직접 실데이터 확보",
+        detail: diagnosticSummary.actualMetricCount > 0
+          ? "현재 클라이언트 계정 기준 실조회수 데이터가 포함되어 있습니다."
+          : "현재 클라이언트 계정 기준 실수집은 되었지만 조회수는 프록시 지표입니다.",
+      }
+    }
+
+    if (diagnosticSummary.placeholderOnlyCount > 0) {
       return {
         status: "warning" as const,
         title: "샘플 대체만 존재",
-        detail: "현재 화면의 top posts는 실데이터가 아니라 placeholder fallback일 가능성이 큽니다.",
+        detail: `직접 실데이터 없이 placeholder fallback 계정 ${diagnosticSummary.placeholderOnlyCount}개가 남아 있습니다.`,
       }
     }
 
     if (diagnosticSummary.blockedCount > 0 || diagnosticSummary.noDataCount > 0) {
       return {
         status: "warning" as const,
-        title: "실데이터 없음",
+        title: "직접 실데이터 없음",
         detail: `연결/collector 이슈 계정 ${diagnosticSummary.blockedCount}개, 아직 적재되지 않은 계정 ${diagnosticSummary.noDataCount}개가 있습니다.`,
       }
     }
 
     return {
       status: "warning" as const,
-      title: "실데이터 없음",
-      detail: "계정은 등록되어 있지만 아직 적재된 실데이터가 없습니다. 연결 채널/토큰/collector 상태를 확인해야 합니다.",
+      title: "직접 실데이터 없음",
+      detail: "계정은 등록되어 있지만 현재 클라이언트 기준 실수집 상태를 아직 확인하지 못했습니다. 연결 채널/토큰/collector 상태를 확인해야 합니다.",
     }
-  }, [dataSummary.actualMetricCount, dataSummary.liveCount, dataSummary.placeholderCount, diagnosticSummary.blockedCount, diagnosticSummary.mixedCount, diagnosticSummary.noDataCount, diagnosticSummary.tokenMissingCount, platformAccounts.length, platformSupportLevel])
+  }, [diagnosticSummary.actualMetricCount, diagnosticSummary.blockedCount, diagnosticSummary.liveAccountCount, diagnosticSummary.mixedCount, diagnosticSummary.noDataCount, diagnosticSummary.placeholderOnlyCount, diagnosticSummary.tokenMissingCount, platformAccounts.length, platformSupportLevel])
 
   const profileSummary = useMemo(() => {
     if (!profile) {
@@ -371,11 +372,14 @@ export default function ClientBenchmarkPage() {
           <div className="mt-2 text-xs text-gray-500">비활성 {Math.max(platformAccounts.length - activePlatformAccounts.length, 0)}개 · 토큰누락 {diagnosticSummary.tokenMissingCount}개</div>
         </div>
         <div className="rounded-xl border bg-white p-4">
-          <div className="text-xs text-gray-500">실데이터 정합성</div>
+          <div className="text-xs text-gray-500">직접 실데이터 정합성</div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${readinessTone(readiness.status)}`}>{readiness.title}</span>
+            {profile?.source_scope === "industry_fallback" && (
+              <span className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-violet-50 text-violet-700 border-violet-200">Top Posts는 업종 fallback일 수 있음</span>
+            )}
           </div>
-          <div className="mt-2 text-xs text-gray-500">실데이터 {dataSummary.liveCount} · 샘플대체 {dataSummary.placeholderCount} · 미적재 {diagnosticSummary.noDataCount}</div>
+          <div className="mt-2 text-xs text-gray-500">직접 실데이터 {diagnosticSummary.livePostCount} · 샘플대체 {diagnosticSummary.placeholderPostCount} · 미적재 {diagnosticSummary.noDataCount}</div>
         </div>
         <div className="rounded-xl border bg-white p-4">
           <div className="text-xs text-gray-500">프로필 출처</div>
@@ -387,6 +391,9 @@ export default function ClientBenchmarkPage() {
       <div className={`rounded-xl border px-4 py-3 text-xs ${readinessTone(readiness.status)}`}>
         <div className="font-semibold">현재 운영 판정: {readiness.title}</div>
         <div className="mt-1">{readiness.detail}</div>
+        {profile?.source_scope === "industry_fallback" && topPostsSummary.total > 0 && (
+          <div className="mt-1 text-[11px] opacity-80">현재 Top Posts는 이 클라이언트 직접 수집이 아니라 같은 업종 fallback 기준일 수 있습니다. 운영 판단은 위 직접 실데이터 정합성 카드와 계정 diagnostics를 우선 보셔야 합니다.</div>
+        )}
         <div className="mt-1 text-[11px] opacity-80">{profileSummary.detail}</div>
       </div>
 
@@ -550,6 +557,11 @@ export default function ClientBenchmarkPage() {
 
           <div className="bg-white rounded-xl border overflow-hidden">
             <div className="px-4 py-3 border-b bg-gray-50 font-semibold text-sm">Top Posts</div>
+            {profile?.source_scope === "industry_fallback" && topPostsSummary.total > 0 && (
+              <div className="mx-4 mt-4 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-700">
+                현재 Top Posts는 같은 업종의 기존 실데이터 fallback 결과일 수 있습니다. 이 클라이언트 직접 수집 성공 여부는 계정별 상태 배지와 직접 실데이터 정합성 카드로 판단해야 합니다.
+              </div>
+            )}
             <div className="divide-y">
               {topPosts.length === 0 ? <div className="p-4 text-sm text-gray-400">Top post 데이터가 없습니다.</div> : topPosts.map((post, index) => (
                 <div key={post.id} className="p-4">
