@@ -15,6 +15,7 @@ from models.benchmark_post import BenchmarkPost
 from middleware.auth import get_current_user
 from services.runtime_settings import get_runtime_setting
 from services.sns_publisher import SNSPublisher
+from services.benchmark_collector_service import BenchmarkCollectorService
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
@@ -37,6 +38,66 @@ def _classify_publish_error(error_message: str | None) -> tuple[str, str]:
 
 def _count_failed_publish_category(contents: list[Content], category_key: str) -> int:
     return sum(1 for content in contents if _classify_publish_error(content.publish_error)[0] == category_key)
+
+
+def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
+    active_rows = [row for row in diagnostics if row.get("is_active")]
+    live_rows = [row for row in active_rows if row.get("status") in {"live_collected", "live_collected_proxy_views"}]
+    mixed_rows = [row for row in active_rows if row.get("status") == "live_collected_mixed"]
+    placeholder_rows = [row for row in active_rows if row.get("status") == "placeholder_fallback"]
+    no_data_rows = [row for row in active_rows if row.get("status") == "no_data_collected"]
+    collector_error_rows = [row for row in active_rows if row.get("status") == "collector_error"]
+    manual_required_rows = [row for row in active_rows if row.get("status") == "manual_ingest_required"]
+    token_missing_rows = [
+        row
+        for row in active_rows
+        if row.get("source_channel_connected") and not row.get("source_channel_has_token")
+    ]
+    manual_supported_rows = [row for row in active_rows if row.get("support_level") == "manual"]
+    unimplemented_rows = [row for row in active_rows if row.get("support_level") == "unimplemented"]
+    live_supported_rows = [row for row in active_rows if row.get("support_level") == "live"]
+
+    blocked = len(active_rows) == 0 or (len(live_supported_rows) == 0 and len(live_rows) == 0 and len(mixed_rows) == 0)
+    warning = (
+        len(mixed_rows) > 0
+        or len(placeholder_rows) > 0
+        or len(no_data_rows) > 0
+        or len(collector_error_rows) > 0
+        or len(manual_required_rows) > 0
+        or len(token_missing_rows) > 0
+        or len(manual_supported_rows) > 0
+        or len(unimplemented_rows) > 0
+    )
+
+    if blocked:
+        status = "blocked"
+        summary = "활성 벤치마킹 계정 또는 직접 실수집 가능한 계정이 아직 부족합니다"
+    elif warning:
+        status = "warning"
+        summary = "실데이터와 fallback/누락/수동 확인 상태가 섞여 있어 운영자가 상태를 분리해서 봐야 합니다"
+    else:
+        status = "ready"
+        summary = "직접 실데이터 기준으로 벤치마킹 계정 상태가 정돈되어 있습니다"
+
+    return {
+        "status": status,
+        "summary": summary,
+        "details": {
+            "active_accounts": len(active_rows),
+            "live_accounts": len(live_rows),
+            "mixed_accounts": len(mixed_rows),
+            "placeholder_only_accounts": len(placeholder_rows),
+            "no_data_accounts": len(no_data_rows),
+            "token_missing_accounts": len(token_missing_rows),
+            "collector_error_accounts": len(collector_error_rows),
+            "manual_required_accounts": len(manual_required_rows),
+            "manual_supported_accounts": len(manual_supported_rows),
+            "unimplemented_accounts": len(unimplemented_rows),
+            "inactive_accounts": max(len(diagnostics) - len(active_rows), 0),
+            "live_post_count": sum(int(row.get("live_post_count") or 0) for row in active_rows),
+            "placeholder_post_count": sum(int(row.get("placeholder_post_count") or 0) for row in active_rows),
+        },
+    }
 
 
 @router.get("/stats")
@@ -147,6 +208,14 @@ async def get_pipeline_readiness(
 
     benchmark_account_count = (await db.execute(select(func.count()).select_from(BenchmarkAccount))).scalar() or 0
     benchmark_post_count = (await db.execute(select(func.count()).select_from(BenchmarkPost))).scalar() or 0
+    benchmark_accounts_result = await db.execute(select(BenchmarkAccount))
+    benchmark_accounts = list(benchmark_accounts_result.scalars().all())
+    benchmark_service = BenchmarkCollectorService(db)
+    benchmark_diagnostics = [
+        await benchmark_service._build_account_diagnostic(account)
+        for account in benchmark_accounts
+    ]
+    benchmark_summary = _summarize_benchmark_diagnostics(benchmark_diagnostics)
     published_evidence_count = (
         await db.execute(
             select(func.count()).select_from(Content).where(
@@ -235,9 +304,10 @@ async def get_pipeline_readiness(
         {
             "key": "benchmarking",
             "label": "벤치마킹",
-            "status": "ready" if benchmark_post_count > 0 else ("warning" if benchmark_account_count > 0 else "blocked"),
-            "summary": "벤치마킹 학습 데이터 적재 상태",
+            "status": benchmark_summary["status"],
+            "summary": benchmark_summary["summary"],
             "details": {
+                **benchmark_summary["details"],
                 "benchmark_accounts": benchmark_account_count,
                 "benchmark_posts": benchmark_post_count,
             },
