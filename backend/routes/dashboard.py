@@ -51,6 +51,39 @@ def _count_failed_publish_category(contents: list[Content], category_key: str) -
     return sum(1 for content in contents if _classify_publish_error(content.publish_error)[0] == category_key)
 
 
+def _summarize_publishing_readiness(
+    *,
+    supported_connected_channels: int,
+    supported_healthy_channels: int,
+    unsupported_connected_channels: int,
+    token_missing_channels: int,
+    unknown_token_channels: int,
+    suspicious_published_without_evidence: int,
+    failed_publish_count: int,
+    published_evidence_count: int,
+) -> tuple[str, str]:
+    if supported_connected_channels == 0:
+        return "blocked", "실제 자동발행 가능한 지원 채널 연결이 아직 없습니다"
+    if suspicious_published_without_evidence > 0:
+        return (
+            "warning",
+            f"published 상태지만 증거가 없는 콘텐츠 {suspicious_published_without_evidence}건이 있어 성공 판정을 믿기 어렵습니다",
+        )
+    if failed_publish_count > 0:
+        return "warning", f"최근 발행 실패 {failed_publish_count}건이 누적되어 먼저 실패 사유 정리가 필요합니다"
+    if token_missing_channels > 0:
+        return "warning", f"연결된 채널처럼 보이지만 access token이 없는 채널 {token_missing_channels}개가 있습니다"
+    if unsupported_connected_channels > 0:
+        return "warning", f"연결은 되어 있지만 자동발행 미지원 채널 {unsupported_connected_channels}개가 섞여 있습니다"
+    if unknown_token_channels > 0:
+        return "warning", f"토큰 만료시각을 모르는 채널 {unknown_token_channels}개가 있어 발행 준비 판정이 불완전합니다"
+    if supported_healthy_channels == 0:
+        return "warning", "지원 채널 연결은 있지만 현재 건강한 발행 채널이 없습니다"
+    if published_evidence_count == 0:
+        return "warning", "발행 가능한 채널은 있지만 아직 확인된 발행 증거가 없습니다"
+    return "ready", "실제 발행 가능한 지원 채널과 발행 증거가 함께 확인됩니다"
+
+
 def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
     now = datetime.now(timezone.utc)
     stale_cutoff = now - timedelta(hours=24)
@@ -477,6 +510,17 @@ async def get_pipeline_readiness(
         oauth_status = "warning"
         oauth_summary = f"토큰 만료시각을 모르는 채널 {unknown_token_channels}개가 있어 운영 판정이 불완전합니다"
 
+    publishing_status, publishing_summary = _summarize_publishing_readiness(
+        supported_connected_channels=supported_connected_count,
+        supported_healthy_channels=supported_healthy_channels,
+        unsupported_connected_channels=unsupported_connected_count,
+        token_missing_channels=token_missing_channels,
+        unknown_token_channels=unknown_token_channels,
+        suspicious_published_without_evidence=suspicious_published_without_evidence,
+        failed_publish_count=failed_publish_count,
+        published_evidence_count=published_evidence_count,
+    )
+
     items = [
         {
             "key": "ai_generation",
@@ -503,21 +547,8 @@ async def get_pipeline_readiness(
         {
             "key": "publishing",
             "label": "발행",
-            "status": (
-                "blocked"
-                if supported_connected_count == 0
-                else "warning"
-                if (
-                    unsupported_connected_count > 0
-                    or token_missing_channels > 0
-                    or unknown_token_channels > 0
-                    or suspicious_published_without_evidence > 0
-                    or failed_publish_count > 0
-                    or supported_healthy_channels == 0
-                )
-                else "ready"
-            ),
-            "summary": "실발행 가능한 채널 상태와 증거 정합성",
+            "status": publishing_status,
+            "summary": publishing_summary,
             "details": {
                 "supported_connected_channels": supported_connected_count,
                 "supported_healthy_channels": supported_healthy_channels,
