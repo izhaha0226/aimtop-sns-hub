@@ -24,6 +24,26 @@ publisher = SNSPublisher()
 last_channel_health_check: datetime | None = None
 
 
+def _reset_content_publish_evidence(content: Content) -> None:
+    content.platform_post_id = None
+    content.published_url = None
+    content.published_at = None
+
+
+def _mark_content_publish_failed(
+    content: Content | None,
+    *,
+    channel_connection_id: uuid.UUID | None,
+    error_message: str,
+) -> None:
+    if content is None:
+        return
+    content.channel_connection_id = channel_connection_id
+    content.status = "failed"
+    _reset_content_publish_evidence(content)
+    content.publish_error = error_message[:500]
+
+
 class SchedulerService:
     """예약 발행 관리 서비스"""
 
@@ -192,7 +212,14 @@ class SchedulerService:
 
                     if not content or not channel:
                         schedule.status = "failed"
+                        schedule.platform_post_id = None
+                        schedule.published_at = None
                         schedule.error_message = "콘텐츠 또는 채널을 찾을 수 없습니다"
+                        _mark_content_publish_failed(
+                            content,
+                            channel_connection_id=schedule.channel_connection_id,
+                            error_message=schedule.error_message,
+                        )
                         await db.commit()
                         continue
 
@@ -223,18 +250,31 @@ class SchedulerService:
                     )
 
                 except Exception as e:
+                    error_message = str(e)[:500]
                     schedule.status = "failed"
-                    schedule.error_message = str(e)[:500]
+                    schedule.platform_post_id = None
+                    schedule.published_at = None
+                    schedule.error_message = error_message
                     schedule.retry_count = (schedule.retry_count or 0) + 1
 
                     # 3회 미만 실패 시 다시 pending으로 (재시도)
                     if schedule.retry_count < 3:
                         schedule.status = "pending"
+                        _mark_content_publish_failed(
+                            content,
+                            channel_connection_id=schedule.channel_connection_id,
+                            error_message=f"예약 발행 재시도 중 ({schedule.retry_count}/3): {error_message}",
+                        )
                         logger.warning(
                             f"Schedule retry ({schedule.retry_count}/3): "
                             f"content={schedule.content_id}, error={e}"
                         )
                     else:
+                        _mark_content_publish_failed(
+                            content,
+                            channel_connection_id=schedule.channel_connection_id,
+                            error_message=error_message,
+                        )
                         logger.error(
                             f"Schedule failed permanently: "
                             f"content={schedule.content_id}, error={e}"

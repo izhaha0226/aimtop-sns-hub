@@ -19,6 +19,12 @@ from services.sns_publisher import SNSPublisher
 router = APIRouter(prefix="/api/v1/contents", tags=["contents"])
 
 
+def _reset_publish_evidence(content: Content) -> None:
+    content.platform_post_id = None
+    content.published_url = None
+    content.published_at = None
+
+
 async def _get_content_or_404(content_id: uuid.UUID, db: AsyncSession) -> Content:
     result = await db.execute(
         select(Content).where(Content.id == content_id, Content.status != "trashed")
@@ -243,6 +249,7 @@ async def publish_now(
 
         if not content.platform_post_id and not content.published_url:
             content.status = "failed"
+            _reset_publish_evidence(content)
             content.publish_error = "발행 응답에 platform_post_id/published_url 증거가 없어 published 처리하지 않았습니다"
             await db.commit()
             raise HTTPException(status_code=502, detail=content.publish_error)
@@ -255,6 +262,7 @@ async def publish_now(
     except Exception as e:
         content.channel_connection_id = target_channel_id
         content.status = "failed"
+        _reset_publish_evidence(content)
         content.publish_error = str(e)
         await db.commit()
         raise HTTPException(status_code=500, detail=f"발행 실패: {str(e)}")
