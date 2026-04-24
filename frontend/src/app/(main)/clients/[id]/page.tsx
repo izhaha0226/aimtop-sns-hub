@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { clientsService } from "@/services/clients"
-import { channelsService, getTokenHealth, type ChannelConnection } from "@/services/channels"
+import { channelsService, getTokenHealth, isAutoPublishSupported, type ChannelConnection } from "@/services/channels"
 import { oauthService } from "@/services/oauth"
 import { ArrowLeft, Pencil, Trash2, X, Link2, CheckCircle2, PlugZap, Unplug, AlertCircle } from "lucide-react"
 
@@ -15,8 +15,8 @@ const INDUSTRY_CATEGORIES = [
 
 const CHANNEL_CARDS = [
   { id: "instagram", label: "인스타그램", desc: "피드/릴스/댓글", enabled: true },
-  { id: "facebook", label: "페이스북", desc: "페이지 포스팅/인사이트", enabled: true },
-  { id: "threads", label: "Threads", desc: "Meta 계열 발행", enabled: true },
+  { id: "facebook", label: "페이스북", desc: "페이지 연동", enabled: true },
+  { id: "threads", label: "Threads", desc: "Meta 계열 연동", enabled: true },
   { id: "youtube", label: "유튜브", desc: "영상/쇼츠/댓글", enabled: true },
   { id: "x", label: "X", desc: "트윗/답글", enabled: true },
   { id: "blog", label: "네이버 블로그", desc: "포스팅 발행", enabled: true },
@@ -85,7 +85,7 @@ export default function ClientDetailPage() {
       setNotice({ type: "success", text: `${platform} 연동이 완료되었습니다.` })
       void load()
     } else {
-      setNotice({ type: "error", text: `${platform} 연동 실패${message ? `: ${decodeURIComponent(message)}` : ""}` })
+      setNotice({ type: "error", text: `${platform} 연동 실패${message ? `: ${message}` : ""}` })
     }
 
     router.replace(`/clients/${id}`)
@@ -156,8 +156,9 @@ export default function ClientDetailPage() {
       const frontendRedirect = `${origin}/clients/${id}`
       const authUrl = await oauthService.getAuthUrl(platform, id, redirectUri, frontendRedirect)
       window.location.href = authUrl
-    } catch {
-      setNotice({ type: "error", text: `${platform} 인증 URL 생성에 실패했습니다.` })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${platform} 인증 URL 생성에 실패했습니다.`
+      setNotice({ type: "error", text: message })
       setAuthLoading(null)
     }
   }
@@ -177,8 +178,19 @@ export default function ClientDetailPage() {
     }
   }
 
-  const connectedMap = new Map(channels.filter((channel) => channel.is_connected).map((channel) => [channel.channel_type, channel]))
-  const reauthChannels = channels.filter((channel) => channel.is_connected && getTokenHealth(channel.token_expires_at) === "reauth_required")
+  const channelMap = channels.reduce<Map<string, ChannelConnection>>((map, channel) => {
+    if (!map.has(channel.channel_type)) map.set(channel.channel_type, channel)
+    return map
+  }, new Map())
+
+  const connectedMap = channels.reduce<Map<string, ChannelConnection>>((map, channel) => {
+    if (channel.is_connected && !map.has(channel.channel_type)) map.set(channel.channel_type, channel)
+    return map
+  }, new Map())
+
+  const reauthChannels = Array.from(connectedMap.values()).filter(
+    (channel) => getTokenHealth(channel.token_expires_at) === "reauth_required"
+  )
 
   const tokenMeta = (tokenExpiresAt?: string | null) => {
     const health = getTokenHealth(tokenExpiresAt)
@@ -213,6 +225,9 @@ export default function ClientDetailPage() {
           </div>
 
           <div className="flex gap-2">
+            <button onClick={() => router.push(`/clients/${id}/benchmark`)} className="flex items-center gap-2 px-3 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+              <Link2 size={14} />벤치마킹
+            </button>
             <button onClick={openEdit} className="flex items-center gap-2 px-3 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors">
               <Pencil size={14} />수정
             </button>
@@ -245,7 +260,7 @@ export default function ClientDetailPage() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="font-bold">채널별 인증 / 연동</h2>
-            <p className="text-sm text-gray-500 mt-1">설계도 기준으로 우선 구현된 채널부터 OAuth 연동을 복구했습니다.</p>
+            <p className="text-sm text-gray-500 mt-1">OAuth 연동과 실제 자동 발행 지원 범위를 분리해서 표시합니다.</p>
           </div>
         </div>
 
@@ -265,8 +280,11 @@ export default function ClientDetailPage() {
 
         <div className="grid grid-cols-2 gap-4">
           {CHANNEL_CARDS.map((channel) => {
+            const channelState = channelMap.get(channel.id)
             const connected = connectedMap.get(channel.id)
             const tokenStatus = tokenMeta(connected?.token_expires_at)
+            const hasSavedChannel = Boolean(channelState)
+            const disconnectedReason = hasSavedChannel && !connected ? "토큰 없음 또는 OAuth 미완료" : null
             return (
               <div
                 key={channel.id}
@@ -281,24 +299,32 @@ export default function ClientDetailPage() {
                       <h3 className="font-semibold">{channel.label}</h3>
                       {connected ? (
                         <span className="text-[11px] px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">연동됨</span>
+                      ) : hasSavedChannel ? (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-orange-50 text-orange-700 border border-orange-200">토큰 없음</span>
                       ) : channel.enabled ? (
                         <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">미연동</span>
                       ) : (
                         <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">미구현</span>
                       )}
+                      <span className={`text-[11px] px-2 py-0.5 rounded-full ${isAutoPublishSupported(channel.id) ? "bg-blue-50 text-blue-700 border border-blue-200" : "bg-gray-100 text-gray-600 border border-gray-200"}`}>
+                        {isAutoPublishSupported(channel.id) ? "자동발행 지원" : "연동만 지원"}
+                      </span>
                       {connected && (
                         <span className={`text-[11px] px-2 py-0.5 rounded-full ${tokenStatus.className}`}>{tokenStatus.label}</span>
                       )}
                     </div>
                     <p className="text-sm text-gray-500 mt-1">{channel.desc}</p>
-                    {connected?.account_name && (
-                      <p className="text-xs text-gray-500 mt-2">계정: {connected.account_name}</p>
+                    {(connected?.account_name || channelState?.account_name) && (
+                      <p className="text-xs text-gray-500 mt-2">계정: {connected?.account_name || channelState?.account_name}</p>
                     )}
                     {connected?.connected_at && (
                       <p className="text-xs text-gray-400 mt-1">연결일: {new Date(connected.connected_at).toLocaleString("ko-KR")}</p>
                     )}
                     {connected?.token_expires_at && (
                       <p className="text-xs text-gray-400 mt-1">만료시각: {new Date(connected.token_expires_at).toLocaleString("ko-KR")}</p>
+                    )}
+                    {disconnectedReason && (
+                      <p className="text-xs text-orange-700 mt-2">상태: {disconnectedReason}</p>
                     )}
                   </div>
 

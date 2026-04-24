@@ -72,6 +72,8 @@ class SchedulerService:
         channel = channel_result.scalar_one_or_none()
         if not channel:
             raise ValueError("채널 연결을 찾을 수 없습니다")
+        if not SNSPublisher.is_supported_platform(channel.channel_type):
+            raise ValueError(f"{channel.channel_type} 채널은 아직 실제 발행 자동화를 지원하지 않습니다")
         if channel.token_expires_at and channel.token_expires_at <= datetime.now(timezone.utc):
             raise ValueError(f"{channel.channel_type} 채널 토큰이 만료되어 재인증이 필요합니다")
 
@@ -197,20 +199,27 @@ class SchedulerService:
                     # 발행 실행
                     pub_result = await publisher.publish(channel, content)
 
+                    platform_post_id = pub_result.get("platform_post_id")
+                    published_url = pub_result.get("url")
+                    if not platform_post_id and not published_url:
+                        raise ValueError("발행 응답에 platform_post_id/published_url 증거가 없어 published 처리하지 않았습니다")
+
                     # 성공 처리
                     schedule.status = "published"
-                    schedule.platform_post_id = pub_result.get("platform_post_id")
+                    schedule.platform_post_id = platform_post_id
                     schedule.published_at = datetime.now(timezone.utc)
+                    schedule.error_message = None
 
                     content.status = "published"
-                    content.platform_post_id = pub_result.get("platform_post_id")
-                    content.published_url = pub_result.get("url")
+                    content.platform_post_id = platform_post_id
+                    content.published_url = published_url
                     content.published_at = datetime.now(timezone.utc)
+                    content.publish_error = None
 
                     await db.commit()
                     logger.info(
                         f"Schedule published: content={schedule.content_id}, "
-                        f"post_id={pub_result.get('platform_post_id')}"
+                        f"post_id={platform_post_id}"
                     )
 
                 except Exception as e:

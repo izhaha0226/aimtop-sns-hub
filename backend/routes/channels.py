@@ -9,6 +9,7 @@ from models.channel import ChannelConnection
 from models.user import User
 from schemas.channel import ChannelConnectionCreate, ChannelConnectionResponse
 from middleware.auth import get_current_user
+from services.sns_oauth import encrypt_token
 
 router = APIRouter(prefix="/api/v1/clients/{client_id}/channels", tags=["channels"])
 
@@ -34,11 +35,19 @@ async def connect_channel(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    access_token = body.access_token.strip() if body.access_token else ""
+    refresh_token = body.refresh_token.strip() if body.refresh_token else ""
+    is_connected = bool(access_token)
+
+    payload = body.model_dump()
+    payload["access_token"] = encrypt_token(access_token) if access_token else None
+    payload["refresh_token"] = encrypt_token(refresh_token) if refresh_token else None
+
     channel = ChannelConnection(
-        **body.model_dump(),
+        **payload,
         client_id=client_id,
-        is_connected=True,
-        connected_at=datetime.now(timezone.utc),
+        is_connected=is_connected,
+        connected_at=datetime.now(timezone.utc) if is_connected else None,
     )
     db.add(channel)
     await db.commit()

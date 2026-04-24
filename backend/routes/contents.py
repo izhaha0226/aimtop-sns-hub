@@ -14,6 +14,7 @@ from schemas.content import ContentCreate, ContentUpdate, ContentResponse, Conte
 from schemas.approval import ApprovalCreate
 from schemas.schedule import ScheduleCreate, ScheduleResponse
 from middleware.auth import get_current_user
+from services.sns_publisher import SNSPublisher
 
 router = APIRouter(prefix="/api/v1/contents", tags=["contents"])
 
@@ -223,9 +224,37 @@ async def publish_now(
         raise HTTPException(status_code=400, detail="발행할 채널을 선택해 주세요")
 
     await _ensure_channel_token_valid(target_channel_id, db)
-    content.channel_connection_id = target_channel_id
-    content.status = "published"
-    content.published_at = datetime.now(timezone.utc)
-    await db.commit()
-    await db.refresh(content)
-    return content
+    channel_result = await db.execute(select(ChannelConnection).where(ChannelConnection.id == target_channel_id))
+    channel = channel_result.scalar_one_or_none()
+    if not channel or not channel.is_connected:
+        raise HTTPException(status_code=404, detail="연결된 채널을 찾을 수 없습니다")
+    if not SNSPublisher.is_supported_platform(channel.channel_type):
+        raise HTTPException(status_code=400, detail=f"{channel.channel_type} 채널은 아직 실제 발행 자동화를 지원하지 않습니다")
+
+    publisher = SNSPublisher()
+    try:
+        result = await publisher.publish(channel, content)
+        content.channel_connection_id = target_channel_id
+        content.status = "published"
+        content.platform_post_id = result.get("platform_post_id")
+        content.published_url = result.get("url")
+        content.published_at = datetime.now(timezone.utc)
+        content.publish_error = None
+
+        if not content.platform_post_id and not content.published_url:
+            content.status = "failed"
+            content.publish_error = "발행 응답에 platform_post_id/published_url 증거가 없어 published 처리하지 않았습니다"
+            await db.commit()
+            raise HTTPException(status_code=502, detail=content.publish_error)
+
+        await db.commit()
+        await db.refresh(content)
+        return content
+    except HTTPException:
+        raise
+    except Exception as e:
+        content.channel_connection_id = target_channel_id
+        content.status = "failed"
+        content.publish_error = str(e)
+        await db.commit()
+        raise HTTPException(status_code=500, detail=f"발행 실패: {str(e)}")

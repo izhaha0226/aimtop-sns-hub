@@ -13,6 +13,7 @@ import httpx
 from cryptography.fernet import Fernet
 
 from core.config import settings
+from services.runtime_settings import get_runtime_setting
 
 logger = logging.getLogger(__name__)
 
@@ -105,25 +106,28 @@ PLATFORM_CONFIGS = {
 }
 
 
-def _get_client_credentials(platform: str) -> tuple[str, str]:
-    """플랫폼별 client_id / client_secret 반환"""
-    meta_id = settings.META_APP_ID or settings.INSTAGRAM_APP_ID
-    meta_secret = settings.META_APP_SECRET or settings.INSTAGRAM_APP_SECRET
+async def _get_client_credentials(platform: str) -> tuple[str, str]:
+    """플랫폼별 client_id / client_secret 반환 (DB 우선, env fallback)"""
+    meta_id = await get_runtime_setting("meta_app_id")
+    meta_secret = await get_runtime_setting("meta_app_secret")
     mapping = {
-        "instagram": (meta_id, meta_secret),
-        "facebook": (meta_id, meta_secret),
-        "threads": (meta_id, meta_secret),
-        "youtube": (settings.GOOGLE_CLIENT_ID, settings.GOOGLE_CLIENT_SECRET),
-        "x": (settings.X_CLIENT_ID, settings.X_CLIENT_SECRET),
-        "blog": (settings.NAVER_CLIENT_ID, settings.NAVER_CLIENT_SECRET),
-        "kakao": (settings.KAKAO_CLIENT_ID, settings.KAKAO_CLIENT_SECRET),
-        "tiktok": (settings.TIKTOK_CLIENT_KEY, settings.TIKTOK_CLIENT_SECRET),
-        "linkedin": (settings.LINKEDIN_CLIENT_ID, settings.LINKEDIN_CLIENT_SECRET),
+        "instagram": (meta_id, meta_secret, "META_APP_ID/META_APP_SECRET 또는 INSTAGRAM_APP_ID/INSTAGRAM_APP_SECRET"),
+        "facebook": (meta_id, meta_secret, "META_APP_ID/META_APP_SECRET 또는 INSTAGRAM_APP_ID/INSTAGRAM_APP_SECRET"),
+        "threads": (meta_id, meta_secret, "META_APP_ID/META_APP_SECRET 또는 INSTAGRAM_APP_ID/INSTAGRAM_APP_SECRET"),
+        "youtube": (await get_runtime_setting("google_client_id"), await get_runtime_setting("google_client_secret"), "GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET"),
+        "x": (await get_runtime_setting("x_client_id"), await get_runtime_setting("x_client_secret"), "X_CLIENT_ID/X_CLIENT_SECRET"),
+        "blog": (await get_runtime_setting("naver_client_id"), await get_runtime_setting("naver_client_secret"), "NAVER_CLIENT_ID/NAVER_CLIENT_SECRET"),
+        "kakao": (await get_runtime_setting("kakao_client_id"), await get_runtime_setting("kakao_client_secret"), "KAKAO_CLIENT_ID/KAKAO_CLIENT_SECRET"),
+        "tiktok": (await get_runtime_setting("tiktok_client_key"), await get_runtime_setting("tiktok_client_secret"), "TIKTOK_CLIENT_KEY/TIKTOK_CLIENT_SECRET"),
+        "linkedin": (await get_runtime_setting("linkedin_client_id"), await get_runtime_setting("linkedin_client_secret"), "LINKEDIN_CLIENT_ID/LINKEDIN_CLIENT_SECRET"),
     }
     creds = mapping.get(platform)
     if not creds:
         raise ValueError(f"Unsupported platform: {platform}")
-    return creds
+    client_id, client_secret, hint = creds
+    if not client_id or not client_secret:
+        raise ValueError(f"{platform} OAuth 환경변수가 비어 있습니다: {hint}")
+    return client_id, client_secret
 
 
 class SNSOAuth:
@@ -131,13 +135,13 @@ class SNSOAuth:
 
     _x_verifier_by_state: dict[str, str] = {}
 
-    def get_auth_url(self, platform: str, redirect_uri: str, state: str | None = None) -> str:
+    async def get_auth_url(self, platform: str, redirect_uri: str, state: str | None = None) -> str:
         """플랫폼별 OAuth 인증 URL 생성"""
         if platform not in PLATFORM_CONFIGS:
             raise ValueError(f"Unsupported platform: {platform}")
 
         config = PLATFORM_CONFIGS[platform]
-        client_id, _ = _get_client_credentials(platform)
+        client_id, _ = await _get_client_credentials(platform)
         oauth_state = state or secrets.token_urlsafe(32)
 
         if platform in ("instagram", "facebook", "threads"):
@@ -221,7 +225,7 @@ class SNSOAuth:
             raise ValueError(f"Unsupported platform: {platform}")
 
         config = PLATFORM_CONFIGS[platform]
-        client_id, client_secret = _get_client_credentials(platform)
+        client_id, client_secret = await _get_client_credentials(platform)
 
         if platform == "x" and not code_verifier:
             code_verifier = self._x_verifier_by_state.pop(state, None) if state else None
@@ -442,7 +446,7 @@ class SNSOAuth:
             raise ValueError(f"Unsupported platform: {platform}")
 
         config = PLATFORM_CONFIGS[platform]
-        client_id, client_secret = _get_client_credentials(platform)
+        client_id, client_secret = await _get_client_credentials(platform)
         decrypted_rt = decrypt_token(current_refresh_token) if current_refresh_token else None
         decrypted_at = decrypt_token(current_access_token) if current_access_token else None
 

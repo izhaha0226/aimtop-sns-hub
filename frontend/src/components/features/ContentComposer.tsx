@@ -6,6 +6,8 @@ import { ArrowLeft, ImagePlus, Lightbulb, Sparkles, Upload, Wand2, Tags, Palette
 import { contentsService } from "@/services/contents"
 import { clientsService } from "@/services/clients"
 import { aiService, type ConceptSet } from "@/services/ai"
+import { adminAISettingsService, type LLMProviderConfigItem } from "@/services/admin-ai-settings"
+import { benchmarkingService, type ActionLanguageProfileItem } from "@/services/benchmarking"
 import api from "@/services/api"
 import type { PostType } from "@/types/content"
 import { Button } from "@/components/common/Button"
@@ -20,6 +22,7 @@ type BenchmarkChannel = {
 type Client = {
   id: string
   name: string
+  industry_category?: string
 }
 
 type SlideItem = {
@@ -60,6 +63,13 @@ export default function ContentComposer({ mode }: Props) {
   const [imageLoading, setImageLoading] = useState(false)
   const [conceptLoading, setConceptLoading] = useState(false)
   const [conceptSets, setConceptSets] = useState<ConceptSet[]>([])
+  const [engineProviders, setEngineProviders] = useState<LLMProviderConfigItem[]>([])
+  const [engineProvider, setEngineProvider] = useState("gpt")
+  const [engineModel, setEngineModel] = useState("gpt-5.4")
+  const [benchmarkTopK, setBenchmarkTopK] = useState(10)
+  const [benchmarkWindowDays, setBenchmarkWindowDays] = useState(30)
+  const [applyBenchmarkPattern, setApplyBenchmarkPattern] = useState(true)
+  const [actionProfile, setActionProfile] = useState<ActionLanguageProfileItem | null>(null)
   const [slides, setSlides] = useState<SlideItem[]>([
     { id: "slide-1", title: "", body: "", visual_direction: "" },
     { id: "slide-2", title: "", body: "", visual_direction: "" },
@@ -68,6 +78,14 @@ export default function ContentComposer({ mode }: Props) {
 
   useEffect(() => {
     clientsService.list().then(setClients).catch(console.error)
+    adminAISettingsService.listProviders().then((rows) => {
+      setEngineProviders(rows)
+      const defaultRow = rows.find((item) => item.is_default) || rows[0]
+      if (defaultRow) {
+        setEngineProvider(defaultRow.provider_name)
+        setEngineModel(defaultRow.model_name)
+      }
+    }).catch(console.error)
   }, [])
 
   const pageMeta = useMemo(() => {
@@ -161,6 +179,14 @@ export default function ContentComposer({ mode }: Props) {
   }
 
   const selectedClient = clients.find((client) => client.id === form.client_id)
+  const filteredModels = engineProviders.filter((item) => item.provider_name === engineProvider && item.is_active)
+
+  useEffect(() => {
+    if (!form.client_id) return
+    benchmarkingService.getActionProfile(form.client_id, mode === "card_news" ? "instagram" : "threads")
+      .then(setActionProfile)
+      .catch(console.error)
+  }, [form.client_id, mode])
 
   async function handleGenerateCopy() {
     if (!form.title.trim()) return
@@ -179,6 +205,13 @@ export default function ContentComposer({ mode }: Props) {
         topic: form.title,
         context: [form.text, cardNewsContext, benchmarkContext].filter(Boolean).join("\n"),
         brand_name: selectedClient?.name || "",
+        engine: { provider: engineProvider, model: engineModel },
+        benchmark: applyBenchmarkPattern ? {
+          client_id: form.client_id,
+          top_k: benchmarkTopK,
+          window_days: benchmarkWindowDays,
+          platform: mode === "card_news" ? "instagram" : "threads",
+        } : undefined,
       })
       setForm((prev) => ({
         ...prev,
@@ -197,7 +230,7 @@ export default function ContentComposer({ mode }: Props) {
     if (!form.title.trim()) return
     setHashtagsLoading(true)
     try {
-      const tags = await aiService.suggestHashtags(form.title, "instagram", 12)
+      const tags = await aiService.suggestHashtags(form.title, "instagram", 12, { provider: engineProvider, model: engineModel })
       if (tags.length) {
         setForm((prev) => ({ ...prev, hashtags: [...new Set([...(prev.hashtags || []), ...tags])] }))
       }
@@ -219,7 +252,8 @@ export default function ContentComposer({ mode }: Props) {
       const result = await aiService.generateImage({
         prompt: `${promptBase}${slidePrompt ? ` | ${slidePrompt}` : ""}. ${mode === "card_news" ? "카드뉴스 스타일, 마케팅 비주얼" : "SNS 포스트용 고품질 이미지"}`,
         size: mode === "card_news" ? "1024x1024" : "1024x768",
-        model: "quality",
+        model: "gpt-image-2.0",
+        quality: mode === "card_news" ? "medium" : undefined,
       })
       if (result.image_url) {
         setForm((prev) => ({ ...prev, media_urls: [...prev.media_urls, result.image_url] }))
@@ -235,7 +269,7 @@ export default function ContentComposer({ mode }: Props) {
     if (mode !== "card_news" || !form.title.trim()) return
     setConceptLoading(true)
     try {
-      const sets = await aiService.generateConceptSets(form.title, [selectedClient?.name || "", form.text].filter(Boolean).join(" / "), 3)
+      const sets = await aiService.generateConceptSets(form.title, [selectedClient?.name || "", form.text].filter(Boolean).join(" / "), 3, { provider: engineProvider, model: engineModel })
       setConceptSets(sets)
       if (sets[0]?.slides?.length) {
         setSlides(sets[0].slides.map((slide, index) => ({
@@ -458,6 +492,59 @@ export default function ContentComposer({ mode }: Props) {
         </div>
 
         <div className="space-y-6">
+          <div className="bg-white rounded-xl border p-5">
+            <div className="flex items-center gap-2 text-sm font-semibold text-gray-800 mb-2">
+              <Wand2 size={16} />
+              엔진 선택 / Top-K 제어
+            </div>
+            <p className="text-xs text-gray-500 mb-4">대표님 의도 기준으로 Claude/GPT 엔진과 벤치마킹 강도를 여기서 바로 바꿉니다.</p>
+            <div className="grid grid-cols-1 gap-3">
+              <select value={engineProvider} onChange={(e) => {
+                setEngineProvider(e.target.value)
+                const next = engineProviders.find((item) => item.provider_name === e.target.value && item.is_active)
+                if (next) setEngineModel(next.model_name)
+              }} className="w-full border rounded-lg px-3 py-2 text-sm">
+                {Array.from(new Set(engineProviders.filter((item) => item.is_active).map((item) => item.provider_name))).map((provider) => (
+                  <option key={provider} value={provider}>{provider}</option>
+                ))}
+              </select>
+              <select value={engineModel} onChange={(e) => setEngineModel(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm">
+                {filteredModels.map((item) => <option key={`${item.provider_name}-${item.model_name}`} value={item.model_name}>{item.label}</option>)}
+              </select>
+              <div className="grid grid-cols-2 gap-3">
+                <input value={benchmarkTopK} onChange={(e) => setBenchmarkTopK(Number(e.target.value) || 10)} placeholder="Top-K" className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input value={benchmarkWindowDays} onChange={(e) => setBenchmarkWindowDays(Number(e.target.value) || 30)} placeholder="최근 기간(일)" className="w-full border rounded-lg px-3 py-2 text-sm" />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-gray-600">
+                <input type="checkbox" checked={applyBenchmarkPattern} onChange={(e) => setApplyBenchmarkPattern(e.target.checked)} />
+                상위 포스트 패턴 반영
+              </label>
+              {actionProfile && (
+                <div className="rounded-xl border bg-gray-50 p-3 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-xs text-gray-400">액션 랭귀지 프로필</div>
+                    <span className={`px-2 py-1 rounded-full text-[11px] border ${actionProfile.source_scope === "industry_fallback" ? "bg-violet-50 text-violet-700 border-violet-200" : "bg-blue-50 text-blue-700 border-blue-200"}`}>
+                      {actionProfile.source_scope === "industry_fallback" ? "업종 fallback" : "직접 학습"}
+                    </span>
+                    {actionProfile.industry_category && (
+                      <span className="px-2 py-1 rounded-full text-[11px] border bg-emerald-50 text-emerald-700 border-emerald-200">
+                        업종 {actionProfile.industry_category}
+                      </span>
+                    )}
+                    <span className="px-2 py-1 rounded-full text-[11px] border bg-gray-100 text-gray-700 border-gray-200">
+                      샘플 {actionProfile.sample_count || 0}
+                    </span>
+                  </div>
+                  {selectedClient?.industry_category && (
+                    <div className="text-[11px] text-gray-500">선택 클라이언트 업종: {selectedClient.industry_category}</div>
+                  )}
+                  <div className="flex flex-wrap gap-2">{(actionProfile.top_hooks_json || []).slice(0, 3).map((item) => <span key={item.pattern} className="px-2 py-1 rounded-full bg-blue-50 text-blue-700 text-xs">훅 {item.pattern}</span>)}</div>
+                  <div className="flex flex-wrap gap-2">{(actionProfile.top_ctas_json || []).slice(0, 3).map((item) => <span key={item.pattern} className="px-2 py-1 rounded-full bg-yellow-50 text-yellow-700 text-xs">CTA {item.pattern}</span>)}</div>
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="bg-white rounded-xl border p-5">
             <div className="flex items-center gap-2 text-sm font-semibold text-gray-800 mb-2">
               <Lightbulb size={16} />

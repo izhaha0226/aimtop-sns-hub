@@ -38,6 +38,28 @@ DEFAULT_PLATFORM_FORMAT = (
     "플랫폼에 맞는 적절한 길이와 톤으로 작성해."
 )
 
+HAICO_COPY_WORKFLOW = """
+[HAICo 카피 생성 규칙]
+- 최종 카피를 바로 쓰지 말고, 내부적으로 반드시 발산→선택→수렴 순서로 사고할 것.
+- 먼저 서로 다른 방향 5~7개를 내부적으로 탐색하되, 최종 응답에는 선택된 결과만 출력할 것.
+- 방향 차이는 문장만이 아니라 worldview, 설득 메커니즘, 감정 톤 수준에서 달라야 한다.
+- 벤치마크는 구조만 참고하고 문구를 직접 복제하지 말 것.
+- 선택 시 차별성, 브랜드 적합성, 실행 용이성, 플랫폼 적합성을 우선 평가할 것.
+- 선택된 1개 방향만 수렴해서 결과물을 작성할 것.
+- 결과물이 그럴듯해 보여도 첫 방향에 고착되지 않았는지 한 번 더 점검할 것.
+""".strip()
+
+INSTAGRAM_COMPRESSION_RULES = """
+[Instagram Compression Pass]
+- 최종 결과를 낸 뒤 한 번 더 압축할 것.
+- 첫 줄만 읽어도 스크롤이 멈춰야 한다.
+- 첫 2줄만 미리보기로 노출돼도 의미가 살아야 한다.
+- 전략 설명처럼 들리는 문장은 제거하고, 긴장감과 장면감은 남길 것.
+- 짧은 문단 리듬으로 재배치할 것.
+- CTA는 여러 갈래로 흩어지지 않게 1개 주경로로 정리할 것.
+- 더 똑똑해 보이는 문장보다 더 잘 읽히는 문장을 선택할 것.
+""".strip()
+
 
 def _get_platform_instruction(platform: str) -> str:
     """Get platform-specific writing instructions."""
@@ -53,6 +75,7 @@ def build_copy_prompt(
     brand_name: str = "",
     target_audience: str = "",
     strategy_keywords: list[str] | None = None,
+    benchmark_profile: dict | None = None,
 ) -> str:
     """Build a complete prompt for copy generation.
 
@@ -72,7 +95,11 @@ def build_copy_prompt(
         parts.append(f"타겟 오디언스: {target_audience}")
 
     # Platform instruction
-    parts.append(f"\n[플랫폼 가이드]\n{_get_platform_instruction(platform)}")
+    platform_normalized = platform.lower()
+    parts.append(f"\n[플랫폼 가이드]\n{_get_platform_instruction(platform_normalized)}")
+    parts.append(f"\n{HAICO_COPY_WORKFLOW}")
+    if platform_normalized == "instagram":
+        parts.append(f"\n{INSTAGRAM_COMPRESSION_RULES}")
 
     # Tone
     parts.append(f"\n[톤앤매너]\n{tone}")
@@ -85,15 +112,33 @@ def build_copy_prompt(
     if context:
         parts.append(f"\n[추가 컨텍스트]\n{context}")
 
+    if benchmark_profile:
+        top_hooks = ", ".join(item.get("pattern", "") for item in benchmark_profile.get("top_hooks", [])[:3] if item.get("pattern"))
+        top_ctas = ", ".join(item.get("pattern", "") for item in benchmark_profile.get("top_ctas", [])[:3] if item.get("pattern"))
+        rules = benchmark_profile.get("recommended_prompt_rules", "")
+        source_scope = benchmark_profile.get("source_scope", "unknown")
+        industry_category = benchmark_profile.get("industry_category")
+        sample_count = benchmark_profile.get("sample_count", 0)
+        parts.append(
+            "\n[벤치마킹 인텔리전스]\n"
+            f"프로필 출처: {source_scope}\n"
+            f"업종 카테고리: {industry_category or '미지정'}\n"
+            f"샘플 수: {sample_count}\n"
+            f"상위 훅 패턴: {top_hooks or '없음'}\n"
+            f"상위 CTA 패턴: {top_ctas or '없음'}\n"
+            f"적용 규칙: {rules or '문구를 직접 복제하지 말고 구조만 참고할 것'}"
+        )
+
     # Main topic
     parts.append(f"\n[주제]\n{topic}")
 
     # Output format
     parts.append(
         "\n[출력 형식]\n"
-        "반드시 아래 JSON 형식으로만 응답해:\n"
+        "중간 사고과정은 출력하지 말고 최종 결과만 반드시 아래 JSON 형식으로만 응답해:\n"
         '{"title": "제목", "body": "본문 내용", '
-        '"hashtags": ["#해시태그1", "#해시태그2"], "cta": "행동 유도 문구"}'
+        '"hashtags": ["#해시태그1", "#해시태그2"], "cta": "행동 유도 문구"}\n'
+        "title은 훅 또는 제목 1줄, body는 최종 압축된 본문, hashtags는 해시태그 배열, cta는 단일 주경로 CTA만 넣어."
     )
 
     return "\n".join(parts)

@@ -1,21 +1,22 @@
 """
 Image Service - Fal.ai API integration for image generation.
 """
-import os
 import logging
 
 import httpx
 
-logger = logging.getLogger(__name__)
+from services.runtime_settings import get_runtime_setting
 
-FAL_KEY = os.environ.get("FAL_KEY", "")
+logger = logging.getLogger(__name__)
 
 # Model mapping
 _MODEL_MAP = {
-    "fast": "fal-ai/fast-sdxl",
-    "nano2": "fal-ai/fast-sdxl",
-    "quality": "fal-ai/flux/schnell",
-    "nano_pro": "fal-ai/flux/schnell",
+    "fast": "fal-ai/nano-banana-2",
+    "nano2": "fal-ai/nano-banana-2",
+    "quality": "openai/gpt-image-2",
+    "gpt-image-2.0": "openai/gpt-image-2",
+    "gpt_image_2": "openai/gpt-image-2",
+    "nano_pro": "openai/gpt-image-2",
 }
 
 FAL_API_BASE = "https://fal.run"
@@ -24,19 +25,21 @@ FAL_API_BASE = "https://fal.run"
 async def generate_image(
     prompt: str,
     size: str = "1024x1024",
-    model: str = "fast",
+    model: str = "gpt-image-2.0",
+    quality: str | None = None,
 ) -> dict:
     """Generate an image via Fal.ai API.
 
     Args:
         prompt: Text description of the image to generate.
         size: Image dimensions (e.g. "1024x1024", "1024x768").
-        model: "fast" (nano2) or "quality" (nano_pro).
+        model: default gpt-image-2.0 via Fal, with legacy aliases supported.
 
     Returns:
         {image_url, seed, model_used}
     """
-    if not FAL_KEY:
+    fal_key = await get_runtime_setting("fal_key")
+    if not fal_key:
         raise RuntimeError("FAL_KEY environment variable is not set")
 
     model_id = _MODEL_MAP.get(model, _MODEL_MAP["fast"])
@@ -49,7 +52,7 @@ async def generate_image(
 
     url = f"{FAL_API_BASE}/{model_id}"
     headers = {
-        "Authorization": f"Key {FAL_KEY}",
+        "Authorization": f"Key {fal_key}",
         "Content-Type": "application/json",
     }
     payload = {
@@ -57,8 +60,10 @@ async def generate_image(
         "image_size": {"width": width, "height": height},
         "num_images": 1,
     }
+    if model_id == "openai/gpt-image-2" and quality:
+        payload["quality"] = quality
 
-    async with httpx.AsyncClient(timeout=120) as client:
+    async with httpx.AsyncClient(timeout=300) as client:
         resp = await client.post(url, json=payload, headers=headers)
         resp.raise_for_status()
         data = resp.json()

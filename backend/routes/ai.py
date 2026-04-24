@@ -1,9 +1,12 @@
 """
 AI Routes - API endpoints for AI-powered content generation.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 import logging
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.database import get_db
 from schemas.ai import (
     GenerateCopyRequest, GenerateCopyResponse,
     GenerateImageRequest, GenerateImageResponse,
@@ -19,6 +22,7 @@ from services.ai_service import (
     chat_edit,
     generate_strategy,
 )
+from services.benchmark_collector_service import BenchmarkCollectorService
 from services.image_service import generate_image
 
 logger = logging.getLogger(__name__)
@@ -27,15 +31,40 @@ router = APIRouter(prefix="/api/v1/ai", tags=["AI"])
 
 
 @router.post("/generate-copy", response_model=GenerateCopyResponse)
-async def api_generate_copy(req: GenerateCopyRequest):
+async def api_generate_copy(
+    req: GenerateCopyRequest,
+    db: AsyncSession = Depends(get_db),
+):
     """Generate platform-specific marketing copy."""
     try:
+        benchmark_profile = None
+        if req.benchmark and req.benchmark.client_id:
+            svc = BenchmarkCollectorService(db)
+            benchmark_profile_row = await svc.get_action_language_profile(
+                req.benchmark.client_id,
+                req.benchmark.platform or req.platform,
+            )
+            if benchmark_profile_row:
+                benchmark_profile = {
+                    "top_hooks": benchmark_profile_row.top_hooks_json or [],
+                    "top_ctas": benchmark_profile_row.top_ctas_json or [],
+                    "recommended_prompt_rules": benchmark_profile_row.recommended_prompt_rules or "",
+                    "source_scope": getattr(benchmark_profile_row, "source_scope", "unknown"),
+                    "industry_category": getattr(benchmark_profile_row, "industry_category", None),
+                    "sample_count": getattr(benchmark_profile_row, "sample_count", 0),
+                }
         result = await generate_copy(
             platform=req.platform,
             tone=req.tone,
             topic=req.topic,
             context=req.context,
             language=req.language,
+            brand_name=req.brand_name,
+            target_audience=req.target_audience,
+            strategy_keywords=req.strategy_keywords,
+            engine=req.engine.model_dump(exclude_none=True) if req.engine else None,
+            benchmark_profile=benchmark_profile,
+            db=db,
         )
         return GenerateCopyResponse(**result)
     except TimeoutError:
@@ -53,6 +82,7 @@ async def api_generate_image(req: GenerateImageRequest):
             prompt=req.prompt,
             size=req.size,
             model=req.model,
+            quality=req.quality,
         )
         return GenerateImageResponse(**result)
     except RuntimeError as e:
@@ -63,13 +93,18 @@ async def api_generate_image(req: GenerateImageRequest):
 
 
 @router.post("/suggest-hashtags", response_model=SuggestHashtagsResponse)
-async def api_suggest_hashtags(req: SuggestHashtagsRequest):
+async def api_suggest_hashtags(
+    req: SuggestHashtagsRequest,
+    db: AsyncSession = Depends(get_db),
+):
     """Suggest hashtags for a topic."""
     try:
         tags = await suggest_hashtags(
             topic=req.topic,
             platform=req.platform,
             count=req.count,
+            engine=req.engine.model_dump(exclude_none=True) if req.engine else None,
+            db=db,
         )
         return SuggestHashtagsResponse(hashtags=tags)
     except TimeoutError:
@@ -80,13 +115,18 @@ async def api_suggest_hashtags(req: SuggestHashtagsRequest):
 
 
 @router.post("/concept-sets", response_model=GenerateConceptSetsResponse)
-async def api_concept_sets(req: GenerateConceptSetsRequest):
+async def api_concept_sets(
+    req: GenerateConceptSetsRequest,
+    db: AsyncSession = Depends(get_db),
+):
     """Generate card-news concept sets."""
     try:
         sets = await generate_concept_sets(
             topic=req.topic,
             brand_info=req.brand_info,
             count=req.count,
+            engine=req.engine.model_dump(exclude_none=True) if req.engine else None,
+            db=db,
         )
         return GenerateConceptSetsResponse(concept_sets=sets)
     except TimeoutError:
@@ -97,12 +137,17 @@ async def api_concept_sets(req: GenerateConceptSetsRequest):
 
 
 @router.post("/chat", response_model=ChatEditResponse)
-async def api_chat_edit(req: ChatEditRequest):
+async def api_chat_edit(
+    req: ChatEditRequest,
+    db: AsyncSession = Depends(get_db),
+):
     """Edit content via conversational instruction."""
     try:
         edited = await chat_edit(
             original_text=req.original_text,
             instruction=req.instruction,
+            engine=req.engine.model_dump(exclude_none=True) if req.engine else None,
+            db=db,
         )
         return ChatEditResponse(edited_text=edited)
     except TimeoutError:
@@ -113,12 +158,17 @@ async def api_chat_edit(req: ChatEditRequest):
 
 
 @router.post("/generate-strategy", response_model=GenerateStrategyResponse)
-async def api_generate_strategy(req: GenerateStrategyRequest):
+async def api_generate_strategy(
+    req: GenerateStrategyRequest,
+    db: AsyncSession = Depends(get_db),
+):
     """Generate SNS operation strategy document."""
     try:
         result = await generate_strategy(
             client_info=req.client_info,
             period=req.period,
+            engine=req.engine.model_dump(exclude_none=True) if req.engine else None,
+            db=db,
         )
         return GenerateStrategyResponse(**result)
     except TimeoutError:

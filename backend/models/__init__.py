@@ -13,6 +13,13 @@ from models.notification import Notification
 from models.external_approval import ExternalApproval
 from models.project import Project
 from models.asset import Asset
+from models.app_secret import AppSecret
+from models.llm_provider_config import LLMProviderConfig
+from models.llm_task_policy import LLMTaskPolicy
+from models.benchmark_account import BenchmarkAccount
+from models.benchmark_post import BenchmarkPost
+from models.action_language_profile import ActionLanguageProfile
+from models.industry_action_language_profile import IndustryActionLanguageProfile
 
 __all__ = [
     "Base",
@@ -33,4 +40,11 @@ __all__ = [
     "ExternalApproval",
     "Project",
     "Asset",
+    "AppSecret",
+    "LLMProviderConfig",
+    "LLMTaskPolicy",
+    "BenchmarkAccount",
+    "BenchmarkPost",
+    "ActionLanguageProfile",
+    "IndustryActionLanguageProfile",
 ]

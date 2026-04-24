@@ -4,7 +4,7 @@ import { useRouter, useParams } from "next/navigation"
 import { AlertCircle, ArrowLeft, CalendarClock, CheckCircle, ExternalLink, Link2, MailPlus, Send, Trash2, XCircle, Zap } from "lucide-react"
 import { contentsService } from "@/services/contents"
 import { approvalsService, type ExternalApprovalItem } from "@/services/approvals"
-import { channelsService, getTokenHealth, type ChannelConnection } from "@/services/channels"
+import { channelsService, getTokenHealth, isAutoPublishSupported, type ChannelConnection } from "@/services/channels"
 import type { Content } from "@/types/content"
 import { STATUS_LABELS, STATUS_COLORS, POST_TYPE_LABELS, POST_TYPE_COLORS } from "@/types/content"
 import { Button } from "@/components/common/Button"
@@ -59,11 +59,12 @@ export default function ContentDetailPage() {
     [channels]
   )
   const availableChannels = useMemo(
-    () => connectedChannels.filter((channel) => getTokenHealth(channel.token_expires_at) !== "reauth_required"),
+    () => connectedChannels.filter((channel) => getTokenHealth(channel.token_expires_at) !== "reauth_required" && isAutoPublishSupported(channel.channel_type)),
     [connectedChannels]
   )
   const selectedChannel = connectedChannels.find((channel) => channel.id === selectedChannelId)
   const selectedChannelHealth = getTokenHealth(selectedChannel?.token_expires_at)
+  const selectedChannelAutoPublishSupported = isAutoPublishSupported(selectedChannel?.channel_type)
 
   function getErrorMessage(error: unknown, fallback: string) {
     if (
@@ -133,6 +134,10 @@ export default function ContentDetailPage() {
       setActionError("재인증이 필요한 채널은 발행할 수 없습니다")
       return
     }
+    if (!selectedChannelAutoPublishSupported) {
+      setActionError("선택한 채널은 아직 실제 발행 자동화를 지원하지 않습니다")
+      return
+    }
     if (!confirm("지금 바로 발행하시겠습니까?")) return
     setActionError(null)
     setActionLoading(true)
@@ -158,6 +163,10 @@ export default function ContentDetailPage() {
     }
     if (selectedChannelHealth === "reauth_required") {
       setActionError("재인증이 필요한 채널은 예약할 수 없습니다")
+      return
+    }
+    if (!selectedChannelAutoPublishSupported) {
+      setActionError("선택한 채널은 아직 실제 발행 자동화를 지원하지 않습니다")
       return
     }
 
@@ -312,7 +321,7 @@ export default function ContentDetailPage() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-sm font-medium text-gray-700">발행 채널</p>
-              <p className="text-xs text-gray-400 mt-1">재인증 필요 채널은 선택할 수 없습니다</p>
+              <p className="text-xs text-gray-400 mt-1">재인증 필요 또는 미지원 채널은 자동 발행/예약에 사용할 수 없습니다</p>
             </div>
             <div className="text-xs text-gray-500">연결 채널 {connectedChannels.length}개</div>
           </div>
@@ -328,25 +337,26 @@ export default function ContentDetailPage() {
             <option value="">발행 채널 선택</option>
             {connectedChannels.map((channel) => {
               const health = getTokenHealth(channel.token_expires_at)
-              const disabled = health === "reauth_required"
+              const unsupported = !isAutoPublishSupported(channel.channel_type)
+              const disabled = health === "reauth_required" || unsupported
               return (
                 <option key={channel.id} value={channel.id} disabled={disabled}>
-                  {channel.channel_type}{channel.account_name ? ` · ${channel.account_name}` : ""}{disabled ? " (재인증 필요)" : health === "expiring" ? " (만료 임박)" : ""}
+                  {channel.channel_type}{channel.account_name ? ` · ${channel.account_name}` : ""}{disabled ? unsupported ? " (자동발행 미지원)" : " (재인증 필요)" : health === "expiring" ? " (만료 임박)" : ""}
                 </option>
               )
             })}
           </select>
 
           {selectedChannel && (
-            <div className={`rounded-lg px-3 py-2 text-xs ${selectedChannelHealth === "expiring" ? "bg-yellow-50 text-yellow-700 border border-yellow-200" : "bg-blue-50 text-blue-700 border border-blue-200"}`}>
+            <div className={`rounded-lg px-3 py-2 text-xs ${!selectedChannelAutoPublishSupported ? "bg-gray-100 text-gray-700 border border-gray-200" : selectedChannelHealth === "expiring" ? "bg-yellow-50 text-yellow-700 border border-yellow-200" : "bg-blue-50 text-blue-700 border border-blue-200"}`}>
               {selectedChannel.channel_type}{selectedChannel.account_name ? ` · ${selectedChannel.account_name}` : ""}
-              {selectedChannel.token_expires_at ? ` · 만료 ${new Date(selectedChannel.token_expires_at).toLocaleString("ko-KR")}` : " · 만료시각 미확인"}
+              {!selectedChannelAutoPublishSupported ? " · 현재 연동만 지원, 자동 발행 미지원" : selectedChannel.token_expires_at ? ` · 만료 ${new Date(selectedChannel.token_expires_at).toLocaleString("ko-KR")}` : " · 만료시각 미확인"}
             </div>
           )}
 
           {availableChannels.length === 0 && (
             <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
-              사용 가능한 채널이 없습니다. 클라이언트 상세에서 채널 재연동이 필요합니다.
+              자동 발행 가능한 채널이 없습니다. 지원 채널 연동 또는 재연동이 필요합니다.
             </div>
           )}
         </div>
@@ -497,7 +507,7 @@ export default function ContentDetailPage() {
               size="sm"
               onClick={handlePublishNow}
               loading={actionLoading}
-              disabled={availableChannels.length === 0 || !selectedChannelId || selectedChannelHealth === "reauth_required"}
+              disabled={availableChannels.length === 0 || !selectedChannelId || selectedChannelHealth === "reauth_required" || !selectedChannelAutoPublishSupported}
             >
               <Zap size={14} className="mr-1.5" />
               지금 발행
@@ -562,7 +572,7 @@ export default function ContentDetailPage() {
           </div>
         ) : memoModal === "schedule" ? (
           <div className="space-y-4">
-            <p className="text-sm text-gray-600">예약 시간을 선택하면 해당 채널로 발행 대기 상태가 됩니다.</p>
+            <p className="text-sm text-gray-600">예약 시간을 선택하면 자동 발행 지원 채널에 한해 발행 대기 상태가 됩니다.</p>
             <input
               type="datetime-local"
               value={scheduleAt}
@@ -573,7 +583,7 @@ export default function ContentDetailPage() {
               <Button variant="secondary" size="sm" onClick={() => setMemoModal(null)}>
                 취소
               </Button>
-              <Button size="sm" onClick={handleSchedule} loading={actionLoading}>
+              <Button size="sm" onClick={handleSchedule} loading={actionLoading} disabled={!selectedChannelAutoPublishSupported}>
                 예약 저장
               </Button>
             </div>

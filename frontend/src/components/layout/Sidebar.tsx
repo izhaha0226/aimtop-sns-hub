@@ -16,6 +16,7 @@ const menus = [
   { href: "/analytics", icon: BarChart3, label: "분석" },
   { href: "/growth", icon: TrendingUp, label: "Growth Hub" },
   { href: "/settings/users", icon: Settings, label: "설정" },
+  { href: "/settings/ai-engine", icon: Settings, label: "AI 엔진" },
 ]
 
 export default function Sidebar() {
