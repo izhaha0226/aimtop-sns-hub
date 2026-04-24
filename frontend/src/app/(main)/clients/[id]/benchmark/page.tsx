@@ -522,18 +522,23 @@ export default function ClientBenchmarkPage() {
                                     placeholder fallback
                                   </div>
                                 )}
-                                {diagnostic && !diagnostic.source_channel_has_token && diagnostic.source_channel_connected && (
+                                {accountState.source_channel_connected && accountState.source_channel_has_token === false && (
                                   <div className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-rose-50 text-rose-700 border-rose-200">
                                     토큰 없음
                                   </div>
                                 )}
                               </div>
                               {accountState.data_source_label && <div className="text-[11px] text-gray-600">데이터 소스: {accountState.data_source_label}</div>}
-                              {accountState.source_channel_connected
-                                ? <div className="text-[11px] text-emerald-700">연결 채널: {accountState.source_channel_account_name || accountState.source_channel_platform || item.platform}</div>
-                                : <div className="text-[11px] text-amber-700">연결 상태: {accountState.source_channel_missing_reason || "연결 채널 확인 필요"}</div>}
-                              {diagnostic?.last_refresh_at && (
-                                <div className="text-[11px] text-gray-500">마지막 새로고침: {formatDateTime(diagnostic.last_refresh_at) || diagnostic.last_refresh_at}</div>
+                              {accountState.source_channel_connected ? (
+                                <div className={`text-[11px] ${accountState.source_channel_has_token === false ? "text-amber-700" : "text-emerald-700"}`}>
+                                  연결 채널: {accountState.source_channel_account_name || accountState.source_channel_platform || item.platform}
+                                  {accountState.source_channel_has_token === false ? ` · ${accountState.source_channel_missing_reason || "토큰 없음"}` : ""}
+                                </div>
+                              ) : (
+                                <div className="text-[11px] text-amber-700">연결 상태: {accountState.source_channel_missing_reason || "연결 채널 확인 필요"}</div>
+                              )}
+                              {(accountState.refreshed_at || diagnostic?.last_refresh_at) && (
+                                <div className="text-[11px] text-gray-500">마지막 새로고침: {formatDateTime(accountState.refreshed_at || diagnostic?.last_refresh_at) || accountState.refreshed_at || diagnostic?.last_refresh_at}</div>
                               )}
                             </div>
                           )}

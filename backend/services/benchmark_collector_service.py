@@ -102,6 +102,7 @@ class BenchmarkCollectorService:
 
     async def refresh_account(self, account: BenchmarkAccount, top_k: int = 10, window_days: int = 30) -> dict:
         await self._clear_existing_posts(account.id)
+        refresh_context = await self._build_source_channel_context(account.client_id, account.platform)
 
         try:
             posts, status_payload = await self._collect_live_posts(account, top_k=top_k, window_days=window_days)
@@ -111,8 +112,10 @@ class BenchmarkCollectorService:
                 "message": f"실수집 중 오류가 발생했습니다: {e}",
                 "live_supported": False,
                 "platform": account.platform,
-                "source_channel_connected": False,
+                **refresh_context,
             }
+            if status_payload.get("source_channel_connected") and not status_payload.get("source_channel_has_token"):
+                status_payload["source_channel_missing_reason"] = status_payload.get("source_channel_missing_reason") or "연결 레코드는 있으나 access token 없음"
             posts = []
 
         used_placeholder = False
@@ -536,6 +539,18 @@ class BenchmarkCollectorService:
         last_refresh = metadata.get("last_refresh")
         return last_refresh if isinstance(last_refresh, dict) else {}
 
+    async def _build_source_channel_context(self, client_id: uuid.UUID, platform: str) -> dict:
+        platform_normalized = platform.lower()
+        source_channel = await self._get_source_channel(client_id, platform_normalized)
+        source_channel_has_token = self._channel_has_token(source_channel)
+        return {
+            "source_channel_connected": bool(source_channel),
+            "source_channel_platform": platform_normalized,
+            "source_channel_account_name": getattr(source_channel, "account_name", None) if source_channel else None,
+            "source_channel_missing_reason": None if not source_channel or source_channel_has_token else "연결 레코드는 있으나 access token 없음",
+            "source_channel_has_token": source_channel_has_token,
+        }
+
     def _parse_refresh_datetime(self, value: object) -> datetime | None:
         if not value:
             return None
@@ -564,6 +579,7 @@ class BenchmarkCollectorService:
             "source_channel_platform": payload.get("source_channel_platform"),
             "source_channel_account_name": payload.get("source_channel_account_name"),
             "source_channel_missing_reason": payload.get("source_channel_missing_reason"),
+            "source_channel_has_token": bool(payload.get("source_channel_has_token")),
             "refreshed_at": payload.get("refreshed_at").isoformat() if isinstance(payload.get("refreshed_at"), datetime) else None,
         }
         account.metadata_json = metadata
@@ -609,17 +625,35 @@ class BenchmarkCollectorService:
         platform = account.platform.lower()
         source_channel = await self._get_source_channel(account.client_id, platform)
         source_channel_account_name = getattr(source_channel, "account_name", None) if source_channel else None
+        source_channel_has_token = self._channel_has_token(source_channel)
+
+        def manual_payload(message: str, missing_reason: str, *, connected: bool | None = None) -> dict:
+            is_connected = bool(source_channel) if connected is None else connected
+            return {
+                "status": "manual_ingest_required",
+                "message": message,
+                "live_supported": False,
+                "platform": platform,
+                "source_channel_connected": is_connected,
+                "source_channel_platform": platform,
+                "source_channel_account_name": source_channel_account_name,
+                "source_channel_missing_reason": missing_reason,
+                "source_channel_has_token": source_channel_has_token,
+            }
+
         if platform == "youtube":
             if not source_channel:
-                return [], {
-                    "status": "manual_ingest_required",
-                    "message": "YouTube 실수집에는 이 클라이언트의 연결된 YouTube 채널 토큰이 필요합니다.",
-                    "live_supported": False,
-                    "platform": platform,
-                    "source_channel_connected": False,
-                    "source_channel_platform": platform,
-                    "source_channel_missing_reason": "연결된 YouTube 채널 토큰 없음",
-                }
+                return [], manual_payload(
+                    "YouTube 실수집에는 이 클라이언트의 연결된 YouTube 채널 토큰이 필요합니다.",
+                    "연결된 YouTube 채널 토큰 없음",
+                    connected=False,
+                )
+            if not source_channel_has_token:
+                return [], manual_payload(
+                    "YouTube 채널은 연결된 것처럼 보이지만 복호화 가능한 access token이 없습니다.",
+                    "연결 레코드는 있으나 access token 없음",
+                    connected=True,
+                )
             posts = await self._collect_youtube_posts(account, source_channel, top_k=top_k, window_days=window_days)
             return posts, {
                 "status": "live_collected",
@@ -629,6 +663,7 @@ class BenchmarkCollectorService:
                 "source_channel_connected": True,
                 "source_channel_platform": platform,
                 "source_channel_account_name": source_channel_account_name,
+                "source_channel_has_token": True,
                 "data_source": "youtube_api_live",
                 "data_source_label": DATA_SOURCE_LABELS["youtube_api_live"],
                 "view_metric_type": "actual",
@@ -636,15 +671,17 @@ class BenchmarkCollectorService:
             }
         if platform == "x":
             if not source_channel:
-                return [], {
-                    "status": "manual_ingest_required",
-                    "message": "X 실수집에는 이 클라이언트의 연결된 X 채널 토큰이 필요합니다.",
-                    "live_supported": False,
-                    "platform": platform,
-                    "source_channel_connected": False,
-                    "source_channel_platform": platform,
-                    "source_channel_missing_reason": "연결된 X 채널 토큰 없음",
-                }
+                return [], manual_payload(
+                    "X 실수집에는 이 클라이언트의 연결된 X 채널 토큰이 필요합니다.",
+                    "연결된 X 채널 토큰 없음",
+                    connected=False,
+                )
+            if not source_channel_has_token:
+                return [], manual_payload(
+                    "X 채널은 연결된 것처럼 보이지만 복호화 가능한 access token이 없습니다.",
+                    "연결 레코드는 있으나 access token 없음",
+                    connected=True,
+                )
             posts = await self._collect_x_posts(account, source_channel, top_k=top_k)
             return posts, {
                 "status": "live_collected_proxy_views",
@@ -654,6 +691,7 @@ class BenchmarkCollectorService:
                 "source_channel_connected": True,
                 "source_channel_platform": platform,
                 "source_channel_account_name": source_channel_account_name,
+                "source_channel_has_token": True,
                 "data_source": "x_api_live",
                 "data_source_label": DATA_SOURCE_LABELS["x_api_live"],
                 "view_metric_type": "proxy_from_public_metrics",
@@ -661,15 +699,17 @@ class BenchmarkCollectorService:
             }
         if platform == "instagram":
             if not source_channel:
-                return [], {
-                    "status": "manual_ingest_required",
-                    "message": "Instagram 실수집에는 이 클라이언트의 연결된 Instagram 채널 토큰이 필요합니다.",
-                    "live_supported": False,
-                    "platform": platform,
-                    "source_channel_connected": False,
-                    "source_channel_platform": platform,
-                    "source_channel_missing_reason": "연결된 Instagram 채널 토큰 없음",
-                }
+                return [], manual_payload(
+                    "Instagram 실수집에는 이 클라이언트의 연결된 Instagram 채널 토큰이 필요합니다.",
+                    "연결된 Instagram 채널 토큰 없음",
+                    connected=False,
+                )
+            if not source_channel_has_token:
+                return [], manual_payload(
+                    "Instagram 채널은 연결된 것처럼 보이지만 복호화 가능한 access token이 없습니다.",
+                    "연결 레코드는 있으나 access token 없음",
+                    connected=True,
+                )
             posts = await self._collect_instagram_posts(account, source_channel, top_k=top_k)
             return posts, {
                 "status": "live_collected",
@@ -679,6 +719,7 @@ class BenchmarkCollectorService:
                 "source_channel_connected": True,
                 "source_channel_platform": platform,
                 "source_channel_account_name": source_channel_account_name,
+                "source_channel_has_token": True,
                 "data_source": "instagram_business_discovery",
                 "data_source_label": DATA_SOURCE_LABELS["instagram_business_discovery"],
                 "view_metric_type": "proxy_from_like_comment",
@@ -686,15 +727,17 @@ class BenchmarkCollectorService:
             }
         if platform == "facebook":
             if not source_channel:
-                return [], {
-                    "status": "manual_ingest_required",
-                    "message": "Facebook 실수집에는 이 클라이언트의 연결된 Facebook 페이지 토큰이 필요합니다.",
-                    "live_supported": False,
-                    "platform": platform,
-                    "source_channel_connected": False,
-                    "source_channel_platform": platform,
-                    "source_channel_missing_reason": "연결된 Facebook 페이지 토큰 없음",
-                }
+                return [], manual_payload(
+                    "Facebook 실수집에는 이 클라이언트의 연결된 Facebook 페이지 토큰이 필요합니다.",
+                    "연결된 Facebook 페이지 토큰 없음",
+                    connected=False,
+                )
+            if not source_channel_has_token:
+                return [], manual_payload(
+                    "Facebook 페이지는 연결된 것처럼 보이지만 복호화 가능한 access token이 없습니다.",
+                    "연결 레코드는 있으나 access token 없음",
+                    connected=True,
+                )
             posts = await self._collect_facebook_posts(account, source_channel, top_k=top_k)
             return posts, {
                 "status": "live_collected_proxy_views",
@@ -704,30 +747,21 @@ class BenchmarkCollectorService:
                 "source_channel_connected": True,
                 "source_channel_platform": platform,
                 "source_channel_account_name": source_channel_account_name,
+                "source_channel_has_token": True,
                 "data_source": "facebook_page_posts",
                 "data_source_label": DATA_SOURCE_LABELS["facebook_page_posts"],
                 "view_metric_type": "proxy_from_engagement",
                 "view_metric_label": VIEW_METRIC_LABELS["proxy_from_engagement"],
             }
         if platform == "threads":
-            return [], {
-                "status": "manual_ingest_required",
-                "message": "Threads는 공개 벤치마킹용 안정 API가 아직 부족해 수동 수집 대상으로 유지합니다.",
-                "live_supported": False,
-                "platform": platform,
-                "source_channel_connected": False,
-                "source_channel_platform": platform,
-                "source_channel_missing_reason": "Threads 공개 벤치마킹 안정 API 미지원",
-            }
-        return [], {
-            "status": "manual_ingest_required",
-            "message": f"{platform} 실수집기는 아직 미구현입니다.",
-            "live_supported": False,
-            "platform": platform,
-            "source_channel_connected": False,
-            "source_channel_platform": platform,
-            "source_channel_missing_reason": f"{platform} 실수집기 미구현",
-        }
+            return [], manual_payload(
+                "Threads는 공개 벤치마킹용 안정 API가 아직 부족해 수동 수집 대상으로 유지합니다.",
+                "Threads 공개 벤치마킹 안정 API 미지원",
+            )
+        return [], manual_payload(
+            f"{platform} 실수집기는 아직 미구현입니다.",
+            f"{platform} 실수집기 미구현",
+        )
 
     async def _get_source_channel(self, client_id: uuid.UUID, platform: str) -> ChannelConnection | None:
         result = await self.db.execute(

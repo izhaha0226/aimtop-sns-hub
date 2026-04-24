@@ -69,6 +69,7 @@ export interface RefreshAccountResult {
   source_channel_platform?: string | null
   source_channel_account_name?: string | null
   source_channel_missing_reason?: string | null
+  source_channel_has_token?: boolean
   refreshed_at?: string | null
 }
 

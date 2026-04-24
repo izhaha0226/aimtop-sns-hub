@@ -76,6 +76,7 @@ class RefreshAccountResponse(BaseModel):
     source_channel_platform: str | None = None
     source_channel_account_name: str | None = None
     source_channel_missing_reason: str | None = None
+    source_channel_has_token: bool = False
     refreshed_at: datetime | None = None
 
 
