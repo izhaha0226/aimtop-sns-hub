@@ -91,6 +91,87 @@ interface PublishObservability {
   }>
 }
 
+const EMPTY_CHANNELS_HEALTH: ChannelsHealth = {
+  summary: { healthy: 0, expiring: 0, reauth_required: 0, unknown: 0 },
+  items: [],
+}
+
+const EMPTY_PIPELINE_READINESS: PipelineReadiness = {
+  summary: { ready: 0, warning: 0, blocked: 0 },
+  items: [],
+}
+
+const EMPTY_PUBLISH_OBSERVABILITY: PublishObservability = {
+  summary: {
+    published_with_evidence: 0,
+    published_without_evidence: 0,
+    failed_with_error: 0,
+    failed_missing_evidence: 0,
+    failed_unsupported_platform: 0,
+  },
+  published_items: [],
+  suspicious_items: [],
+  failed_items: [],
+}
+
+function asRecord(value: unknown): Record<string, string | number | boolean | null> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, string | number | boolean | null>)
+    : {}
+}
+
+function normalizeChannelsHealth(value: unknown): ChannelsHealth {
+  if (!value || typeof value !== "object") return EMPTY_CHANNELS_HEALTH
+  const data = value as Partial<ChannelsHealth>
+  return {
+    summary: {
+      healthy: Number(data.summary?.healthy ?? 0),
+      expiring: Number(data.summary?.expiring ?? 0),
+      reauth_required: Number(data.summary?.reauth_required ?? 0),
+      unknown: Number(data.summary?.unknown ?? 0),
+    },
+    items: Array.isArray(data.items) ? data.items : [],
+  }
+}
+
+function normalizePipelineReadiness(value: unknown): PipelineReadiness {
+  if (!value || typeof value !== "object") return EMPTY_PIPELINE_READINESS
+  const data = value as Partial<PipelineReadiness>
+  return {
+    summary: {
+      ready: Number(data.summary?.ready ?? 0),
+      warning: Number(data.summary?.warning ?? 0),
+      blocked: Number(data.summary?.blocked ?? 0),
+    },
+    items: Array.isArray(data.items)
+      ? data.items.map((item) => ({
+          key: String(item?.key ?? "unknown"),
+          label: String(item?.label ?? "알 수 없음"),
+          status: item?.status === "ready" || item?.status === "warning" || item?.status === "blocked" ? item.status : "blocked",
+          summary: String(item?.summary ?? "상태 정보를 불러오지 못했습니다"),
+          details: asRecord(item?.details),
+        }))
+      : [],
+  }
+}
+
+function normalizePublishObservability(value: unknown): PublishObservability {
+  if (!value || typeof value !== "object") return EMPTY_PUBLISH_OBSERVABILITY
+  const data = value as Partial<PublishObservability>
+  return {
+    summary: {
+      published_with_evidence: Number(data.summary?.published_with_evidence ?? 0),
+      published_without_evidence: Number(data.summary?.published_without_evidence ?? 0),
+      failed_with_error: Number(data.summary?.failed_with_error ?? 0),
+      failed_missing_evidence: Number(data.summary?.failed_missing_evidence ?? 0),
+      failed_unsupported_platform: Number(data.summary?.failed_unsupported_platform ?? 0),
+    },
+    published_items: Array.isArray(data.published_items) ? data.published_items : [],
+    suspicious_items: Array.isArray(data.suspicious_items) ? data.suspicious_items : [],
+    failed_items: Array.isArray(data.failed_items) ? data.failed_items : [],
+  }
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [stats, setStats] = useState<DashboardStats | null>(null)
@@ -116,9 +197,9 @@ export default function DashboardPage() {
             ? activityRes.data.recent_contents
             : []
         setActivity(activityItems)
-        setChannelsHealth(healthRes.data)
-        setPipelineReadiness(pipelineRes.data)
-        setPublishObservability(publishRes.data)
+        setChannelsHealth(normalizeChannelsHealth(healthRes.data))
+        setPipelineReadiness(normalizePipelineReadiness(pipelineRes.data))
+        setPublishObservability(normalizePublishObservability(publishRes.data))
       })
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -218,7 +299,7 @@ export default function DashboardPage() {
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${pipelineBadge(item.status)}`}>{item.status}</span>
                   </div>
                   <div className="mt-3 space-y-1">
-                    {Object.entries(item.details).slice(0, 4).map(([key, value]) => (
+                    {Object.entries(item.details || {}).slice(0, 4).map(([key, value]) => (
                       <div key={key} className="flex items-center justify-between text-xs text-gray-500 gap-3">
                         <span>{key}</span>
                         <span className="font-medium text-gray-700">{String(value)}</span>
