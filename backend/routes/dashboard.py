@@ -41,6 +41,9 @@ def _count_failed_publish_category(contents: list[Content], category_key: str) -
 
 
 def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
+    now = datetime.now(timezone.utc)
+    stale_cutoff = now - timedelta(hours=24)
+
     active_rows = [row for row in diagnostics if row.get("is_active")]
     live_rows = [row for row in active_rows if row.get("status") in {"live_collected", "live_collected_proxy_views"}]
     mixed_rows = [row for row in active_rows if row.get("status") == "live_collected_mixed"]
@@ -56,6 +59,14 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
     manual_supported_rows = [row for row in active_rows if row.get("support_level") == "manual"]
     unimplemented_rows = [row for row in active_rows if row.get("support_level") == "unimplemented"]
     live_supported_rows = [row for row in active_rows if row.get("support_level") == "live"]
+    never_refreshed_rows = [row for row in active_rows if not row.get("last_refresh_at")]
+    stale_refresh_rows = [
+        row
+        for row in active_rows
+        if row.get("last_refresh_at")
+        and isinstance(row.get("last_refresh_at"), datetime)
+        and row["last_refresh_at"] < stale_cutoff
+    ]
 
     blocked = len(active_rows) == 0 or (len(live_supported_rows) == 0 and len(live_rows) == 0 and len(mixed_rows) == 0)
     warning = (
@@ -67,6 +78,8 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
         or len(token_missing_rows) > 0
         or len(manual_supported_rows) > 0
         or len(unimplemented_rows) > 0
+        or len(never_refreshed_rows) > 0
+        or len(stale_refresh_rows) > 0
     )
 
     if blocked:
@@ -74,7 +87,10 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
         summary = "활성 벤치마킹 계정 또는 직접 실수집 가능한 계정이 아직 부족합니다"
     elif warning:
         status = "warning"
-        summary = "실데이터와 fallback/누락/수동 확인 상태가 섞여 있어 운영자가 상태를 분리해서 봐야 합니다"
+        if len(never_refreshed_rows) > 0 or len(stale_refresh_rows) > 0:
+            summary = "실데이터 상태 외에도 새로고침 이력 부족/노후 계정이 있어 현재 운영 상태를 최신 정보로 보기 어렵습니다"
+        else:
+            summary = "실데이터와 fallback/누락/수동 확인 상태가 섞여 있어 운영자가 상태를 분리해서 봐야 합니다"
     else:
         status = "ready"
         summary = "직접 실데이터 기준으로 벤치마킹 계정 상태가 정돈되어 있습니다"
@@ -93,6 +109,8 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
             "manual_required_accounts": len(manual_required_rows),
             "manual_supported_accounts": len(manual_supported_rows),
             "unimplemented_accounts": len(unimplemented_rows),
+            "never_refreshed_accounts": len(never_refreshed_rows),
+            "stale_refresh_accounts": len(stale_refresh_rows),
             "inactive_accounts": max(len(diagnostics) - len(active_rows), 0),
             "live_post_count": sum(int(row.get("live_post_count") or 0) for row in active_rows),
             "placeholder_post_count": sum(int(row.get("placeholder_post_count") or 0) for row in active_rows),
