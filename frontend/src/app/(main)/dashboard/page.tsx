@@ -160,6 +160,8 @@ const PIPELINE_DETAIL_LABELS: Record<string, string> = {
   manual_required_accounts: "수동 필요",
   manual_supported_accounts: "수동 지원 플랫폼",
   unimplemented_accounts: "미구현 플랫폼",
+  duplicate_source_accounts: "중복 연결 계정",
+  duplicate_source_connections: "중복 연결 수",
   never_refreshed_accounts: "새로고침 없음",
   stale_refresh_accounts: "24시간 초과",
   inactive_accounts: "비활성 계정",
@@ -173,7 +175,7 @@ const PIPELINE_DETAIL_ORDER: Record<PipelineKey, string[]> = {
   ai_generation: ["blocked_tasks", "fallback_only_tasks", "fallback_missing_tasks", "primary_ready_tasks", "openai_key_present", "claude_cli_available"],
   oauth_connections: ["reauth_required", "connected_channels", "meta_app_id_present", "meta_app_secret_present"],
   publishing: ["suspicious_published_without_evidence", "failed_publish_count", "unsupported_connected_channels", "unknown_token_channels", "supported_connected_channels", "supported_healthy_channels", "published_evidence_count"],
-  benchmarking: ["token_missing_accounts", "collector_error_accounts", "placeholder_only_accounts", "no_data_accounts", "never_refreshed_accounts", "stale_refresh_accounts", "live_accounts", "active_accounts"],
+  benchmarking: ["token_missing_accounts", "duplicate_source_accounts", "duplicate_source_connections", "collector_error_accounts", "placeholder_only_accounts", "no_data_accounts", "never_refreshed_accounts", "stale_refresh_accounts", "live_accounts", "active_accounts"],
   unknown: [],
 }
 

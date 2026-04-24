@@ -214,6 +214,8 @@ export default function ClientBenchmarkPage() {
       proxyMetricCount: activeRows.reduce((sum, item) => sum + item.proxy_metric_count, 0),
       totalPostCount: activeRows.reduce((sum, item) => sum + item.total_post_count, 0),
       tokenMissingCount: activeRows.filter((item) => item.source_channel_connected && !item.source_channel_has_token).length,
+      duplicateConnectionAccountCount: activeRows.filter((item) => item.source_channel_duplicate_warning).length,
+      duplicateConnectionCount: activeRows.reduce((sum, item) => sum + Math.max(item.source_channel_duplicate_count || 0, 0), 0),
       neverRefreshedCount: activeRows.filter((item) => !item.last_refresh_at).length,
       staleRefreshCount: activeRows.filter((item) => Boolean(item.last_refresh_at) && isStaleRefresh(item.last_refresh_at)).length,
       inactiveCount: diagnostics.filter((item) => !item.is_active).length,
@@ -250,6 +252,14 @@ export default function ClientBenchmarkPage() {
         status: "warning" as const,
         title: "토큰 누락 연결 있음",
         detail: `연결된 채널처럼 보이지만 access token이 없는 계정 ${diagnosticSummary.tokenMissingCount}개가 있습니다. 가짜 연동 상태를 먼저 정리해야 합니다.`,
+      }
+    }
+
+    if (diagnosticSummary.duplicateConnectionAccountCount > 0) {
+      return {
+        status: "warning" as const,
+        title: "중복 연결 정리 필요",
+        detail: `동일 플랫폼 연결이 중복된 계정 ${diagnosticSummary.duplicateConnectionAccountCount}개, 중복 row ${diagnosticSummary.duplicateConnectionCount}개가 있습니다. 어떤 row 기준으로 실수집하는지 운영자가 혼동할 수 있습니다.`,
       }
     }
 
@@ -308,7 +318,7 @@ export default function ClientBenchmarkPage() {
       title: "직접 실데이터 없음",
       detail: "계정은 등록되어 있지만 현재 클라이언트 기준 실수집 상태를 아직 확인하지 못했습니다. 연결 채널/토큰/collector 상태를 확인해야 합니다.",
     }
-  }, [diagnosticSummary.actualMetricCount, diagnosticSummary.blockedCount, diagnosticSummary.collectorErrorCount, diagnosticSummary.liveAccountCount, diagnosticSummary.mixedCount, diagnosticSummary.neverRefreshedCount, diagnosticSummary.noDataCount, diagnosticSummary.placeholderOnlyCount, diagnosticSummary.staleRefreshCount, diagnosticSummary.tokenMissingCount, platformAccounts.length, platformSupportLevel])
+  }, [diagnosticSummary.actualMetricCount, diagnosticSummary.blockedCount, diagnosticSummary.collectorErrorCount, diagnosticSummary.duplicateConnectionAccountCount, diagnosticSummary.duplicateConnectionCount, diagnosticSummary.liveAccountCount, diagnosticSummary.mixedCount, diagnosticSummary.neverRefreshedCount, diagnosticSummary.noDataCount, diagnosticSummary.placeholderOnlyCount, diagnosticSummary.staleRefreshCount, diagnosticSummary.tokenMissingCount, platformAccounts.length, platformSupportLevel])
 
   const profileSummary = useMemo(() => {
     if (!profile) {
@@ -427,7 +437,7 @@ export default function ClientBenchmarkPage() {
         <div className="rounded-xl border bg-white p-4">
           <div className="text-xs text-gray-500">등록/활성 계정</div>
           <div className="mt-2 text-sm font-semibold text-gray-900">{platformAccounts.length}개 등록 · {activePlatformAccounts.length}개 활성</div>
-          <div className="mt-2 text-xs text-gray-500">비활성 {Math.max(platformAccounts.length - activePlatformAccounts.length, 0)}개 · 토큰누락 {diagnosticSummary.tokenMissingCount}개 · 수집오류 {diagnosticSummary.collectorErrorCount}개</div>
+          <div className="mt-2 text-xs text-gray-500">비활성 {Math.max(platformAccounts.length - activePlatformAccounts.length, 0)}개 · 토큰누락 {diagnosticSummary.tokenMissingCount}개 · 중복연결 {diagnosticSummary.duplicateConnectionAccountCount}계정/{diagnosticSummary.duplicateConnectionCount}row · 수집오류 {diagnosticSummary.collectorErrorCount}개</div>
           <div className="mt-1 text-xs text-gray-500">새로고침 없음 {diagnosticSummary.neverRefreshedCount}개 · 24시간 초과 {diagnosticSummary.staleRefreshCount}개</div>
         </div>
         <div className="rounded-xl border bg-white p-4">

@@ -62,6 +62,7 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
     manual_supported_rows = [row for row in active_rows if row.get("support_level") == "manual"]
     unimplemented_rows = [row for row in active_rows if row.get("support_level") == "unimplemented"]
     live_supported_rows = [row for row in active_rows if row.get("support_level") == "live"]
+    duplicate_source_rows = [row for row in active_rows if row.get("source_channel_duplicate_warning")]
     never_refreshed_rows = [row for row in active_rows if not row.get("last_refresh_at")]
     stale_refresh_rows = [
         row
@@ -81,6 +82,7 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
         or len(token_missing_rows) > 0
         or len(manual_supported_rows) > 0
         or len(unimplemented_rows) > 0
+        or len(duplicate_source_rows) > 0
         or len(never_refreshed_rows) > 0
         or len(stale_refresh_rows) > 0
     )
@@ -112,6 +114,8 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
             "manual_required_accounts": len(manual_required_rows),
             "manual_supported_accounts": len(manual_supported_rows),
             "unimplemented_accounts": len(unimplemented_rows),
+            "duplicate_source_accounts": len(duplicate_source_rows),
+            "duplicate_source_connections": sum(int(row.get("source_channel_duplicate_count") or 0) for row in duplicate_source_rows),
             "never_refreshed_accounts": len(never_refreshed_rows),
             "stale_refresh_accounts": len(stale_refresh_rows),
             "inactive_accounts": max(len(diagnostics) - len(active_rows), 0),
