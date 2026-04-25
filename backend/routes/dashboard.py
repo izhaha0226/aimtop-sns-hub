@@ -174,6 +174,7 @@ def _summarize_publishing_readiness(
     unknown_token_channels: int,
     suspicious_published_without_evidence: int,
     failed_publish_count: int,
+    failed_with_stale_evidence: int,
     published_evidence_count: int,
 ) -> tuple[str, str]:
     if supported_connected_channels == 0:
@@ -182,6 +183,11 @@ def _summarize_publishing_readiness(
         return (
             "warning",
             f"published 상태지만 증거가 없는 콘텐츠 {suspicious_published_without_evidence}건이 있어 성공 판정을 믿기 어렵습니다",
+        )
+    if failed_with_stale_evidence > 0:
+        return (
+            "warning",
+            f"failed 상태인데 이전 발행 증거가 남아 있는 콘텐츠 {failed_with_stale_evidence}건이 있어 성공/실패 데이터 정합성을 먼저 봐야 합니다",
         )
     if failed_publish_count > 0:
         return "warning", f"최근 발행 실패 {failed_publish_count}건이 누적되어 먼저 실패 사유 정리가 필요합니다"
@@ -591,6 +597,11 @@ async def get_pipeline_readiness(
     )
     failed_contents = list(failed_contents_result.scalars().all())
     failed_publish_count = len(failed_contents)
+    failed_with_stale_evidence = sum(
+        1
+        for content in failed_contents
+        if bool(content.platform_post_id or content.published_url or content.published_at)
+    )
     failed_missing_evidence = _count_failed_publish_category(failed_contents, "missing_evidence")
     failed_unsupported_platform = _count_failed_publish_category(failed_contents, "unsupported_platform")
     failed_token_expired = _count_failed_publish_category(failed_contents, "token_expired")
@@ -653,6 +664,7 @@ async def get_pipeline_readiness(
         unknown_token_channels=unknown_token_channels,
         suspicious_published_without_evidence=suspicious_published_without_evidence,
         failed_publish_count=failed_publish_count,
+        failed_with_stale_evidence=failed_with_stale_evidence,
         published_evidence_count=published_evidence_count,
     )
 
@@ -696,6 +708,7 @@ async def get_pipeline_readiness(
                 "published_evidence_count": published_evidence_count,
                 "suspicious_published_without_evidence": suspicious_published_without_evidence,
                 "failed_publish_count": failed_publish_count,
+                "failed_with_stale_evidence": failed_with_stale_evidence,
                 "failed_token_missing": failed_token_missing,
                 "failed_token_expired": failed_token_expired,
                 "failed_missing_channel": failed_missing_channel,
@@ -775,6 +788,11 @@ async def get_publish_observability(
         )
     )
     failed_contents = list(failed_contents_result.scalars().all())
+    failed_with_stale_evidence = sum(
+        1
+        for content in failed_contents
+        if bool(content.platform_post_id or content.published_url or content.published_at)
+    )
     failed_missing_evidence = _count_failed_publish_category(failed_contents, "missing_evidence")
     failed_unsupported_platform = _count_failed_publish_category(failed_contents, "unsupported_platform")
     failed_token_expired = _count_failed_publish_category(failed_contents, "token_expired")
@@ -816,6 +834,23 @@ async def get_publish_observability(
         .limit(10)
     )
     suspicious_items = suspicious_result.all()
+
+    stale_evidence_result = await db.execute(
+        select(Content, ChannelConnection)
+        .outerjoin(ChannelConnection, Content.channel_connection_id == ChannelConnection.id)
+        .where(
+            Content.status == "failed",
+            Content.publish_error.isnot(None),
+            (
+                Content.platform_post_id.isnot(None)
+                | Content.published_url.isnot(None)
+                | Content.published_at.isnot(None)
+            ),
+        )
+        .order_by(Content.updated_at.desc().nullslast(), Content.published_at.desc().nullslast())
+        .limit(10)
+    )
+    stale_evidence_items = stale_evidence_result.all()
 
     failed_result = await db.execute(
         select(Content, ChannelConnection)
@@ -919,6 +954,7 @@ async def get_publish_observability(
             "published_with_evidence": published_with_evidence,
             "published_without_evidence": published_without_evidence,
             "failed_with_error": failed_with_error,
+            "failed_with_stale_evidence": failed_with_stale_evidence,
             "failed_missing_evidence": failed_missing_evidence,
             "failed_unsupported_platform": failed_unsupported_platform,
             "failed_token_expired": failed_token_expired,
@@ -963,6 +999,23 @@ async def get_publish_observability(
                 "account_name": channel.account_name if channel else None,
             }
             for item, channel in suspicious_items
+        ],
+        "stale_evidence_items": [
+            {
+                "id": str(item.id),
+                "title": item.title,
+                "platform_post_id": item.platform_post_id,
+                "published_url": item.published_url,
+                "published_at": item.published_at.isoformat() if item.published_at else None,
+                "publish_error": item.publish_error,
+                "failure_category": _classify_publish_error(item.publish_error)[0],
+                "failure_label": _classify_publish_error(item.publish_error)[1],
+                "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+                "channel_connection_id": str(item.channel_connection_id) if item.channel_connection_id else None,
+                "channel_type": channel.channel_type if channel else None,
+                "account_name": channel.account_name if channel else None,
+            }
+            for item, channel in stale_evidence_items
         ],
         "failed_items": failed_item_payloads[:10],
         "retry_pending_items": retry_pending_item_payloads[:10],

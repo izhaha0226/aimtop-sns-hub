@@ -71,6 +71,7 @@ interface PublishObservability {
     published_with_evidence: number
     published_without_evidence: number
     failed_with_error: number
+    failed_with_stale_evidence: number
     failed_missing_evidence: number
     failed_unsupported_platform: number
     failed_token_expired: number
@@ -104,6 +105,20 @@ interface PublishObservability {
     schedule_retry_count?: number
     schedule_error_message?: string | null
     schedule_scheduled_at?: string | null
+    channel_connection_id?: string | null
+    channel_type?: string | null
+    account_name?: string | null
+  }>
+  stale_evidence_items: Array<{
+    id: string
+    title: string
+    platform_post_id?: string | null
+    published_url?: string | null
+    published_at?: string | null
+    publish_error?: string | null
+    failure_category?: string | null
+    failure_label?: string | null
+    updated_at?: string | null
     channel_connection_id?: string | null
     channel_type?: string | null
     account_name?: string | null
@@ -162,6 +177,7 @@ const EMPTY_PUBLISH_OBSERVABILITY: PublishObservability = {
     published_with_evidence: 0,
     published_without_evidence: 0,
     failed_with_error: 0,
+    failed_with_stale_evidence: 0,
     failed_missing_evidence: 0,
     failed_unsupported_platform: 0,
     failed_token_expired: 0,
@@ -178,6 +194,7 @@ const EMPTY_PUBLISH_OBSERVABILITY: PublishObservability = {
   },
   published_items: [],
   suspicious_items: [],
+  stale_evidence_items: [],
   failed_items: [],
   retry_pending_items: [],
 }
@@ -208,6 +225,7 @@ const PIPELINE_DETAIL_LABELS: Record<string, string> = {
   published_evidence_count: "발행 증거 수",
   suspicious_published_without_evidence: "증거 없는 published",
   failed_publish_count: "발행 실패",
+  failed_with_stale_evidence: "실패인데 증거 남음",
   failed_token_missing: "실패 · 토큰 없음",
   failed_token_expired: "실패 · 토큰 만료",
   failed_missing_channel: "실패 · 채널/콘텐츠 누락",
@@ -251,6 +269,7 @@ const PIPELINE_DETAIL_ORDER: Record<PipelineKey, string[]> = {
   oauth_connections: ["reauth_required", "token_missing_channels", "unknown_token_channels", "connected_channels", "healthy_channels", "supported_healthy_channels", "meta_app_id_present", "meta_app_secret_present"],
   publishing: [
     "suspicious_published_without_evidence",
+    "failed_with_stale_evidence",
     "failed_publish_count",
     "failed_token_missing",
     "failed_token_expired",
@@ -355,6 +374,7 @@ function normalizePublishObservability(value: unknown): PublishObservability {
       published_with_evidence: Number(data.summary?.published_with_evidence ?? 0),
       published_without_evidence: Number(data.summary?.published_without_evidence ?? 0),
       failed_with_error: Number(data.summary?.failed_with_error ?? 0),
+      failed_with_stale_evidence: Number(data.summary?.failed_with_stale_evidence ?? 0),
       failed_missing_evidence: Number(data.summary?.failed_missing_evidence ?? 0),
       failed_unsupported_platform: Number(data.summary?.failed_unsupported_platform ?? 0),
       failed_token_expired: Number(data.summary?.failed_token_expired ?? 0),
@@ -371,6 +391,7 @@ function normalizePublishObservability(value: unknown): PublishObservability {
     },
     published_items: Array.isArray(data.published_items) ? data.published_items : [],
     suspicious_items: Array.isArray(data.suspicious_items) ? data.suspicious_items : [],
+    stale_evidence_items: Array.isArray((data as { stale_evidence_items?: unknown[] }).stale_evidence_items) ? (data as { stale_evidence_items: PublishObservability["stale_evidence_items"] }).stale_evidence_items : [],
     failed_items: Array.isArray(data.failed_items) ? data.failed_items : [],
     retry_pending_items: Array.isArray((data as { retry_pending_items?: unknown[] }).retry_pending_items) ? (data as { retry_pending_items: PublishObservability["retry_pending_items"] }).retry_pending_items : [],
   }
@@ -560,14 +581,14 @@ export default function DashboardPage() {
                 <div>연결 {publishObservability?.summary.connected_channels ?? 0} · 정상 {publishObservability?.summary.healthy_channels ?? 0} · 재인증필요 {publishObservability?.summary.reauth_required_channels ?? 0}</div>
                 <div className="mt-1">지원채널 {publishObservability?.summary.supported_connected_channels ?? 0} · 건강한 지원채널 {publishObservability?.summary.supported_healthy_channels ?? 0} · 미지원채널 {publishObservability?.summary.unsupported_connected_channels ?? 0}</div>
                 <div className="mt-1">토큰없음 채널 {publishObservability?.summary.token_missing_channels ?? 0} · 토큰상태 미확인 {publishObservability?.summary.unknown_token_channels ?? 0}</div>
-                <div className="mt-1">증거 {publishObservability?.summary.published_with_evidence ?? 0} · 의심 {publishObservability?.summary.published_without_evidence ?? 0} · 실패 {publishObservability?.summary.failed_with_error ?? 0}</div>
+                <div className="mt-1">증거 {publishObservability?.summary.published_with_evidence ?? 0} · 의심 {publishObservability?.summary.published_without_evidence ?? 0} · 실패 {publishObservability?.summary.failed_with_error ?? 0} · 실패인데 증거남음 {publishObservability?.summary.failed_with_stale_evidence ?? 0}</div>
                 <div className="mt-1">증거누락 {publishObservability?.summary.failed_missing_evidence ?? 0} · 미지원채널 {publishObservability?.summary.failed_unsupported_platform ?? 0} · 토큰만료 {publishObservability?.summary.failed_token_expired ?? 0}</div>
                 <div className="mt-1">토큰없음 {publishObservability?.summary.failed_token_missing ?? 0} · 채널/콘텐츠 누락 {publishObservability?.summary.failed_missing_channel ?? 0} · 재시도 실패표시 {publishObservability?.summary.failed_retrying ?? 0} · 기타 {publishObservability?.summary.failed_other ?? 0}</div>
                 <div className="mt-1">재시도 대기 {publishObservability?.summary.retry_pending_schedules ?? 0} · 토큰없음 {publishObservability?.summary.retry_pending_token_missing ?? 0} · 토큰만료 {publishObservability?.summary.retry_pending_token_expired ?? 0} · 채널누락 {publishObservability?.summary.retry_pending_missing_channel ?? 0} · 미지원 {publishObservability?.summary.retry_pending_unsupported_platform ?? 0} · 기타 {publishObservability?.summary.retry_pending_other ?? 0}</div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
               <div className="rounded-lg border p-4">
                 <h3 className="text-xs font-semibold text-gray-600 mb-3">최근 발행 증거</h3>
                 <div className="space-y-2">
@@ -601,6 +622,28 @@ export default function DashboardPage() {
                   ))}
                   {(publishObservability?.suspicious_items || []).length === 0 && (
                     <div className="text-sm text-gray-400 py-4 text-center">증거 없는 published 항목이 없습니다</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-lg border p-4">
+                <h3 className="text-xs font-semibold text-gray-600 mb-3">실패인데 증거 남음</h3>
+                <div className="space-y-2">
+                  {(publishObservability?.stale_evidence_items || []).slice(0, 5).map((item) => (
+                    <div key={item.id} className="rounded-lg bg-rose-50 border border-rose-100 px-3 py-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
+                        <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium ${failureBadge(item.failure_category)}`}>{item.failure_label || "기타 오류"}</span>
+                      </div>
+                      <p className="text-[11px] text-gray-500 mt-1">채널: {item.channel_type || "-"}{item.account_name ? ` · ${item.account_name}` : ""}</p>
+                      <p className="text-[11px] text-rose-700 mt-1">failed 상태인데 post_id / url / published_at 증거가 남아 있습니다</p>
+                      <p className="text-[11px] text-gray-500 mt-1">post_id: {item.platform_post_id || "-"}</p>
+                      <p className="text-[11px] text-gray-500 truncate">url: {item.published_url || "-"}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">published_at: {item.published_at ? new Date(item.published_at).toLocaleString("ko-KR") : "-"}</p>
+                    </div>
+                  ))}
+                  {(publishObservability?.stale_evidence_items || []).length === 0 && (
+                    <div className="text-sm text-gray-400 py-4 text-center">실패인데 증거가 남은 항목이 없습니다</div>
                   )}
                 </div>
               </div>
