@@ -54,6 +54,12 @@ export default function ContentDetailPage() {
     void load()
   }, [id])
 
+  const safeHashtags = Array.isArray(content?.hashtags) ? content.hashtags : []
+  const safeMediaUrls = Array.isArray(content?.media_urls) ? content.media_urls : []
+  const safeStatus = content?.status && content.status in STATUS_LABELS ? content.status : "draft"
+  const safePostType = content?.post_type && content.post_type in POST_TYPE_LABELS ? content.post_type : "text"
+  const safeCreatedAt = content?.created_at ? new Date(content.created_at) : null
+
   const connectedChannels = useMemo(
     () => channels.filter((channel) => channel.is_connected),
     [channels]
@@ -253,10 +259,10 @@ export default function ContentDetailPage() {
         <h1 className="text-xl font-bold flex-1 truncate">{content.title}</h1>
         <span
           className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
-            STATUS_COLORS[content.status]
+            STATUS_COLORS[safeStatus]
           }`}
         >
-          {STATUS_LABELS[content.status]}
+          {STATUS_LABELS[safeStatus]}
         </span>
       </div>
 
@@ -265,20 +271,22 @@ export default function ContentDetailPage() {
         <div className="flex items-center gap-2">
           <span
             className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-              POST_TYPE_COLORS[content.post_type]
+              POST_TYPE_COLORS[safePostType]
             }`}
           >
-            {POST_TYPE_LABELS[content.post_type]}
+            {POST_TYPE_LABELS[safePostType]}
           </span>
           {content.client_name && (
             <span className="text-sm text-gray-500">{content.client_name}</span>
           )}
           <span className="ml-auto text-xs text-gray-400">
-            {new Date(content.created_at).toLocaleDateString("ko-KR", {
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            })}
+            {safeCreatedAt && !Number.isNaN(safeCreatedAt.getTime())
+              ? safeCreatedAt.toLocaleDateString("ko-KR", {
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })
+              : "-"}
           </span>
         </div>
 
@@ -291,11 +299,11 @@ export default function ContentDetailPage() {
           </div>
         )}
 
-        {content.hashtags.length > 0 && (
+        {safeHashtags.length > 0 && (
           <div>
             <p className="text-sm font-medium text-gray-700 mb-1.5">해시태그</p>
             <div className="flex flex-wrap gap-1.5">
-              {content.hashtags.map((tag) => (
+              {safeHashtags.map((tag) => (
                 <span
                   key={tag}
                   className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs"
@@ -307,11 +315,11 @@ export default function ContentDetailPage() {
           </div>
         )}
 
-        {content.media_urls.length > 0 && (
+        {safeMediaUrls.length > 0 && (
           <div>
             <p className="text-sm font-medium text-gray-700 mb-1.5">미디어</p>
             <div className="flex flex-wrap gap-2">
-              {content.media_urls.map((url) => (
+              {safeMediaUrls.map((url) => (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
                   key={url}
@@ -389,7 +397,7 @@ export default function ContentDetailPage() {
                     : "외부 발행 증거 없음"}
           </div>
           <div className="mt-2 space-y-1 text-xs">
-            <div>내부 상태: {STATUS_LABELS[content.status]}</div>
+            <div>내부 상태: {STATUS_LABELS[safeStatus]}</div>
             <div>대상 채널: {persistedChannel ? `${persistedChannel.channel_type}${persistedChannel.account_name ? ` · ${persistedChannel.account_name}` : ""}` : content.channel_connection_id || "-"}</div>
             <div>채널 상태: {persistedChannel ? persistedChannelHealth === "reauth_required" ? "재인증 필요" : persistedChannelHealth === "expiring" ? "만료 임박" : persistedChannelHealth === "healthy" ? "정상" : persistedChannelHealth === "unknown" ? "만료시각 미확인" : "미확인" : "-"}{persistedChannel && persistedChannelAutoPublishSupported === false ? " · 자동발행 미지원" : ""}</div>
             <div>platform_post_id: {content.platform_post_id || "-"}</div>
