@@ -259,8 +259,9 @@ export default function ClientBenchmarkPage() {
     const duplicateConnectionAccountCount = activeRows.filter((item) => item.source_channel_duplicate_warning).length
     const duplicateConnectionCount = activeRows.reduce((sum, item) => sum + Math.max(item.source_channel_duplicate_count || 0, 0), 0)
     const lastRefreshProfileReadyCount = activeRows.filter((item) => Boolean(item.last_refresh_profile_generated || item.last_refresh_profile_id)).length
+    const blockedAccountCount = manualRequiredCount + collectorErrorCount + tokenMissingCount
     return {
-      blockedCount: manualRequiredCount,
+      blockedAccountCount,
       manualRequiredCount,
       collectorErrorCount,
       mixedCount: activeRows.filter((item) => item.status === "live_collected_mixed").length,
@@ -279,7 +280,7 @@ export default function ClientBenchmarkPage() {
       recentRefreshCount: activeRows.filter((item) => Boolean(item.last_refresh_at) && !isStaleRefresh(item.last_refresh_at)).length,
       lastRefreshProfileReadyCount,
       lastRefreshProfileMissingCount: Math.max(activeRows.length - lastRefreshProfileReadyCount, 0),
-      blockedOperationalCount: manualRequiredCount + collectorErrorCount + noDataCount + tokenMissingCount,
+      blockedOperationalCount: blockedAccountCount + noDataCount,
       neverRefreshedCount: activeRows.filter((item) => !item.last_refresh_at).length,
       staleRefreshCount: activeRows.filter((item) => Boolean(item.last_refresh_at) && isStaleRefresh(item.last_refresh_at)).length,
       inactiveCount: diagnostics.filter((item) => !item.is_active).length,
@@ -351,11 +352,11 @@ export default function ClientBenchmarkPage() {
       }
     }
 
-    if (diagnosticSummary.liveAccountCount > 0 && (diagnosticSummary.placeholderOnlyCount > 0 || diagnosticSummary.blockedCount > 0 || diagnosticSummary.noDataCount > 0)) {
+    if (diagnosticSummary.liveAccountCount > 0 && (diagnosticSummary.placeholderOnlyCount > 0 || diagnosticSummary.blockedAccountCount > 0 || diagnosticSummary.noDataCount > 0)) {
       return {
         status: "warning" as const,
         title: "부분 실데이터 확보",
-        detail: `실데이터 계정 ${diagnosticSummary.liveAccountCount}개가 있어도 샘플 대체 ${diagnosticSummary.placeholderOnlyCount}개, 연결/collector 이슈 ${diagnosticSummary.blockedCount}개, 미적재 ${diagnosticSummary.noDataCount}개가 함께 남아 있습니다. 현재 플랫폼 전체를 ready로 보면 안 됩니다.`,
+        detail: `실데이터 계정 ${diagnosticSummary.liveAccountCount}개가 있어도 샘플 대체 ${diagnosticSummary.placeholderOnlyCount}개, 연결/collector 차단 계정 ${diagnosticSummary.blockedAccountCount}개, 미적재 ${diagnosticSummary.noDataCount}개가 함께 남아 있습니다. 현재 플랫폼 전체를 ready로 보면 안 됩니다.`,
       }
     }
 
@@ -367,11 +368,11 @@ export default function ClientBenchmarkPage() {
       }
     }
 
-    if (diagnosticSummary.blockedCount > 0 || diagnosticSummary.noDataCount > 0) {
+    if (diagnosticSummary.blockedAccountCount > 0 || diagnosticSummary.noDataCount > 0) {
       return {
         status: "warning" as const,
         title: "직접 실데이터 없음",
-        detail: `연결/collector 이슈 계정 ${diagnosticSummary.blockedCount}개, 아직 적재되지 않은 계정 ${diagnosticSummary.noDataCount}개가 있습니다.`,
+        detail: `연결/collector 차단 계정 ${diagnosticSummary.blockedAccountCount}개, 아직 적재되지 않은 계정 ${diagnosticSummary.noDataCount}개가 있습니다.`,
       }
     }
 
@@ -390,7 +391,7 @@ export default function ClientBenchmarkPage() {
       title: "직접 실데이터 없음",
       detail: "계정은 등록되어 있지만 현재 클라이언트 기준 실수집 상태를 아직 확인하지 못했습니다. 연결 채널/토큰/collector 상태를 확인해야 합니다.",
     }
-  }, [diagnosticSummary.actualMetricCount, diagnosticSummary.blockedCount, diagnosticSummary.collectorErrorCount, diagnosticSummary.duplicateConnectionAccountCount, diagnosticSummary.duplicateConnectionCount, diagnosticSummary.liveAccountCount, diagnosticSummary.mixedCount, diagnosticSummary.neverRefreshedCount, diagnosticSummary.noDataCount, diagnosticSummary.placeholderOnlyCount, diagnosticSummary.staleRefreshCount, diagnosticSummary.tokenMissingCount, platformAccounts.length, platformSupportLevel])
+  }, [diagnosticSummary.actualMetricCount, diagnosticSummary.blockedAccountCount, diagnosticSummary.collectorErrorCount, diagnosticSummary.duplicateConnectionAccountCount, diagnosticSummary.duplicateConnectionCount, diagnosticSummary.liveAccountCount, diagnosticSummary.mixedCount, diagnosticSummary.neverRefreshedCount, diagnosticSummary.noDataCount, diagnosticSummary.placeholderOnlyCount, diagnosticSummary.staleRefreshCount, diagnosticSummary.tokenMissingCount, platformAccounts.length, platformSupportLevel])
 
   const profileSummary = useMemo(() => {
     if (!profile) {
