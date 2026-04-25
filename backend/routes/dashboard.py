@@ -25,12 +25,62 @@ from services.llm.router import DEFAULT_PROVIDER_ROWS, DEFAULT_TASK_POLICIES
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
 PUBLISH_FAILURE_CATEGORIES = [
-    ("missing_evidence", "증거 누락", ("platform_post_id/published_url",)),
-    ("unsupported_platform", "미지원 채널", ("실제 발행 자동화를 지원하지 않습니다",)),
-    ("token_expired", "토큰 만료", ("토큰이 만료되어 재인증이 필요합니다",)),
-    ("token_missing", "토큰 없음", ("연결 레코드는 있으나 access token 없음",)),
-    ("missing_channel", "채널/콘텐츠 누락", ("채널 연결을 찾을 수 없습니다", "채널 연결 ID가 필요합니다", "콘텐츠 또는 채널을 찾을 수 없습니다", "콘텐츠를 찾을 수 없습니다")),
-    ("retrying", "재시도 중", ("예약 발행 재시도 중",)),
+    (
+        "missing_evidence",
+        "증거 누락",
+        (
+            "platform_post_id/published_url",
+            "published 처리하지 않았습니다",
+            "evidence missing",
+            "creation id missing",
+            "post id missing",
+        ),
+    ),
+    (
+        "unsupported_platform",
+        "미지원 채널",
+        (
+            "실제 발행 자동화를 지원하지 않습니다",
+            "unsupported platform",
+        ),
+    ),
+    (
+        "token_expired",
+        "토큰 만료",
+        (
+            "토큰이 만료되어 재인증이 필요합니다",
+            "token expired",
+            "token has expired",
+            "expired access token",
+        ),
+    ),
+    (
+        "token_missing",
+        "토큰 없음",
+        (
+            "연결 레코드는 있으나 access token 없음",
+            "access token is missing",
+            "access token missing",
+            "missing access token",
+        ),
+    ),
+    (
+        "missing_channel",
+        "채널/콘텐츠 누락",
+        (
+            "채널 연결을 찾을 수 없습니다",
+            "채널 연결 id가 필요합니다",
+            "콘텐츠 또는 채널을 찾을 수 없습니다",
+            "콘텐츠를 찾을 수 없습니다",
+            "channel connection id is required",
+            "channel connection is required",
+            "channel connection not found",
+            "content or channel not found",
+            "content not found",
+            "user id를 찾을 수 없습니다",
+        ),
+    ),
+    ("retrying", "재시도 중", ("예약 발행 재시도 중", "retrying")),
 ]
 
 CHANNEL_HEALTH_PRIORITY = {
@@ -78,8 +128,9 @@ def _classify_channel_health(
 
 def _classify_publish_error(error_message: str | None) -> tuple[str, str]:
     text = (error_message or "").strip()
+    text_lower = text.lower()
     for key, label, needles in PUBLISH_FAILURE_CATEGORIES:
-        if any(needle in text for needle in needles):
+        if any(needle.lower() in text_lower for needle in needles):
             return key, label
     return "other", "기타 오류"
 
