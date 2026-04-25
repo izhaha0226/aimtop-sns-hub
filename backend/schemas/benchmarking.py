@@ -41,6 +41,7 @@ class BenchmarkAccountResponse(BaseModel):
 class BenchmarkPostResponse(BaseModel):
     id: uuid.UUID
     benchmark_account_id: uuid.UUID
+    client_id: uuid.UUID
     platform: str
     external_post_id: str | None = None
     post_url: str | None = None

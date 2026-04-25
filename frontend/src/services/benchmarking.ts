@@ -17,6 +17,7 @@ export interface BenchmarkAccountItem {
 export interface BenchmarkPostItem {
   id: string
   benchmark_account_id: string
+  client_id: string
   platform: string
   external_post_id?: string | null
   post_url?: string | null

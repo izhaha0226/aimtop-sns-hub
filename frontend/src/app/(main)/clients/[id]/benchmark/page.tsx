@@ -135,6 +135,10 @@ function postMetricLabel(post: BenchmarkPostItem) {
   return "조회수"
 }
 
+function isCurrentClientPost(post: BenchmarkPostItem, clientId: string) {
+  return String(post.client_id || "") === String(clientId)
+}
+
 export default function ClientBenchmarkPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
@@ -190,14 +194,17 @@ export default function ClientBenchmarkPage() {
       const metric = String(post.raw_payload?.view_metric || "")
       return metric.startsWith("proxy_")
     }).length
+    const directClientCount = topPosts.filter((post) => isCurrentClientPost(post, id)).length
     return {
       liveCount,
       placeholderCount,
       actualMetricCount,
       proxyMetricCount,
+      directClientCount,
+      fallbackClientCount: Math.max(topPosts.length - directClientCount, 0),
       total: topPosts.length,
     }
-  }, [topPosts])
+  }, [id, topPosts])
 
   const diagnosticSummary = useMemo(() => {
     const activeRows = diagnostics.filter((item) => item.is_active)
@@ -471,6 +478,7 @@ export default function ClientBenchmarkPage() {
           </div>
           <div className="mt-2 text-xs text-gray-500">실데이터 계정 {diagnosticSummary.liveAccountCount} · 혼재 {diagnosticSummary.mixedCount} · 샘플대체 {diagnosticSummary.placeholderOnlyCount} · 운영 blocker {diagnosticSummary.blockedOperationalCount}</div>
           <div className="mt-1 text-xs text-gray-500">실데이터 포스트 {diagnosticSummary.livePostCount} · 샘플 포스트 {diagnosticSummary.placeholderPostCount} · 실조회수 {diagnosticSummary.actualMetricCount} · 프록시조회수 {diagnosticSummary.proxyMetricCount}</div>
+          <div className="mt-1 text-xs text-gray-500">현재 Top Posts 기준 직접클라이언트 {topPostsSummary.directClientCount} · 업종 fallback {topPostsSummary.fallbackClientCount}</div>
         </div>
         <div className="rounded-xl border bg-white p-4">
           <div className="text-xs text-gray-500">프로필 출처</div>
@@ -705,9 +713,9 @@ export default function ClientBenchmarkPage() {
 
           <div className="bg-white rounded-xl border overflow-hidden">
             <div className="px-4 py-3 border-b bg-gray-50 font-semibold text-sm">Top Posts</div>
-            {profile?.source_scope === "industry_fallback" && topPostsSummary.total > 0 && (
+            {(profile?.source_scope === "industry_fallback" || topPostsSummary.fallbackClientCount > 0) && topPostsSummary.total > 0 && (
               <div className="mx-4 mt-4 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-700">
-                현재 Top Posts는 같은 업종의 기존 실데이터 fallback 결과일 수 있습니다. 이 클라이언트 직접 수집 성공 여부는 계정별 상태 배지와 직접 실데이터 정합성 카드로 판단해야 합니다.
+                현재 Top Posts {topPostsSummary.total}개 중 직접클라이언트 {topPostsSummary.directClientCount}개, 업종 fallback {topPostsSummary.fallbackClientCount}개입니다. 이 클라이언트 직접 수집 성공 여부는 계정별 상태 배지와 직접 실데이터 정합성 카드로 판단해야 합니다.
               </div>
             )}
             <div className="divide-y">
@@ -719,8 +727,14 @@ export default function ClientBenchmarkPage() {
                       <div className="mt-2 flex flex-wrap gap-2">
                         <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${postSourceTone(post)}`}>{postSourceLabel(post)}</span>
                         <span className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-sky-50 text-sky-700 border-sky-200">{postMetricLabel(post)}</span>
+                        {!isCurrentClientPost(post, id) && (
+                          <span className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-violet-50 text-violet-700 border-violet-200">업종 fallback 포스트</span>
+                        )}
                       </div>
                       <div className="text-xs text-gray-500 mt-2">CTA: {post.cta_text || "없음"}</div>
+                      {!isCurrentClientPost(post, id) && (
+                        <div className="text-[11px] text-violet-700 mt-1">현재 클라이언트 직접 수집 포스트가 아니라 같은 업종 다른 클라이언트에서 가져온 fallback입니다.</div>
+                      )}
                       {post.post_url && <a href={post.post_url} target="_blank" rel="noreferrer" className="text-xs text-blue-600 mt-1 inline-block">원문 보기</a>}
                     </div>
                     <div className="text-right text-xs text-gray-500">
