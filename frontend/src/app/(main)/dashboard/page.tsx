@@ -428,6 +428,66 @@ function formatPipelineDetailValue(value: string | number | boolean | null | und
   return String(value)
 }
 
+function isMeaningfulPipelineDetailValue(value: string | number | boolean | null | undefined): boolean {
+  if (typeof value === "boolean") return value
+  if (typeof value === "number") return value > 0
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    return trimmed !== "" && trimmed !== "0" && trimmed !== "-"
+  }
+  return value !== null && value !== undefined
+}
+
+function isPipelineDetailBlocker(key: string): boolean {
+  return [
+    "blocked_tasks",
+    "fallback_only_tasks",
+    "fallback_missing_tasks",
+    "missing_provider_config_tasks",
+    "inactive_provider_tasks",
+    "reauth_required",
+    "token_missing_channels",
+    "unknown_token_channels",
+    "unsupported_connected_channels",
+    "suspicious_published_without_evidence",
+    "failed_with_stale_evidence",
+    "failed_publish_count",
+    "failed_without_error",
+    "failed_token_missing",
+    "failed_token_expired",
+    "failed_missing_channel",
+    "failed_unsupported_platform",
+    "failed_missing_evidence",
+    "failed_retrying",
+    "failed_other",
+    "retry_pending_schedules",
+    "retry_pending_token_missing",
+    "retry_pending_token_expired",
+    "retry_pending_missing_channel",
+    "retry_pending_unsupported_platform",
+    "retry_pending_other",
+    "token_missing_accounts",
+    "collector_error_accounts",
+    "manual_required_accounts",
+    "manual_supported_accounts",
+    "unimplemented_accounts",
+    "no_data_accounts",
+    "never_refreshed_accounts",
+    "stale_refresh_accounts",
+    "duplicate_source_accounts",
+    "duplicate_source_connections",
+    "placeholder_only_accounts",
+    "mixed_accounts",
+  ].includes(key)
+}
+
+function getPipelineDetailTone(key: string, value: string | number | boolean | null | undefined): string {
+  if (isPipelineDetailBlocker(key) && isMeaningfulPipelineDetailValue(value)) {
+    return "text-red-700"
+  }
+  return "text-gray-700"
+}
+
 function getPipelineDetailEntries(key: string, details: Record<string, string | number | boolean | null>): Array<[string, string | number | boolean | null]> {
   const normalizedKey = normalizePipelineKey(key)
   const orderedKeys = PIPELINE_DETAIL_ORDER[normalizedKey] || []
@@ -442,7 +502,13 @@ function getPipelineDetailEntries(key: string, details: Record<string, string | 
       : normalizedKey === "oauth_connections"
         ? 10
         : 6
-  return [...orderedEntries, ...remainingEntries].slice(0, limit)
+
+  const prioritizedEntries = [...orderedEntries, ...remainingEntries]
+  const meaningfulEntries = prioritizedEntries.filter(([, value]) => isMeaningfulPipelineDetailValue(value))
+  if (meaningfulEntries.length > 0) {
+    return meaningfulEntries.slice(0, limit)
+  }
+  return prioritizedEntries.slice(0, Math.min(limit, normalizedKey === "ai_generation" ? 4 : 3))
 }
 
 export default function DashboardPage() {
@@ -583,7 +649,7 @@ export default function DashboardPage() {
                     {getPipelineDetailEntries(item.key, item.details || {}).map(([key, value]) => (
                       <div key={key} className="flex items-center justify-between text-xs text-gray-500 gap-3">
                         <span>{PIPELINE_DETAIL_LABELS[key] || key}</span>
-                        <span className="font-medium text-gray-700 text-right">{formatPipelineDetailValue(value)}</span>
+                        <span className={`font-medium text-right ${getPipelineDetailTone(key, value)}`}>{formatPipelineDetailValue(value)}</span>
                       </div>
                     ))}
                   </div>
