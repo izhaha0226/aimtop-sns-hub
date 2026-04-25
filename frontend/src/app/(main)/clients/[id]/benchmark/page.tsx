@@ -302,6 +302,78 @@ export default function ClientBenchmarkPage() {
     }
   }, [diagnostics])
 
+  const blockerAccounts = useMemo(() => {
+    return sortedPlatformAccounts
+      .map((account) => {
+        const refreshState = statusMap[account.id]
+        const diagnostic = diagnosticMap[account.id]
+        const accountState = pickAccountState(refreshState, diagnostic)
+        const refreshTime = parseTimestamp(refreshState?.refreshed_at)
+        const diagnosticTime = parseTimestamp(diagnostic?.last_refresh_at)
+        const useRefreshMeta = Boolean(refreshState && (!diagnosticTime || (refreshTime && refreshTime >= diagnosticTime)))
+        const latestRefreshAt = useRefreshMeta ? (refreshState?.refreshed_at || null) : (diagnostic?.last_refresh_at || null)
+
+        if (!account.is_active || !accountState) return null
+
+        let priority = 0
+        let reason = accountState.message || "운영 점검 필요"
+        if (accountState.source_channel_connected && accountState.source_channel_has_token === false) {
+          priority = 0
+          reason = accountState.source_channel_missing_reason || "연결 레코드는 있으나 access token 없음"
+        } else if (accountState.source_channel_duplicate_warning) {
+          priority = 1
+          reason = `동일 플랫폼 연결 ${accountState.source_channel_connection_count || (accountState.source_channel_duplicate_count || 0) + 1}개 중 사용 가능한 row 기준`
+        } else if (accountState.status === "collector_error") {
+          priority = 2
+          reason = accountState.message || "최근 수집 오류 발생"
+        } else if (accountState.status === "manual_ingest_required") {
+          priority = 3
+          reason = accountState.source_channel_missing_reason || accountState.message || "수동 확인 필요"
+        } else if (accountState.status === "no_data_collected") {
+          priority = 4
+          reason = accountState.message || "실데이터 미적재"
+        } else if (!latestRefreshAt) {
+          priority = 5
+          reason = "새로고침 이력 없음"
+        } else if (isStaleRefresh(latestRefreshAt)) {
+          priority = 6
+          reason = "24시간 이상 지난 점검 상태"
+        } else if (accountState.status === "live_collected_mixed") {
+          priority = 7
+          reason = "실데이터와 fallback이 함께 있어 분리 판단 필요"
+        } else if (accountState.status === "placeholder_fallback") {
+          priority = 8
+          reason = "샘플 대체만 존재"
+        } else {
+          return null
+        }
+
+        return {
+          id: account.id,
+          handle: account.handle,
+          status: accountState.status,
+          statusLabel: accountState.status_label || accountState.status,
+          reason,
+          latestRefreshAt,
+          priority,
+        }
+      })
+      .filter((item): item is {
+        id: string
+        handle: string
+        status: string
+        statusLabel: string
+        reason: string
+        latestRefreshAt: string | null
+        priority: number
+      } => Boolean(item))
+      .sort((a, b) => {
+        if (a.priority !== b.priority) return a.priority - b.priority
+        return (parseTimestamp(b.latestRefreshAt) || 0) - (parseTimestamp(a.latestRefreshAt) || 0)
+      })
+      .slice(0, 5)
+  }, [diagnosticMap, sortedPlatformAccounts, statusMap])
+
   const readiness = useMemo(() => {
     if (platformAccounts.length === 0) {
       return {
@@ -561,6 +633,29 @@ export default function ClientBenchmarkPage() {
         )}
         <div className="mt-1 text-[11px] opacity-80">{profileSummary.detail}</div>
       </div>
+
+      {blockerAccounts.length > 0 && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-900">
+          <div className="font-semibold">즉시 확인 필요 계정</div>
+          <div className="mt-1 text-[11px] text-rose-800">운영 blocker 우선순위 기준 상위 5개만 노출합니다. 토큰 없음/중복 연결/수집 오류를 먼저 정리하셔야 현재 상태를 정직하게 볼 수 있습니다.</div>
+          <div className="mt-3 space-y-2">
+            {blockerAccounts.map((item) => (
+              <div key={item.id} className="rounded-lg border border-rose-100 bg-white/80 px-3 py-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-rose-900">{item.handle}</span>
+                  <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${badgeTone(item.status)}`}>{item.statusLabel}</span>
+                  {item.latestRefreshAt ? (
+                    <span className="text-[11px] text-rose-700">마지막 점검 {formatDateTime(item.latestRefreshAt) || item.latestRefreshAt}</span>
+                  ) : (
+                    <span className="text-[11px] text-rose-700">새로고침 이력 없음</span>
+                  )}
+                </div>
+                <div className="mt-1 text-[11px] text-rose-800">{item.reason}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl border p-5 space-y-4">
         <div>
