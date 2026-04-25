@@ -131,7 +131,7 @@ class BenchmarkCollectorService:
             status_payload = {
                 "status": "collector_error",
                 "message": f"실수집 중 오류가 발생했습니다: {e}",
-                "live_supported": False,
+                "live_supported": self._get_support_level(account.platform.lower()) == "live",
                 "platform": account.platform,
                 **refresh_context,
             }
@@ -752,7 +752,7 @@ class BenchmarkCollectorService:
             return {
                 "status": "manual_ingest_required",
                 "message": message,
-                "live_supported": False,
+                "live_supported": True,
                 "platform": platform,
                 "source_channel_connected": is_connected,
                 "source_channel_platform": platform,
