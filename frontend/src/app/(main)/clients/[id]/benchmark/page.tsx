@@ -70,6 +70,26 @@ function badgeTone(status?: string) {
   return "bg-gray-100 text-gray-700 border-gray-200"
 }
 
+function accountOperationalPriority(
+  account: BenchmarkAccountItem,
+  accountState?: RefreshAccountResult | BenchmarkAccountDiagnosticItem,
+  latestRefreshAt?: string | null,
+) {
+  if (!account.is_active) return 90
+  if (!accountState) return 70
+  if (accountState.source_channel_connected && accountState.source_channel_has_token === false) return 0
+  if (accountState.source_channel_duplicate_warning) return 5
+  if (accountState.status === "collector_error") return 10
+  if (accountState.status === "manual_ingest_required") return 15
+  if (accountState.status === "no_data_collected") return 20
+  if (!latestRefreshAt) return 30
+  if (isStaleRefresh(latestRefreshAt)) return 35
+  if (accountState.status === "live_collected_mixed") return 40
+  if (accountState.status === "placeholder_fallback") return 50
+  if (accountState.status === "live_collected" || accountState.status === "live_collected_proxy_views") return 80
+  return 60
+}
+
 function formatDateTime(value?: string | null) {
   if (!value) return null
   const date = new Date(value)
@@ -183,6 +203,30 @@ export default function ClientBenchmarkPage() {
     acc[item.account_id] = item
     return acc
   }, {}), [diagnostics])
+  const sortedPlatformAccounts = useMemo(() => {
+    return [...platformAccounts].sort((a, b) => {
+      const aRefresh = statusMap[a.id]
+      const bRefresh = statusMap[b.id]
+      const aDiagnostic = diagnosticMap[a.id]
+      const bDiagnostic = diagnosticMap[b.id]
+      const aState = pickAccountState(aRefresh, aDiagnostic)
+      const bState = pickAccountState(bRefresh, bDiagnostic)
+      const aRefreshTime = parseTimestamp(aRefresh?.refreshed_at)
+      const bRefreshTime = parseTimestamp(bRefresh?.refreshed_at)
+      const aDiagnosticTime = parseTimestamp(aDiagnostic?.last_refresh_at)
+      const bDiagnosticTime = parseTimestamp(bDiagnostic?.last_refresh_at)
+      const aUseRefreshMeta = Boolean(aRefresh && (!aDiagnosticTime || (aRefreshTime && aRefreshTime >= aDiagnosticTime)))
+      const bUseRefreshMeta = Boolean(bRefresh && (!bDiagnosticTime || (bRefreshTime && bRefreshTime >= bDiagnosticTime)))
+      const aLatestRefreshAt = aUseRefreshMeta ? (aRefresh?.refreshed_at || null) : (aDiagnostic?.last_refresh_at || null)
+      const bLatestRefreshAt = bUseRefreshMeta ? (bRefresh?.refreshed_at || null) : (bDiagnostic?.last_refresh_at || null)
+      const aPriority = accountOperationalPriority(a, aState, aLatestRefreshAt)
+      const bPriority = accountOperationalPriority(b, bState, bLatestRefreshAt)
+      if (aPriority !== bPriority) return aPriority - bPriority
+      const aUpdated = parseTimestamp(a.updated_at)
+      const bUpdated = parseTimestamp(b.updated_at)
+      return (bUpdated || 0) - (aUpdated || 0)
+    })
+  }, [diagnosticMap, platformAccounts, statusMap])
 
   const platformSupportLevel = PLATFORM_SUPPORT_LEVEL[platform] || "unimplemented"
   const activePlatformAccounts = useMemo(() => platformAccounts.filter((item) => item.is_active), [platformAccounts])
@@ -533,8 +577,11 @@ export default function ClientBenchmarkPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="bg-white rounded-xl border p-4 lg:col-span-1">
               <h2 className="font-semibold mb-3">등록 계정</h2>
+              <div className="mb-3 rounded-lg border bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                운영 blocker 우선순위로 정렬했습니다: 토큰 없음 → 중복 연결 → 수집 오류 → 수동 확인/미적재 → 점검 이력 부족 → 혼재/샘플 대체 → 실데이터 확보 → 비활성.
+              </div>
               <div className="space-y-3 text-sm">
-                {platformAccounts.length === 0 ? <div className="text-gray-400">등록된 계정 없음</div> : platformAccounts.map((item) => {
+                {sortedPlatformAccounts.length === 0 ? <div className="text-gray-400">등록된 계정 없음</div> : sortedPlatformAccounts.map((item) => {
                   const refreshState = statusMap[item.id]
                   const diagnostic = diagnosticMap[item.id]
                   const accountState = pickAccountState(refreshState, diagnostic)
