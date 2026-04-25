@@ -283,7 +283,7 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
     token_missing_rows = [
         row
         for row in active_rows
-        if row.get("source_channel_connected") and not row.get("source_channel_has_token")
+        if row.get("source_channel_connected") and row.get("source_channel_has_token") is False
     ]
     manual_supported_rows = [row for row in active_rows if row.get("support_level") == "manual"]
     unimplemented_rows = [row for row in active_rows if row.get("support_level") == "unimplemented"]

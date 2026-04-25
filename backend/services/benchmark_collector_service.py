@@ -135,7 +135,7 @@ class BenchmarkCollectorService:
                 "platform": account.platform,
                 **refresh_context,
             }
-            if status_payload.get("source_channel_connected") and not status_payload.get("source_channel_has_token"):
+            if status_payload.get("source_channel_connected") and status_payload.get("source_channel_has_token") is False:
                 status_payload["source_channel_missing_reason"] = status_payload.get("source_channel_missing_reason") or "연결 레코드는 있으나 access token 없음"
             posts = []
 
