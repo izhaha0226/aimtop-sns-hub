@@ -422,10 +422,13 @@ async def get_channels_health(
     result = await db.execute(select(ChannelConnection).where(ChannelConnection.is_connected == True))
     channels = result.scalars().all()
 
-    summary = {"healthy": 0, "expiring": 0, "reauth_required": 0, "unknown": 0}
+    summary = {"healthy": 0, "expiring": 0, "reauth_required": 0, "unknown": 0, "token_missing": 0}
     items = []
     for channel in channels:
-        if not channel.token_expires_at:
+        has_access_token = _channel_has_access_token(channel)
+        if not has_access_token:
+            health = "token_missing"
+        elif not channel.token_expires_at:
             health = "unknown"
         elif channel.token_expires_at <= now:
             health = "reauth_required"
@@ -440,6 +443,8 @@ async def get_channels_health(
             "account_name": channel.account_name,
             "health": health,
             "token_expires_at": channel.token_expires_at.isoformat() if channel.token_expires_at else None,
+            "has_access_token": has_access_token,
+            "health_label": "토큰 없음" if health == "token_missing" else None,
         })
 
     return {"summary": summary, "items": items}

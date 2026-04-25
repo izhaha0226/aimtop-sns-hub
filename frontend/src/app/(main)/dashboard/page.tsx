@@ -28,13 +28,16 @@ interface ChannelsHealth {
     expiring: number
     reauth_required: number
     unknown: number
+    token_missing: number
   }
   items: Array<{
     id: string
     platform: string
     account_name?: string
-    health: "healthy" | "expiring" | "reauth_required" | "unknown"
+    health: "healthy" | "expiring" | "reauth_required" | "unknown" | "token_missing"
     token_expires_at?: string | null
+    has_access_token?: boolean
+    health_label?: string | null
   }>
 }
 
@@ -122,7 +125,7 @@ interface PublishObservability {
 }
 
 const EMPTY_CHANNELS_HEALTH: ChannelsHealth = {
-  summary: { healthy: 0, expiring: 0, reauth_required: 0, unknown: 0 },
+  summary: { healthy: 0, expiring: 0, reauth_required: 0, unknown: 0, token_missing: 0 },
   items: [],
 }
 
@@ -245,6 +248,7 @@ function normalizeChannelsHealth(value: unknown): ChannelsHealth {
       expiring: Number(data.summary?.expiring ?? 0),
       reauth_required: Number(data.summary?.reauth_required ?? 0),
       unknown: Number(data.summary?.unknown ?? 0),
+      token_missing: Number(data.summary?.token_missing ?? 0),
     },
     items: Array.isArray(data.items) ? data.items : [],
   }
@@ -392,10 +396,11 @@ export default function DashboardPage() {
       ]
     : []
 
-  const healthBadge = (health: "healthy" | "expiring" | "reauth_required" | "unknown") => {
+  const healthBadge = (health: "healthy" | "expiring" | "reauth_required" | "unknown" | "token_missing") => {
     if (health === "healthy") return "bg-blue-50 text-blue-700"
     if (health === "expiring") return "bg-yellow-50 text-yellow-700"
     if (health === "reauth_required") return "bg-red-50 text-red-700"
+    if (health === "token_missing") return "bg-rose-50 text-rose-700"
     return "bg-gray-100 text-gray-600"
   }
 
@@ -572,7 +577,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
               <div className="rounded-lg bg-blue-50 px-4 py-3">
                 <p className="text-xs text-blue-700">정상</p>
                 <p className="text-xl font-bold text-blue-900">{channelsHealth?.summary.healthy ?? 0}</p>
@@ -585,6 +590,10 @@ export default function DashboardPage() {
                 <p className="text-xs text-red-700">재인증 필요</p>
                 <p className="text-xl font-bold text-red-900">{channelsHealth?.summary.reauth_required ?? 0}</p>
               </div>
+              <div className="rounded-lg bg-rose-50 px-4 py-3">
+                <p className="text-xs text-rose-700">토큰 없음</p>
+                <p className="text-xl font-bold text-rose-900">{channelsHealth?.summary.token_missing ?? 0}</p>
+              </div>
               <div className="rounded-lg bg-gray-100 px-4 py-3">
                 <p className="text-xs text-gray-600">미확인</p>
                 <p className="text-xl font-bold text-gray-800">{channelsHealth?.summary.unknown ?? 0}</p>
@@ -596,9 +605,15 @@ export default function DashboardPage() {
                 <div key={item.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
                   <div>
                     <p className="text-sm font-medium text-gray-800">{item.platform}{item.account_name ? ` · ${item.account_name}` : ""}</p>
-                    {item.token_expires_at && <p className="text-xs text-gray-400 mt-0.5">만료시각: {new Date(item.token_expires_at).toLocaleString("ko-KR")}</p>}
+                    {item.health === "token_missing" ? (
+                      <p className="text-xs text-rose-700 mt-0.5">연결은 보이지만 복호화 가능한 access token이 없습니다</p>
+                    ) : item.token_expires_at ? (
+                      <p className="text-xs text-gray-400 mt-0.5">만료시각: {new Date(item.token_expires_at).toLocaleString("ko-KR")}</p>
+                    ) : (
+                      <p className="text-xs text-gray-400 mt-0.5">만료시각 미확인</p>
+                    )}
                   </div>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${healthBadge(item.health)}`}>{item.health}</span>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${healthBadge(item.health)}`}>{item.health_label || item.health}</span>
                 </div>
               ))}
               {(channelsHealth?.items || []).length === 0 && (
