@@ -125,6 +125,17 @@ class BenchmarkCollectorService:
                 "used_placeholder": False,
                 "message": status_payload.get("message") or "실데이터를 적재하지 못했습니다. 샘플 데이터로 대체하지 않습니다.",
             }
+        else:
+            post_summary = self._summarize_post_payload_items(posts)
+            status_payload = {
+                **status_payload,
+                **self._build_refresh_status_from_summary(post_summary),
+                "used_placeholder": bool(post_summary.get("used_placeholder")),
+                "data_source": post_summary.get("data_source") or status_payload.get("data_source"),
+                "data_source_label": post_summary.get("data_source_label") or status_payload.get("data_source_label"),
+                "view_metric_type": post_summary.get("view_metric_type") or status_payload.get("view_metric_type"),
+                "view_metric_label": post_summary.get("view_metric_label") or status_payload.get("view_metric_label"),
+            }
 
         inserted = await self._insert_posts(account, posts, window_days=window_days) if posts else 0
         profile = await self.rebuild_action_language_profile(account.client_id, account.platform)
@@ -511,6 +522,14 @@ class BenchmarkCollectorService:
         return list(result.scalars().all())
 
     def _summarize_posts(self, posts: list[BenchmarkPost]) -> dict:
+        return self._summarize_post_payload_items(
+            [
+                {"raw_payload": post.raw_payload or {}}
+                for post in posts
+            ]
+        )
+
+    def _summarize_post_payload_items(self, items: list[dict]) -> dict:
         live_post_count = 0
         placeholder_post_count = 0
         actual_metric_count = 0
@@ -518,8 +537,8 @@ class BenchmarkCollectorService:
         data_sources: list[str] = []
         view_metrics: list[str] = []
 
-        for post in posts:
-            raw_payload = post.raw_payload or {}
+        for item in items:
+            raw_payload = item.get("raw_payload") or {}
             source = str(raw_payload.get("source") or "")
             metric = str(raw_payload.get("view_metric") or "")
             if source == "placeholder_benchmark_pipeline":
@@ -541,13 +560,41 @@ class BenchmarkCollectorService:
             "placeholder_post_count": placeholder_post_count,
             "actual_metric_count": actual_metric_count,
             "proxy_metric_count": proxy_metric_count,
-            "total_post_count": len(posts),
+            "total_post_count": len(items),
             "data_source": data_source,
             "data_source_label": DATA_SOURCE_LABELS.get(data_source) if data_source else None,
             "view_metric_type": view_metric_type,
             "view_metric_label": VIEW_METRIC_LABELS.get(view_metric_type) if view_metric_type else None,
             "used_placeholder": placeholder_post_count > 0,
         }
+
+    def _build_refresh_status_from_summary(self, summary: dict) -> dict:
+        live_post_count = int(summary.get("live_post_count") or 0)
+        placeholder_post_count = int(summary.get("placeholder_post_count") or 0)
+        actual_metric_count = int(summary.get("actual_metric_count") or 0)
+        proxy_metric_count = int(summary.get("proxy_metric_count") or 0)
+
+        if live_post_count > 0 and placeholder_post_count > 0:
+            return {
+                "status": "live_collected_mixed",
+                "message": "실데이터와 샘플 대체가 함께 적재되었습니다. 운영 판단 시 분리해서 봐야 합니다.",
+            }
+        if live_post_count > 0:
+            if actual_metric_count > 0 and proxy_metric_count == 0:
+                return {
+                    "status": "live_collected",
+                    "message": "실데이터 수집 완료",
+                }
+            return {
+                "status": "live_collected_proxy_views",
+                "message": "실데이터는 적재되었지만 조회수는 프록시 지표 기준입니다.",
+            }
+        if placeholder_post_count > 0:
+            return {
+                "status": "placeholder_fallback",
+                "message": "현재 적재된 포스트는 샘플 대체 데이터입니다.",
+            }
+        return {}
 
     def _get_support_level(self, platform: str) -> str:
         if platform in LIVE_SUPPORTED_PLATFORMS:
