@@ -164,16 +164,17 @@ class BenchmarkCollectorService:
         platform_normalized = platform.lower()
         direct_posts = await self._query_top_posts_for_client(client_id, platform_normalized, top_k=top_k)
         if direct_posts:
-            return direct_posts
+            return self._decorate_top_posts_for_reader(client_id, direct_posts)
 
         client = await self._get_client(client_id)
         if not client:
             return []
-        return await self._query_top_posts_for_industry(
+        industry_posts = await self._query_top_posts_for_industry(
             industry_category=client.industry_category,
             platform=platform_normalized,
             top_k=top_k,
         )
+        return self._decorate_top_posts_for_reader(client_id, industry_posts)
 
     async def rebuild_action_language_profile(self, client_id: uuid.UUID, platform: str) -> ActionLanguageProfile | None:
         platform_normalized = platform.lower()
@@ -359,6 +360,15 @@ class BenchmarkCollectorService:
     def _filter_top_posts_for_reading(self, posts: list[BenchmarkPost], top_k: int) -> list[BenchmarkPost]:
         meaningful_posts = [post for post in posts if not self._is_placeholder_post(post)]
         return meaningful_posts[:top_k]
+
+    def _decorate_top_posts_for_reader(self, client_id: uuid.UUID, posts: list[BenchmarkPost]) -> list[BenchmarkPost]:
+        for post in posts:
+            is_direct_client_post = post.client_id == client_id
+            source_scope = "client_direct" if is_direct_client_post else "industry_fallback"
+            setattr(post, "is_direct_client_post", is_direct_client_post)
+            setattr(post, "source_scope", source_scope)
+            setattr(post, "source_scope_label", "직접 클라이언트" if is_direct_client_post else "업종 fallback")
+        return posts
 
     async def _query_top_posts_for_client(self, client_id: uuid.UUID, platform: str, top_k: int) -> list[BenchmarkPost]:
         result = await self.db.execute(

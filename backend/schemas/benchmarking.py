@@ -60,6 +60,9 @@ class BenchmarkPostResponse(BaseModel):
     benchmark_score: float = 0.0
     published_at: datetime | None = None
     raw_payload: dict | None = None
+    source_scope: str = "client_direct"
+    source_scope_label: str = "직접 클라이언트"
+    is_direct_client_post: bool = True
 
     model_config = {"from_attributes": True}
 

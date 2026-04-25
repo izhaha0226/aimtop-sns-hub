@@ -34,6 +34,9 @@ export interface BenchmarkPostItem {
   benchmark_score: number
   published_at?: string | null
   raw_payload?: Record<string, unknown> | null
+  source_scope?: string | null
+  source_scope_label?: string | null
+  is_direct_client_post?: boolean
 }
 
 export interface ActionLanguageProfileItem {

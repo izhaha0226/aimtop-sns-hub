@@ -132,17 +132,19 @@ function pickAccountState(
 
 function postSourceLabel(post: BenchmarkPostItem) {
   const source = String(post.raw_payload?.source || "")
+  if (source === "placeholder_benchmark_pipeline") return "샘플 대체"
+  if (post.source_scope === "industry_fallback") return "실데이터 · 업종 fallback"
   if (source === "youtube_api_live") return "실데이터"
   if (source === "x_api_live") return "실데이터"
   if (source === "instagram_business_discovery") return "실데이터"
   if (source === "facebook_page_posts") return "실데이터"
-  if (source === "placeholder_benchmark_pipeline") return "샘플 대체"
-  return "미상"
+  return post.source_scope_label || "미상"
 }
 
 function postSourceTone(post: BenchmarkPostItem) {
   const source = String(post.raw_payload?.source || "")
   if (source === "placeholder_benchmark_pipeline") return "bg-orange-50 text-orange-700 border-orange-200"
+  if (post.source_scope === "industry_fallback") return "bg-violet-50 text-violet-700 border-violet-200"
   if (source) return "bg-green-50 text-green-700 border-green-200"
   return "bg-gray-100 text-gray-700 border-gray-200"
 }
@@ -157,6 +159,7 @@ function postMetricLabel(post: BenchmarkPostItem) {
 }
 
 function isCurrentClientPost(post: BenchmarkPostItem, clientId: string) {
+  if (typeof post.is_direct_client_post === "boolean") return post.is_direct_client_post
   return String(post.client_id || "") === String(clientId)
 }
 
@@ -804,9 +807,9 @@ export default function ClientBenchmarkPage() {
                       <div className="mt-2 flex flex-wrap gap-2">
                         <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${postSourceTone(post)}`}>{postSourceLabel(post)}</span>
                         <span className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-sky-50 text-sky-700 border-sky-200">{postMetricLabel(post)}</span>
-                        {!isCurrentClientPost(post, id) && (
-                          <span className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-violet-50 text-violet-700 border-violet-200">업종 fallback 포스트</span>
-                        )}
+                        <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${isCurrentClientPost(post, id) ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-violet-50 text-violet-700 border-violet-200"}`}>
+                          {post.source_scope_label || (isCurrentClientPost(post, id) ? "직접 클라이언트" : "업종 fallback")}
+                        </span>
                       </div>
                       <div className="text-xs text-gray-500 mt-2">CTA: {post.cta_text || "없음"}</div>
                       {!isCurrentClientPost(post, id) && (
