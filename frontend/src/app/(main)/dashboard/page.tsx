@@ -60,6 +60,14 @@ interface PipelineReadiness {
 
 interface PublishObservability {
   summary: {
+    connected_channels: number
+    healthy_channels: number
+    supported_connected_channels: number
+    supported_healthy_channels: number
+    unsupported_connected_channels: number
+    reauth_required_channels: number
+    token_missing_channels: number
+    unknown_token_channels: number
     published_with_evidence: number
     published_without_evidence: number
     failed_with_error: number
@@ -143,6 +151,14 @@ const EMPTY_PIPELINE_READINESS: PipelineReadiness = {
 
 const EMPTY_PUBLISH_OBSERVABILITY: PublishObservability = {
   summary: {
+    connected_channels: 0,
+    healthy_channels: 0,
+    supported_connected_channels: 0,
+    supported_healthy_channels: 0,
+    unsupported_connected_channels: 0,
+    reauth_required_channels: 0,
+    token_missing_channels: 0,
+    unknown_token_channels: 0,
     published_with_evidence: 0,
     published_without_evidence: 0,
     failed_with_error: 0,
@@ -321,6 +337,14 @@ function normalizePublishObservability(value: unknown): PublishObservability {
   const data = value as Partial<PublishObservability>
   return {
     summary: {
+      connected_channels: Number(data.summary?.connected_channels ?? 0),
+      healthy_channels: Number(data.summary?.healthy_channels ?? 0),
+      supported_connected_channels: Number(data.summary?.supported_connected_channels ?? 0),
+      supported_healthy_channels: Number(data.summary?.supported_healthy_channels ?? 0),
+      unsupported_connected_channels: Number(data.summary?.unsupported_connected_channels ?? 0),
+      reauth_required_channels: Number(data.summary?.reauth_required_channels ?? 0),
+      token_missing_channels: Number(data.summary?.token_missing_channels ?? 0),
+      unknown_token_channels: Number(data.summary?.unknown_token_channels ?? 0),
       published_with_evidence: Number(data.summary?.published_with_evidence ?? 0),
       published_without_evidence: Number(data.summary?.published_without_evidence ?? 0),
       failed_with_error: Number(data.summary?.failed_with_error ?? 0),
@@ -526,7 +550,10 @@ export default function DashboardPage() {
                 <p className="text-xs text-gray-400 mt-1">증거 있는 성공, 증거 없는 published, 최근 실패 사유를 분리해서 봅니다</p>
               </div>
               <div className="text-xs text-gray-500 text-right">
-                <div>증거 {publishObservability?.summary.published_with_evidence ?? 0} · 의심 {publishObservability?.summary.published_without_evidence ?? 0} · 실패 {publishObservability?.summary.failed_with_error ?? 0}</div>
+                <div>연결 {publishObservability?.summary.connected_channels ?? 0} · 정상 {publishObservability?.summary.healthy_channels ?? 0} · 재인증필요 {publishObservability?.summary.reauth_required_channels ?? 0}</div>
+                <div className="mt-1">지원채널 {publishObservability?.summary.supported_connected_channels ?? 0} · 건강한 지원채널 {publishObservability?.summary.supported_healthy_channels ?? 0} · 미지원채널 {publishObservability?.summary.unsupported_connected_channels ?? 0}</div>
+                <div className="mt-1">토큰없음 채널 {publishObservability?.summary.token_missing_channels ?? 0} · 토큰상태 미확인 {publishObservability?.summary.unknown_token_channels ?? 0}</div>
+                <div className="mt-1">증거 {publishObservability?.summary.published_with_evidence ?? 0} · 의심 {publishObservability?.summary.published_without_evidence ?? 0} · 실패 {publishObservability?.summary.failed_with_error ?? 0}</div>
                 <div className="mt-1">증거누락 {publishObservability?.summary.failed_missing_evidence ?? 0} · 미지원채널 {publishObservability?.summary.failed_unsupported_platform ?? 0} · 토큰만료 {publishObservability?.summary.failed_token_expired ?? 0}</div>
                 <div className="mt-1">토큰없음 {publishObservability?.summary.failed_token_missing ?? 0} · 채널/콘텐츠 누락 {publishObservability?.summary.failed_missing_channel ?? 0} · 재시도 실패표시 {publishObservability?.summary.failed_retrying ?? 0} · 기타 {publishObservability?.summary.failed_other ?? 0}</div>
                 <div className="mt-1">재시도 대기 {publishObservability?.summary.retry_pending_schedules ?? 0} · 토큰없음 {publishObservability?.summary.retry_pending_token_missing ?? 0} · 토큰만료 {publishObservability?.summary.retry_pending_token_expired ?? 0} · 채널누락 {publishObservability?.summary.retry_pending_missing_channel ?? 0} · 미지원 {publishObservability?.summary.retry_pending_unsupported_platform ?? 0} · 기타 {publishObservability?.summary.retry_pending_other ?? 0}</div>

@@ -127,6 +127,44 @@ def _pick_latest_schedule_for_content(
     )
 
 
+def _collect_publishing_channel_summary(
+    channels: list[ChannelConnection],
+    *,
+    now: datetime,
+    soon: datetime,
+) -> dict[str, int]:
+    summary = {
+        "connected_channels": len(channels),
+        "healthy_channels": 0,
+        "supported_connected_channels": 0,
+        "supported_healthy_channels": 0,
+        "unsupported_connected_channels": 0,
+        "reauth_required_channels": 0,
+        "token_missing_channels": 0,
+        "unknown_token_channels": 0,
+    }
+    for channel in channels:
+        is_supported = SNSPublisher.is_supported_platform(channel.channel_type)
+        if is_supported:
+            summary["supported_connected_channels"] += 1
+        else:
+            summary["unsupported_connected_channels"] += 1
+
+        health, _has_access_token = _classify_channel_health(channel, now=now, soon=soon)
+        if health == "healthy":
+            summary["healthy_channels"] += 1
+            if is_supported:
+                summary["supported_healthy_channels"] += 1
+        elif health == "reauth_required":
+            summary["reauth_required_channels"] += 1
+        elif health == "unknown":
+            summary["unknown_token_channels"] += 1
+        elif health == "token_missing":
+            summary["token_missing_channels"] += 1
+
+    return summary
+
+
 def _summarize_publishing_readiness(
     *,
     supported_connected_channels: int,
@@ -507,28 +545,16 @@ async def get_pipeline_readiness(
     soon = now + timedelta(days=7)
 
     connected_result = await db.execute(select(ChannelConnection).where(ChannelConnection.is_connected == True))
-    connected_channels = connected_result.scalars().all()
-    connected_count = len(connected_channels)
-    supported_channels = [channel for channel in connected_channels if SNSPublisher.is_supported_platform(channel.channel_type)]
-    supported_connected_count = len(supported_channels)
-    unsupported_connected_count = connected_count - supported_connected_count
-    healthy_channels = 0
-    supported_healthy_channels = 0
-    reauth_required = 0
-    unknown_token_channels = 0
-    token_missing_channels = 0
-    for channel in connected_channels:
-        health, _has_access_token = _classify_channel_health(channel, now=now, soon=soon)
-        if health == "healthy":
-            healthy_channels += 1
-            if SNSPublisher.is_supported_platform(channel.channel_type):
-                supported_healthy_channels += 1
-        elif health == "reauth_required":
-            reauth_required += 1
-        elif health == "unknown":
-            unknown_token_channels += 1
-        elif health == "token_missing":
-            token_missing_channels += 1
+    connected_channels = list(connected_result.scalars().all())
+    publishing_channel_summary = _collect_publishing_channel_summary(connected_channels, now=now, soon=soon)
+    connected_count = publishing_channel_summary["connected_channels"]
+    supported_connected_count = publishing_channel_summary["supported_connected_channels"]
+    unsupported_connected_count = publishing_channel_summary["unsupported_connected_channels"]
+    healthy_channels = publishing_channel_summary["healthy_channels"]
+    supported_healthy_channels = publishing_channel_summary["supported_healthy_channels"]
+    reauth_required = publishing_channel_summary["reauth_required_channels"]
+    unknown_token_channels = publishing_channel_summary["unknown_token_channels"]
+    token_missing_channels = publishing_channel_summary["token_missing_channels"]
 
     benchmark_account_count = (await db.execute(select(func.count()).select_from(BenchmarkAccount))).scalar() or 0
     benchmark_post_count = (await db.execute(select(func.count()).select_from(BenchmarkPost))).scalar() or 0
@@ -647,10 +673,13 @@ async def get_pipeline_readiness(
                 "meta_app_id_present": meta_app_id_present,
                 "meta_app_secret_present": meta_app_secret_present,
                 "connected_channels": connected_count,
+                "healthy_channels": healthy_channels,
                 "reauth_required": reauth_required,
                 "token_missing_channels": token_missing_channels,
                 "unknown_token_channels": unknown_token_channels,
+                "supported_connected_channels": supported_connected_count,
                 "supported_healthy_channels": supported_healthy_channels,
+                "unsupported_connected_channels": unsupported_connected_count,
             },
         },
         {
@@ -706,6 +735,12 @@ async def get_publish_observability(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    now = datetime.now(timezone.utc)
+    soon = now + timedelta(days=7)
+    connected_result = await db.execute(select(ChannelConnection).where(ChannelConnection.is_connected == True))
+    connected_channels = list(connected_result.scalars().all())
+    publishing_channel_summary = _collect_publishing_channel_summary(connected_channels, now=now, soon=soon)
+
     published_with_evidence = (
         await db.execute(
             select(func.count()).select_from(Content).where(
@@ -873,6 +908,14 @@ async def get_publish_observability(
 
     return {
         "summary": {
+            "connected_channels": publishing_channel_summary["connected_channels"],
+            "healthy_channels": publishing_channel_summary["healthy_channels"],
+            "supported_connected_channels": publishing_channel_summary["supported_connected_channels"],
+            "supported_healthy_channels": publishing_channel_summary["supported_healthy_channels"],
+            "unsupported_connected_channels": publishing_channel_summary["unsupported_connected_channels"],
+            "reauth_required_channels": publishing_channel_summary["reauth_required_channels"],
+            "token_missing_channels": publishing_channel_summary["token_missing_channels"],
+            "unknown_token_channels": publishing_channel_summary["unknown_token_channels"],
             "published_with_evidence": published_with_evidence,
             "published_without_evidence": published_without_evidence,
             "failed_with_error": failed_with_error,
