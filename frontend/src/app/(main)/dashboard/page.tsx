@@ -107,6 +107,18 @@ interface PublishObservability {
     channel_type?: string | null
     account_name?: string | null
   }>
+  retry_pending_items: Array<{
+    schedule_id: string
+    content_id: string
+    title: string
+    retry_count?: number
+    scheduled_at?: string | null
+    updated_at?: string | null
+    error_message?: string | null
+    channel_connection_id?: string | null
+    channel_type?: string | null
+    account_name?: string | null
+  }>
 }
 
 const EMPTY_CHANNELS_HEALTH: ChannelsHealth = {
@@ -136,6 +148,7 @@ const EMPTY_PUBLISH_OBSERVABILITY: PublishObservability = {
   published_items: [],
   suspicious_items: [],
   failed_items: [],
+  retry_pending_items: [],
 }
 
 const PIPELINE_DETAIL_LABELS: Record<string, string> = {
@@ -257,6 +270,7 @@ function normalizePublishObservability(value: unknown): PublishObservability {
     published_items: Array.isArray(data.published_items) ? data.published_items : [],
     suspicious_items: Array.isArray(data.suspicious_items) ? data.suspicious_items : [],
     failed_items: Array.isArray(data.failed_items) ? data.failed_items : [],
+    retry_pending_items: Array.isArray((data as { retry_pending_items?: unknown[] }).retry_pending_items) ? (data as { retry_pending_items: PublishObservability["retry_pending_items"] }).retry_pending_items : [],
   }
 }
 
@@ -446,7 +460,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
               <div className="rounded-lg border p-4">
                 <h3 className="text-xs font-semibold text-gray-600 mb-3">최근 발행 증거</h3>
                 <div className="space-y-2">
@@ -502,6 +516,24 @@ export default function DashboardPage() {
                   ))}
                   {(publishObservability?.failed_items || []).length === 0 && (
                     <div className="text-sm text-gray-400 py-4 text-center">최근 발행 실패가 없습니다</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-lg border p-4">
+                <h3 className="text-xs font-semibold text-gray-600 mb-3">재시도 대기 예약</h3>
+                <div className="space-y-2">
+                  {(publishObservability?.retry_pending_items || []).slice(0, 5).map((item) => (
+                    <div key={item.schedule_id} className="rounded-lg bg-orange-50 border border-orange-100 px-3 py-2">
+                      <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">채널: {item.channel_type || "-"}{item.account_name ? ` · ${item.account_name}` : ""}</p>
+                      <p className="text-[11px] text-orange-700 mt-1">재시도 {item.retry_count ?? 0}회 · 다음 예정 {item.scheduled_at ? new Date(item.scheduled_at).toLocaleString("ko-KR") : "-"}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">최근 갱신 {item.updated_at ? new Date(item.updated_at).toLocaleString("ko-KR") : "-"}</p>
+                      <p className="text-[11px] text-orange-700 mt-1 line-clamp-2">{item.error_message || "최근 실패 사유 없음"}</p>
+                    </div>
+                  ))}
+                  {(publishObservability?.retry_pending_items || []).length === 0 && (
+                    <div className="text-sm text-gray-400 py-4 text-center">재시도 대기 예약이 없습니다</div>
                   )}
                 </div>
               </div>

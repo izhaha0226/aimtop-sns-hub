@@ -706,6 +706,20 @@ async def get_publish_observability(
     )
     failed_items = failed_result.all()
 
+    retry_pending_result = await db.execute(
+        select(Schedule, Content, ChannelConnection)
+        .join(Content, Schedule.content_id == Content.id)
+        .outerjoin(ChannelConnection, Schedule.channel_connection_id == ChannelConnection.id)
+        .where(
+            Schedule.status == "pending",
+            Schedule.retry_count > 0,
+            Schedule.error_message.isnot(None),
+        )
+        .order_by(Schedule.scheduled_at.asc(), Schedule.updated_at.desc().nullslast())
+        .limit(10)
+    )
+    retry_pending_items = retry_pending_result.all()
+
     content_ids = {
         item.id
         for item, _channel in [*suspicious_items, *failed_items]
@@ -787,6 +801,21 @@ async def get_publish_observability(
                 "account_name": channel.account_name if channel else None,
             }
             for item, channel in failed_items
+        ],
+        "retry_pending_items": [
+            {
+                "schedule_id": str(schedule.id),
+                "content_id": str(item.id),
+                "title": item.title,
+                "retry_count": schedule.retry_count,
+                "scheduled_at": schedule.scheduled_at.isoformat() if schedule.scheduled_at else None,
+                "updated_at": schedule.updated_at.isoformat() if schedule.updated_at else None,
+                "error_message": schedule.error_message,
+                "channel_connection_id": str(schedule.channel_connection_id) if schedule.channel_connection_id else None,
+                "channel_type": channel.channel_type if channel else None,
+                "account_name": channel.account_name if channel else None,
+            }
+            for schedule, item, channel in retry_pending_items
         ],
     }
 
