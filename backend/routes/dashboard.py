@@ -26,35 +26,6 @@ router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
 PUBLISH_FAILURE_CATEGORIES = [
     (
-        "missing_evidence",
-        "증거 누락",
-        (
-            "platform_post_id/published_url",
-            "published 처리하지 않았습니다",
-            "evidence missing",
-            "creation id missing",
-            "post id missing",
-        ),
-    ),
-    (
-        "unsupported_platform",
-        "미지원 채널",
-        (
-            "실제 발행 자동화를 지원하지 않습니다",
-            "unsupported platform",
-        ),
-    ),
-    (
-        "token_expired",
-        "토큰 만료",
-        (
-            "토큰이 만료되어 재인증이 필요합니다",
-            "token expired",
-            "token has expired",
-            "expired access token",
-        ),
-    ),
-    (
         "token_missing",
         "토큰 없음",
         (
@@ -66,6 +37,16 @@ PUBLISH_FAILURE_CATEGORIES = [
             "missing token",
             "no access token",
             "access_token",
+        ),
+    ),
+    (
+        "token_expired",
+        "토큰 만료",
+        (
+            "토큰이 만료되어 재인증이 필요합니다",
+            "token expired",
+            "token has expired",
+            "expired access token",
         ),
     ),
     (
@@ -82,6 +63,25 @@ PUBLISH_FAILURE_CATEGORIES = [
             "content or channel not found",
             "content not found",
             "user id를 찾을 수 없습니다",
+        ),
+    ),
+    (
+        "unsupported_platform",
+        "미지원 채널",
+        (
+            "실제 발행 자동화를 지원하지 않습니다",
+            "unsupported platform",
+        ),
+    ),
+    (
+        "missing_evidence",
+        "증거 누락",
+        (
+            "platform_post_id/published_url",
+            "published 처리하지 않았습니다",
+            "evidence missing",
+            "creation id missing",
+            "post id missing",
         ),
     ),
     ("retrying", "재시도 중", ("예약 발행 재시도 중", "retrying")),
