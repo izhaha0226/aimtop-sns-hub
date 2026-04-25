@@ -105,6 +105,10 @@ def _publish_failure_sort_key(item: dict) -> tuple:
     )
 
 
+def _count_retry_pending_category(items: list[dict], category_key: str) -> int:
+    return sum(1 for item in items if str(item.get("failure_category") or "other") == category_key)
+
+
 def _pick_latest_schedule_for_content(
     schedules_by_content: dict[str, list[Schedule]],
     content_id: uuid.UUID | None,
@@ -561,6 +565,15 @@ async def get_pipeline_readiness(
             )
         )
     ).scalar() or 0
+    retry_pending_schedules = (
+        await db.execute(
+            select(func.count()).select_from(Schedule).where(
+                Schedule.status == "pending",
+                Schedule.retry_count > 0,
+                Schedule.error_message.isnot(None),
+            )
+        )
+    ).scalar() or 0
 
     openai_key_present = bool(await get_runtime_setting("openai_api_key"))
     meta_app_id_present = bool(await get_runtime_setting("meta_app_id"))
@@ -632,12 +645,13 @@ async def get_pipeline_readiness(
             "details": {
                 "supported_connected_channels": supported_connected_count,
                 "supported_healthy_channels": supported_healthy_channels,
-                "unsupported_connected_channels": unsupported_connected_count,
                 "token_missing_channels": token_missing_channels,
+                "unsupported_connected_channels": unsupported_connected_count,
                 "unknown_token_channels": unknown_token_channels,
                 "published_evidence_count": published_evidence_count,
                 "suspicious_published_without_evidence": suspicious_published_without_evidence,
                 "failed_publish_count": failed_publish_count,
+                "retry_pending_schedules": retry_pending_schedules,
             },
         },
         {
@@ -764,8 +778,8 @@ async def get_publish_observability(
             Schedule.retry_count > 0,
             Schedule.error_message.isnot(None),
         )
-        .order_by(Schedule.scheduled_at.asc(), Schedule.updated_at.desc().nullslast())
-        .limit(10)
+        .order_by(Schedule.updated_at.desc().nullslast(), Schedule.scheduled_at.asc())
+        .limit(50)
     )
     retry_pending_items = retry_pending_result.all()
 
@@ -808,6 +822,30 @@ async def get_publish_observability(
     ]
     failed_item_payloads.sort(key=_publish_failure_sort_key)
 
+    retry_pending_item_payloads = [
+        {
+            "schedule_id": str(schedule.id),
+            "content_id": str(item.id),
+            "title": item.title,
+            "retry_count": schedule.retry_count,
+            "scheduled_at": schedule.scheduled_at.isoformat() if schedule.scheduled_at else None,
+            "updated_at": schedule.updated_at.isoformat() if schedule.updated_at else None,
+            "error_message": schedule.error_message,
+            "failure_category": _classify_publish_error(schedule.error_message)[0],
+            "failure_label": _classify_publish_error(schedule.error_message)[1],
+            "channel_connection_id": str(schedule.channel_connection_id) if schedule.channel_connection_id else None,
+            "channel_type": channel.channel_type if channel else None,
+            "account_name": channel.account_name if channel else None,
+        }
+        for schedule, item, channel in retry_pending_items
+    ]
+    retry_pending_item_payloads.sort(key=_publish_failure_sort_key)
+    retry_pending_token_missing = _count_retry_pending_category(retry_pending_item_payloads, "token_missing")
+    retry_pending_token_expired = _count_retry_pending_category(retry_pending_item_payloads, "token_expired")
+    retry_pending_missing_channel = _count_retry_pending_category(retry_pending_item_payloads, "missing_channel")
+    retry_pending_unsupported_platform = _count_retry_pending_category(retry_pending_item_payloads, "unsupported_platform")
+    retry_pending_other = _count_retry_pending_category(retry_pending_item_payloads, "other")
+
     return {
         "summary": {
             "published_with_evidence": published_with_evidence,
@@ -820,6 +858,11 @@ async def get_publish_observability(
             "failed_missing_channel": failed_missing_channel,
             "failed_retrying": failed_retrying,
             "retry_pending_schedules": retry_pending_schedules,
+            "retry_pending_token_missing": retry_pending_token_missing,
+            "retry_pending_token_expired": retry_pending_token_expired,
+            "retry_pending_missing_channel": retry_pending_missing_channel,
+            "retry_pending_unsupported_platform": retry_pending_unsupported_platform,
+            "retry_pending_other": retry_pending_other,
             "failed_other": failed_other,
         },
         "published_items": [
@@ -854,21 +897,7 @@ async def get_publish_observability(
             for item, channel in suspicious_items
         ],
         "failed_items": failed_item_payloads[:10],
-        "retry_pending_items": [
-            {
-                "schedule_id": str(schedule.id),
-                "content_id": str(item.id),
-                "title": item.title,
-                "retry_count": schedule.retry_count,
-                "scheduled_at": schedule.scheduled_at.isoformat() if schedule.scheduled_at else None,
-                "updated_at": schedule.updated_at.isoformat() if schedule.updated_at else None,
-                "error_message": schedule.error_message,
-                "channel_connection_id": str(schedule.channel_connection_id) if schedule.channel_connection_id else None,
-                "channel_type": channel.channel_type if channel else None,
-                "account_name": channel.account_name if channel else None,
-            }
-            for schedule, item, channel in retry_pending_items
-        ],
+        "retry_pending_items": retry_pending_item_payloads[:10],
     }
 
 

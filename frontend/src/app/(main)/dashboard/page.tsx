@@ -70,6 +70,11 @@ interface PublishObservability {
     failed_missing_channel: number
     failed_retrying: number
     retry_pending_schedules: number
+    retry_pending_token_missing: number
+    retry_pending_token_expired: number
+    retry_pending_missing_channel: number
+    retry_pending_unsupported_platform: number
+    retry_pending_other: number
     failed_other: number
   }
   published_items: Array<{
@@ -118,6 +123,8 @@ interface PublishObservability {
     scheduled_at?: string | null
     updated_at?: string | null
     error_message?: string | null
+    failure_category?: string | null
+    failure_label?: string | null
     channel_connection_id?: string | null
     channel_type?: string | null
     account_name?: string | null
@@ -146,6 +153,11 @@ const EMPTY_PUBLISH_OBSERVABILITY: PublishObservability = {
     failed_missing_channel: 0,
     failed_retrying: 0,
     retry_pending_schedules: 0,
+    retry_pending_token_missing: 0,
+    retry_pending_token_expired: 0,
+    retry_pending_missing_channel: 0,
+    retry_pending_unsupported_platform: 0,
+    retry_pending_other: 0,
     failed_other: 0,
   },
   published_items: [],
@@ -179,6 +191,7 @@ const PIPELINE_DETAIL_LABELS: Record<string, string> = {
   published_evidence_count: "발행 증거 수",
   suspicious_published_without_evidence: "증거 없는 published",
   failed_publish_count: "발행 실패",
+  retry_pending_schedules: "재시도 대기 예약",
   active_accounts: "활성 계정",
   live_supported_accounts: "실수집 지원 계정",
   usable_live_supported_accounts: "토큰 갖춘 실수집 가능 계정",
@@ -207,7 +220,7 @@ const PIPELINE_DETAIL_LABELS: Record<string, string> = {
 const PIPELINE_DETAIL_ORDER: Record<PipelineKey, string[]> = {
   ai_generation: ["blocked_tasks", "fallback_only_tasks", "fallback_missing_tasks", "primary_ready_tasks", "openai_key_present", "claude_cli_available"],
   oauth_connections: ["reauth_required", "token_missing_channels", "unknown_token_channels", "connected_channels", "supported_healthy_channels", "meta_app_id_present", "meta_app_secret_present"],
-  publishing: ["suspicious_published_without_evidence", "failed_publish_count", "token_missing_channels", "unsupported_connected_channels", "unknown_token_channels", "supported_connected_channels", "supported_healthy_channels", "published_evidence_count"],
+  publishing: ["suspicious_published_without_evidence", "failed_publish_count", "retry_pending_schedules", "token_missing_channels", "unsupported_connected_channels", "unknown_token_channels", "supported_connected_channels", "supported_healthy_channels", "published_evidence_count"],
   benchmarking: [
     "token_missing_accounts",
     "collector_error_accounts",
@@ -290,6 +303,11 @@ function normalizePublishObservability(value: unknown): PublishObservability {
       failed_missing_channel: Number(data.summary?.failed_missing_channel ?? 0),
       failed_retrying: Number(data.summary?.failed_retrying ?? 0),
       retry_pending_schedules: Number(data.summary?.retry_pending_schedules ?? 0),
+      retry_pending_token_missing: Number(data.summary?.retry_pending_token_missing ?? 0),
+      retry_pending_token_expired: Number(data.summary?.retry_pending_token_expired ?? 0),
+      retry_pending_missing_channel: Number(data.summary?.retry_pending_missing_channel ?? 0),
+      retry_pending_unsupported_platform: Number(data.summary?.retry_pending_unsupported_platform ?? 0),
+      retry_pending_other: Number(data.summary?.retry_pending_other ?? 0),
       failed_other: Number(data.summary?.failed_other ?? 0),
     },
     published_items: Array.isArray(data.published_items) ? data.published_items : [],
@@ -482,7 +500,8 @@ export default function DashboardPage() {
               <div className="text-xs text-gray-500 text-right">
                 <div>증거 {publishObservability?.summary.published_with_evidence ?? 0} · 의심 {publishObservability?.summary.published_without_evidence ?? 0} · 실패 {publishObservability?.summary.failed_with_error ?? 0}</div>
                 <div className="mt-1">증거누락 {publishObservability?.summary.failed_missing_evidence ?? 0} · 미지원채널 {publishObservability?.summary.failed_unsupported_platform ?? 0} · 토큰만료 {publishObservability?.summary.failed_token_expired ?? 0}</div>
-                <div className="mt-1">토큰없음 {publishObservability?.summary.failed_token_missing ?? 0} · 채널/콘텐츠 누락 {publishObservability?.summary.failed_missing_channel ?? 0} · 재시도 실패표시 {publishObservability?.summary.failed_retrying ?? 0} · 재시도 대기 예약 {publishObservability?.summary.retry_pending_schedules ?? 0} · 기타 {publishObservability?.summary.failed_other ?? 0}</div>
+                <div className="mt-1">토큰없음 {publishObservability?.summary.failed_token_missing ?? 0} · 채널/콘텐츠 누락 {publishObservability?.summary.failed_missing_channel ?? 0} · 재시도 실패표시 {publishObservability?.summary.failed_retrying ?? 0} · 기타 {publishObservability?.summary.failed_other ?? 0}</div>
+                <div className="mt-1">재시도 대기 {publishObservability?.summary.retry_pending_schedules ?? 0} · 토큰없음 {publishObservability?.summary.retry_pending_token_missing ?? 0} · 토큰만료 {publishObservability?.summary.retry_pending_token_expired ?? 0} · 채널누락 {publishObservability?.summary.retry_pending_missing_channel ?? 0} · 미지원 {publishObservability?.summary.retry_pending_unsupported_platform ?? 0} · 기타 {publishObservability?.summary.retry_pending_other ?? 0}</div>
               </div>
             </div>
 
@@ -551,7 +570,10 @@ export default function DashboardPage() {
                 <div className="space-y-2">
                   {(publishObservability?.retry_pending_items || []).slice(0, 5).map((item) => (
                     <div key={item.schedule_id} className="rounded-lg bg-orange-50 border border-orange-100 px-3 py-2">
-                      <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
+                        <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium ${failureBadge(item.failure_category)}`}>{item.failure_label || "기타 오류"}</span>
+                      </div>
                       <p className="text-[11px] text-gray-500 mt-1">채널: {item.channel_type || "-"}{item.account_name ? ` · ${item.account_name}` : ""}</p>
                       <p className="text-[11px] text-orange-700 mt-1">재시도 {item.retry_count ?? 0}회 · 다음 예정 {item.scheduled_at ? new Date(item.scheduled_at).toLocaleString("ko-KR") : "-"}</p>
                       <p className="text-[11px] text-gray-500 mt-1">최근 갱신 {item.updated_at ? new Date(item.updated_at).toLocaleString("ko-KR") : "-"}</p>
