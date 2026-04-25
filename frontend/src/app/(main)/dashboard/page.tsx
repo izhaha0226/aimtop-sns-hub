@@ -71,6 +71,7 @@ interface PublishObservability {
     published_with_evidence: number
     published_without_evidence: number
     failed_with_error: number
+    failed_without_error: number
     failed_with_stale_evidence: number
     failed_missing_evidence: number
     failed_unsupported_platform: number
@@ -179,6 +180,7 @@ const EMPTY_PUBLISH_OBSERVABILITY: PublishObservability = {
     published_with_evidence: 0,
     published_without_evidence: 0,
     failed_with_error: 0,
+    failed_without_error: 0,
     failed_with_stale_evidence: 0,
     failed_missing_evidence: 0,
     failed_unsupported_platform: 0,
@@ -227,6 +229,7 @@ const PIPELINE_DETAIL_LABELS: Record<string, string> = {
   published_evidence_count: "발행 증거 수",
   suspicious_published_without_evidence: "증거 없는 published",
   failed_publish_count: "발행 실패",
+  failed_without_error: "실패 · 사유 미기록",
   failed_with_stale_evidence: "실패인데 증거 남음",
   failed_token_missing: "실패 · 토큰 없음",
   failed_token_expired: "실패 · 토큰 만료",
@@ -273,6 +276,7 @@ const PIPELINE_DETAIL_ORDER: Record<PipelineKey, string[]> = {
     "suspicious_published_without_evidence",
     "failed_with_stale_evidence",
     "failed_publish_count",
+    "failed_without_error",
     "failed_token_missing",
     "failed_token_expired",
     "failed_missing_channel",
@@ -376,6 +380,7 @@ function normalizePublishObservability(value: unknown): PublishObservability {
       published_with_evidence: Number(data.summary?.published_with_evidence ?? 0),
       published_without_evidence: Number(data.summary?.published_without_evidence ?? 0),
       failed_with_error: Number(data.summary?.failed_with_error ?? 0),
+      failed_without_error: Number(data.summary?.failed_without_error ?? 0),
       failed_with_stale_evidence: Number(data.summary?.failed_with_stale_evidence ?? 0),
       failed_missing_evidence: Number(data.summary?.failed_missing_evidence ?? 0),
       failed_unsupported_platform: Number(data.summary?.failed_unsupported_platform ?? 0),
@@ -583,7 +588,7 @@ export default function DashboardPage() {
                 <div>연결 {publishObservability?.summary.connected_channels ?? 0} · 정상 {publishObservability?.summary.healthy_channels ?? 0} · 재인증필요 {publishObservability?.summary.reauth_required_channels ?? 0}</div>
                 <div className="mt-1">지원채널 {publishObservability?.summary.supported_connected_channels ?? 0} · 건강한 지원채널 {publishObservability?.summary.supported_healthy_channels ?? 0} · 미지원채널 {publishObservability?.summary.unsupported_connected_channels ?? 0}</div>
                 <div className="mt-1">토큰없음 채널 {publishObservability?.summary.token_missing_channels ?? 0} · 토큰상태 미확인 {publishObservability?.summary.unknown_token_channels ?? 0}</div>
-                <div className="mt-1">증거 {publishObservability?.summary.published_with_evidence ?? 0} · 의심 {publishObservability?.summary.published_without_evidence ?? 0} · 실패 {publishObservability?.summary.failed_with_error ?? 0} · 실패인데 증거남음 {publishObservability?.summary.failed_with_stale_evidence ?? 0}</div>
+                <div className="mt-1">증거 {publishObservability?.summary.published_with_evidence ?? 0} · 의심 {publishObservability?.summary.published_without_evidence ?? 0} · 실패 {publishObservability?.summary.failed_with_error ?? 0} · 실패사유 미기록 {publishObservability?.summary.failed_without_error ?? 0} · 실패인데 증거남음 {publishObservability?.summary.failed_with_stale_evidence ?? 0}</div>
                 <div className="mt-1">증거누락 {publishObservability?.summary.failed_missing_evidence ?? 0} · 미지원채널 {publishObservability?.summary.failed_unsupported_platform ?? 0} · 토큰만료 {publishObservability?.summary.failed_token_expired ?? 0}</div>
                 <div className="mt-1">토큰없음 {publishObservability?.summary.failed_token_missing ?? 0} · 채널/콘텐츠 누락 {publishObservability?.summary.failed_missing_channel ?? 0} · 재시도 실패표시 {publishObservability?.summary.failed_retrying ?? 0} · 기타 {publishObservability?.summary.failed_other ?? 0}</div>
                 <div className="mt-1">재시도 대기 {publishObservability?.summary.retry_pending_schedules ?? 0} · 토큰없음 {publishObservability?.summary.retry_pending_token_missing ?? 0} · 토큰만료 {publishObservability?.summary.retry_pending_token_expired ?? 0} · 채널누락 {publishObservability?.summary.retry_pending_missing_channel ?? 0} · 미지원 {publishObservability?.summary.retry_pending_unsupported_platform ?? 0} · 기타 {publishObservability?.summary.retry_pending_other ?? 0}</div>
@@ -669,7 +674,7 @@ export default function DashboardPage() {
                       {item.schedule_status === "pending" && (item.schedule_retry_count ?? 0) > 0 && (
                         <p className="text-[11px] text-amber-700 mt-1">예약 재시도 대기 {item.schedule_retry_count}회 · 다음 예정 {item.schedule_scheduled_at ? new Date(item.schedule_scheduled_at).toLocaleString("ko-KR") : "-"}</p>
                       )}
-                      <p className="text-[11px] text-red-700 mt-1 line-clamp-2">{item.publish_error || item.schedule_error_message || "실패 사유 없음"}</p>
+                      <p className="text-[11px] text-red-700 mt-1 line-clamp-2">{item.publish_error || item.schedule_error_message || "실패 상태인데 사유가 기록되지 않았습니다"}</p>
                     </div>
                   ))}
                   {(publishObservability?.failed_items || []).length === 0 && (

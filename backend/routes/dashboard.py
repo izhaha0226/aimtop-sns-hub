@@ -606,21 +606,22 @@ async def get_pipeline_readiness(
     failed_contents_result = await db.execute(
         select(Content).where(
             Content.status == "failed",
-            Content.publish_error.isnot(None),
         )
     )
     failed_contents = list(failed_contents_result.scalars().all())
     failed_publish_count = len(failed_contents)
+    failed_with_error_contents = [content for content in failed_contents if content.publish_error]
+    failed_without_error = sum(1 for content in failed_contents if not content.publish_error)
     failed_with_stale_evidence = sum(
         1
         for content in failed_contents
         if bool(content.platform_post_id or content.published_url or content.published_at)
     )
-    failed_missing_evidence = _count_failed_publish_category(failed_contents, "missing_evidence")
-    failed_unsupported_platform = _count_failed_publish_category(failed_contents, "unsupported_platform")
-    failed_token_expired = _count_failed_publish_category(failed_contents, "token_expired")
-    failed_token_missing = _count_failed_publish_category(failed_contents, "token_missing")
-    failed_missing_channel = _count_failed_publish_category(failed_contents, "missing_channel")
+    failed_missing_evidence = _count_failed_publish_category(failed_with_error_contents, "missing_evidence")
+    failed_unsupported_platform = _count_failed_publish_category(failed_with_error_contents, "unsupported_platform")
+    failed_token_expired = _count_failed_publish_category(failed_with_error_contents, "token_expired")
+    failed_token_missing = _count_failed_publish_category(failed_with_error_contents, "token_missing")
+    failed_missing_channel = _count_failed_publish_category(failed_with_error_contents, "missing_channel")
 
     retry_pending_result = await db.execute(
         select(Schedule).where(
@@ -722,6 +723,7 @@ async def get_pipeline_readiness(
                 "published_evidence_count": published_evidence_count,
                 "suspicious_published_without_evidence": suspicious_published_without_evidence,
                 "failed_publish_count": failed_publish_count,
+                "failed_without_error": failed_without_error,
                 "failed_with_stale_evidence": failed_with_stale_evidence,
                 "failed_token_missing": failed_token_missing,
                 "failed_token_expired": failed_token_expired,
@@ -793,27 +795,35 @@ async def get_publish_observability(
             )
         )
     ).scalar() or 0
+    failed_without_error = (
+        await db.execute(
+            select(func.count()).select_from(Content).where(
+                Content.status == "failed",
+                Content.publish_error.is_(None),
+            )
+        )
+    ).scalar() or 0
 
     failed_contents_result = await db.execute(
         select(Content)
         .where(
             Content.status == "failed",
-            Content.publish_error.isnot(None),
         )
     )
     failed_contents = list(failed_contents_result.scalars().all())
+    failed_with_error_contents = [content for content in failed_contents if content.publish_error]
     failed_with_stale_evidence = sum(
         1
         for content in failed_contents
         if bool(content.platform_post_id or content.published_url or content.published_at)
     )
-    failed_missing_evidence = _count_failed_publish_category(failed_contents, "missing_evidence")
-    failed_unsupported_platform = _count_failed_publish_category(failed_contents, "unsupported_platform")
-    failed_token_expired = _count_failed_publish_category(failed_contents, "token_expired")
-    failed_token_missing = _count_failed_publish_category(failed_contents, "token_missing")
-    failed_missing_channel = _count_failed_publish_category(failed_contents, "missing_channel")
-    failed_retrying = _count_failed_publish_category(failed_contents, "retrying")
-    failed_other = _count_failed_publish_category(failed_contents, "other")
+    failed_missing_evidence = _count_failed_publish_category(failed_with_error_contents, "missing_evidence")
+    failed_unsupported_platform = _count_failed_publish_category(failed_with_error_contents, "unsupported_platform")
+    failed_token_expired = _count_failed_publish_category(failed_with_error_contents, "token_expired")
+    failed_token_missing = _count_failed_publish_category(failed_with_error_contents, "token_missing")
+    failed_missing_channel = _count_failed_publish_category(failed_with_error_contents, "missing_channel")
+    failed_retrying = _count_failed_publish_category(failed_with_error_contents, "retrying")
+    failed_other = _count_failed_publish_category(failed_with_error_contents, "other")
     retry_pending_schedules = (
         await db.execute(
             select(func.count()).select_from(Schedule).where(
@@ -871,7 +881,6 @@ async def get_publish_observability(
         .outerjoin(ChannelConnection, Content.channel_connection_id == ChannelConnection.id)
         .where(
             Content.status == "failed",
-            Content.publish_error.isnot(None),
         )
         .order_by(Content.updated_at.desc())
         .limit(50)
@@ -914,8 +923,15 @@ async def get_publish_observability(
             "id": str(item.id),
             "title": item.title,
             "publish_error": item.publish_error,
-            "failure_category": _get_publish_signal(publish_error=item.publish_error)[0],
-            "failure_label": _get_publish_signal(publish_error=item.publish_error)[1],
+            "failure_category": _get_publish_signal(
+                publish_error=item.publish_error,
+                schedule_error=latest_schedule.error_message if latest_schedule else None,
+            )[0],
+            "failure_label": _get_publish_signal(
+                publish_error=item.publish_error,
+                schedule_error=latest_schedule.error_message if latest_schedule else None,
+                default_label="실패 사유 미기록",
+            )[1],
             "updated_at": item.updated_at.isoformat() if item.updated_at else None,
             "schedule_status": (
                 latest_schedule.status if (latest_schedule := _pick_latest_schedule_for_content(schedules_by_content, item.id)) else None
@@ -1019,6 +1035,7 @@ async def get_publish_observability(
             "published_with_evidence": published_with_evidence,
             "published_without_evidence": published_without_evidence,
             "failed_with_error": failed_with_error,
+            "failed_without_error": failed_without_error,
             "failed_with_stale_evidence": failed_with_stale_evidence,
             "failed_missing_evidence": failed_missing_evidence,
             "failed_unsupported_platform": failed_unsupported_platform,
