@@ -302,6 +302,16 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
         and isinstance(row.get("last_refresh_at"), datetime)
         and row["last_refresh_at"] < stale_cutoff
     ]
+    profile_ready_rows = [
+        row
+        for row in active_rows
+        if row.get("last_refresh_at") and (row.get("last_refresh_profile_generated") or row.get("last_refresh_profile_id"))
+    ]
+    profile_missing_rows = [
+        row
+        for row in active_rows
+        if row.get("last_refresh_at") and not (row.get("last_refresh_profile_generated") or row.get("last_refresh_profile_id"))
+    ]
 
     blocked = len(active_rows) == 0 or (len(usable_live_supported_rows) == 0 and len(live_rows) == 0 and len(mixed_rows) == 0)
     warning = (
@@ -316,6 +326,7 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
         or len(duplicate_source_rows) > 0
         or len(never_refreshed_rows) > 0
         or len(stale_refresh_rows) > 0
+        or len(profile_missing_rows) > 0
     )
 
     if blocked:
@@ -328,6 +339,8 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
         status = "warning"
         if len(never_refreshed_rows) > 0 or len(stale_refresh_rows) > 0:
             summary = "실데이터 상태 외에도 새로고침 이력 부족/노후 계정이 있어 현재 운영 상태를 최신 정보로 보기 어렵습니다"
+        elif len(profile_missing_rows) > 0:
+            summary = "최근 새로고침은 있었지만 프로필 재생성이 누락된 계정이 있어 벤치마킹 활용 근거를 다시 확인해야 합니다"
         else:
             summary = "실데이터와 fallback/누락/수동 확인 상태가 섞여 있어 운영자가 상태를 분리해서 봐야 합니다"
     else:
@@ -354,6 +367,8 @@ def _summarize_benchmark_diagnostics(diagnostics: list[dict]) -> dict:
             "duplicate_source_connections": sum(int(row.get("source_channel_duplicate_count") or 0) for row in duplicate_source_rows),
             "never_refreshed_accounts": len(never_refreshed_rows),
             "stale_refresh_accounts": len(stale_refresh_rows),
+            "last_refresh_profile_ready_accounts": len(profile_ready_rows),
+            "last_refresh_profile_missing_accounts": len(profile_missing_rows),
             "inactive_accounts": max(len(diagnostics) - len(active_rows), 0),
             "live_post_count": sum(int(row.get("live_post_count") or 0) for row in active_rows),
             "placeholder_post_count": sum(int(row.get("placeholder_post_count") or 0) for row in active_rows),
