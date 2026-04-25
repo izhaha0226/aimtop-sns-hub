@@ -111,6 +111,10 @@ function isStaleRefresh(value?: string | null, thresholdHours = 24) {
   return Date.now() - time >= thresholdHours * 60 * 60 * 1000
 }
 
+function optionalBoolean(value: boolean | null | undefined) {
+  return typeof value === "boolean" ? value : undefined
+}
+
 function pickAccountState(
   refreshState?: RefreshAccountResult,
   diagnostic?: BenchmarkAccountDiagnosticItem,
@@ -712,11 +716,15 @@ export default function ClientBenchmarkPage() {
                   const latestRefreshDataSourceLabel = useRefreshMeta ? (refreshState?.data_source_label || null) : (diagnostic?.last_refresh_data_source_label || null)
                   const latestRefreshViewMetricLabel = useRefreshMeta ? (refreshState?.view_metric_label || null) : (diagnostic?.last_refresh_view_metric_label || null)
                   const latestRefreshUsedPlaceholder = useRefreshMeta ? Boolean(refreshState?.used_placeholder) : Boolean(diagnostic?.last_refresh_used_placeholder)
-                  const latestRefreshSourceConnected = useRefreshMeta ? Boolean(refreshState?.source_channel_connected) : Boolean(diagnostic?.last_refresh_source_channel_connected)
+                  const latestRefreshSourceConnected = useRefreshMeta
+                    ? optionalBoolean(refreshState?.source_channel_connected)
+                    : optionalBoolean(diagnostic?.last_refresh_source_channel_connected)
                   const latestRefreshSourcePlatform = useRefreshMeta ? (refreshState?.source_channel_platform || null) : (diagnostic?.last_refresh_source_channel_platform || null)
                   const latestRefreshSourceAccountName = useRefreshMeta ? (refreshState?.source_channel_account_name || null) : (diagnostic?.last_refresh_source_channel_account_name || null)
                   const latestRefreshSourceMissingReason = useRefreshMeta ? (refreshState?.source_channel_missing_reason || null) : (diagnostic?.last_refresh_source_channel_missing_reason || null)
-                  const latestRefreshSourceHasToken = useRefreshMeta ? Boolean(refreshState?.source_channel_has_token) : Boolean(diagnostic?.last_refresh_source_channel_has_token)
+                  const latestRefreshSourceHasToken = useRefreshMeta
+                    ? optionalBoolean(refreshState?.source_channel_has_token)
+                    : optionalBoolean(diagnostic?.last_refresh_source_channel_has_token)
                   const latestRefreshSourceConnectionCount = useRefreshMeta ? Number(refreshState?.source_channel_connection_count || 0) : Number(diagnostic?.last_refresh_source_channel_connection_count || 0)
                   const latestRefreshSourceDuplicateCount = useRefreshMeta ? Number(refreshState?.source_channel_duplicate_count || 0) : Number(diagnostic?.last_refresh_source_channel_duplicate_count || 0)
                   const latestRefreshSourceDuplicateWarning = useRefreshMeta ? Boolean(refreshState?.source_channel_duplicate_warning) : Boolean(diagnostic?.last_refresh_source_channel_duplicate_warning)
@@ -837,14 +845,14 @@ export default function ClientBenchmarkPage() {
                               ) : (
                                 <div className="text-[11px] text-amber-700">연결 상태: {accountState.source_channel_missing_reason || "연결 채널 확인 필요"}</div>
                               )}
-                              {latestRefreshAt && latestRefreshSourceConnected && (
-                                <div className={`text-[11px] ${latestRefreshSourceHasToken ? "text-slate-600" : "text-amber-700"}`}>
+                              {latestRefreshAt && latestRefreshSourceConnected === true && (
+                                <div className={`text-[11px] ${latestRefreshSourceHasToken === false ? "text-amber-700" : latestRefreshSourceHasToken === true ? "text-slate-600" : "text-slate-500"}`}>
                                   마지막 점검 기준 연결 채널: {latestRefreshSourceAccountName || latestRefreshSourcePlatform || item.platform}
-                                  {latestRefreshSourceHasToken ? "" : ` · ${latestRefreshSourceMissingReason || "토큰 없음"}`}
+                                  {latestRefreshSourceHasToken === false ? ` · ${latestRefreshSourceMissingReason || "토큰 없음"}` : latestRefreshSourceHasToken === undefined ? " · 토큰 상태 미확인" : ""}
                                   {latestRefreshSourceDuplicateWarning ? ` · 동일 플랫폼 연결 ${latestRefreshSourceConnectionCount || latestRefreshSourceDuplicateCount + 1}개 중 사용 가능한 row 기준` : ""}
                                 </div>
                               )}
-                              {latestRefreshAt && !latestRefreshSourceConnected && latestRefreshSourceMissingReason && (
+                              {latestRefreshAt && latestRefreshSourceConnected === false && latestRefreshSourceMissingReason && (
                                 <div className="text-[11px] text-amber-700">마지막 점검 기준 연결 상태: {latestRefreshSourceMissingReason}</div>
                               )}
                               {latestRefreshAt && (
