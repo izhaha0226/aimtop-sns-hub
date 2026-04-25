@@ -265,7 +265,7 @@ export default function ClientBenchmarkPage() {
     const manualRequiredCount = activeRows.filter((item) => item.status === "manual_ingest_required").length
     const collectorErrorCount = activeRows.filter((item) => item.status === "collector_error").length
     const noDataCount = activeRows.filter((item) => item.status === "no_data_collected").length
-    const tokenMissingRows = activeRows.filter((item) => item.source_channel_connected && !item.source_channel_has_token)
+    const tokenMissingRows = activeRows.filter((item) => item.source_channel_connected && item.source_channel_has_token === false)
     const tokenMissingCount = tokenMissingRows.length
     const duplicateConnectionAccountCount = activeRows.filter((item) => item.source_channel_duplicate_warning).length
     const duplicateConnectionCount = activeRows.reduce((sum, item) => sum + Math.max(item.source_channel_duplicate_count || 0, 0), 0)
@@ -828,6 +828,11 @@ export default function ClientBenchmarkPage() {
                                     마지막 점검 토큰상태 미확인
                                   </div>
                                 )}
+                                {accountState.source_channel_connected && accountState.source_channel_has_token === undefined && (
+                                  <div className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-slate-100 text-slate-700 border-slate-200">
+                                    토큰상태 미확인
+                                  </div>
+                                )}
                                 {accountState.source_channel_connected && accountState.source_channel_has_token === false && (
                                   <div className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-rose-50 text-rose-700 border-rose-200">
                                     토큰 없음
@@ -842,9 +847,9 @@ export default function ClientBenchmarkPage() {
                               {(accountState.data_source_label || latestRefreshDataSourceLabel) && <div className="text-[11px] text-gray-600">데이터 소스: {accountState.data_source_label || latestRefreshDataSourceLabel}</div>}
                               {!accountState.view_metric_label && latestRefreshViewMetricLabel && <div className="text-[11px] text-gray-600">최근 측정 기준: {latestRefreshViewMetricLabel}</div>}
                               {accountState.source_channel_connected ? (
-                                <div className={`text-[11px] ${accountState.source_channel_has_token === false ? "text-amber-700" : "text-emerald-700"}`}>
+                                <div className={`text-[11px] ${accountState.source_channel_has_token === false ? "text-amber-700" : accountState.source_channel_has_token === true ? "text-emerald-700" : "text-slate-500"}`}>
                                   연결 채널: {accountState.source_channel_account_name || accountState.source_channel_platform || item.platform}
-                                  {accountState.source_channel_has_token === false ? ` · ${accountState.source_channel_missing_reason || "토큰 없음"}` : ""}
+                                  {accountState.source_channel_has_token === false ? ` · ${accountState.source_channel_missing_reason || "토큰 없음"}` : accountState.source_channel_has_token === undefined ? " · 토큰 상태 미확인" : ""}
                                   {accountState.source_channel_duplicate_warning ? ` · 동일 플랫폼 연결 ${accountState.source_channel_connection_count || (accountState.source_channel_duplicate_count || 0) + 1}개 중 사용 가능한 row 기준` : ""}
                                 </div>
                               ) : (

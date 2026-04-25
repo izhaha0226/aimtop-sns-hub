@@ -705,8 +705,10 @@ class BenchmarkCollectorService:
         await self.db.commit()
         await self.db.refresh(account)
 
-    def _channel_has_token(self, source_channel: ChannelConnection | None) -> bool:
-        if not source_channel or not source_channel.access_token:
+    def _channel_has_token(self, source_channel: ChannelConnection | None) -> bool | None:
+        if not source_channel:
+            return None
+        if not source_channel.access_token:
             return False
         return bool(decrypt_token(source_channel.access_token))
 

@@ -97,7 +97,7 @@ export interface BenchmarkAccountDiagnosticItem {
   source_channel_platform?: string | null
   source_channel_account_name?: string | null
   source_channel_missing_reason?: string | null
-  source_channel_has_token: boolean
+  source_channel_has_token?: boolean | null
   source_channel_connection_count: number
   source_channel_duplicate_count: number
   source_channel_duplicate_warning: boolean
