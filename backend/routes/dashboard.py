@@ -105,6 +105,20 @@ def _publish_failure_sort_key(item: dict) -> tuple:
     )
 
 
+def _get_publish_signal(
+    *,
+    publish_error: str | None = None,
+    schedule_error: str | None = None,
+    default_category: str = "other",
+    default_label: str = "기타 오류",
+) -> tuple[str, str]:
+    if publish_error:
+        return _classify_publish_error(publish_error)
+    if schedule_error:
+        return _classify_publish_error(schedule_error)
+    return default_category, default_label
+
+
 def _count_retry_pending_category(items: list[dict], category_key: str) -> int:
     return sum(1 for item in items if str(item.get("failure_category") or "other") == category_key)
 
@@ -900,8 +914,8 @@ async def get_publish_observability(
             "id": str(item.id),
             "title": item.title,
             "publish_error": item.publish_error,
-            "failure_category": _classify_publish_error(item.publish_error)[0],
-            "failure_label": _classify_publish_error(item.publish_error)[1],
+            "failure_category": _get_publish_signal(publish_error=item.publish_error)[0],
+            "failure_label": _get_publish_signal(publish_error=item.publish_error)[1],
             "updated_at": item.updated_at.isoformat() if item.updated_at else None,
             "schedule_status": (
                 latest_schedule.status if (latest_schedule := _pick_latest_schedule_for_content(schedules_by_content, item.id)) else None
@@ -916,6 +930,57 @@ async def get_publish_observability(
         for item, channel in failed_items
     ]
     failed_item_payloads.sort(key=_publish_failure_sort_key)
+
+    suspicious_item_payloads = [
+        {
+            "id": str(item.id),
+            "title": item.title,
+            "published_at": item.published_at.isoformat() if item.published_at else None,
+            "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+            "schedule_status": (
+                latest_schedule.status if (latest_schedule := _pick_latest_schedule_for_content(schedules_by_content, item.id)) else None
+            ),
+            "schedule_retry_count": latest_schedule.retry_count if latest_schedule else 0,
+            "schedule_error_message": latest_schedule.error_message if latest_schedule else None,
+            "schedule_scheduled_at": latest_schedule.scheduled_at.isoformat() if latest_schedule and latest_schedule.scheduled_at else None,
+            "failure_category": _get_publish_signal(
+                publish_error=item.publish_error,
+                schedule_error=latest_schedule.error_message if latest_schedule else None,
+                default_category="missing_evidence",
+                default_label="증거 누락",
+            )[0],
+            "failure_label": _get_publish_signal(
+                publish_error=item.publish_error,
+                schedule_error=latest_schedule.error_message if latest_schedule else None,
+                default_category="missing_evidence",
+                default_label="증거 누락",
+            )[1],
+            "channel_connection_id": str(item.channel_connection_id) if item.channel_connection_id else None,
+            "channel_type": channel.channel_type if channel else None,
+            "account_name": channel.account_name if channel else None,
+        }
+        for item, channel in suspicious_items
+    ]
+    suspicious_item_payloads.sort(key=_publish_failure_sort_key)
+
+    stale_evidence_item_payloads = [
+        {
+            "id": str(item.id),
+            "title": item.title,
+            "platform_post_id": item.platform_post_id,
+            "published_url": item.published_url,
+            "published_at": item.published_at.isoformat() if item.published_at else None,
+            "publish_error": item.publish_error,
+            "failure_category": _get_publish_signal(publish_error=item.publish_error)[0],
+            "failure_label": _get_publish_signal(publish_error=item.publish_error)[1],
+            "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+            "channel_connection_id": str(item.channel_connection_id) if item.channel_connection_id else None,
+            "channel_type": channel.channel_type if channel else None,
+            "account_name": channel.account_name if channel else None,
+        }
+        for item, channel in stale_evidence_items
+    ]
+    stale_evidence_item_payloads.sort(key=_publish_failure_sort_key)
 
     retry_pending_item_payloads = [
         {
@@ -982,41 +1047,8 @@ async def get_publish_observability(
             }
             for item, channel in published_items
         ],
-        "suspicious_items": [
-            {
-                "id": str(item.id),
-                "title": item.title,
-                "published_at": item.published_at.isoformat() if item.published_at else None,
-                "updated_at": item.updated_at.isoformat() if item.updated_at else None,
-                "schedule_status": (
-                    latest_schedule.status if (latest_schedule := _pick_latest_schedule_for_content(schedules_by_content, item.id)) else None
-                ),
-                "schedule_retry_count": latest_schedule.retry_count if latest_schedule else 0,
-                "schedule_error_message": latest_schedule.error_message if latest_schedule else None,
-                "schedule_scheduled_at": latest_schedule.scheduled_at.isoformat() if latest_schedule and latest_schedule.scheduled_at else None,
-                "channel_connection_id": str(item.channel_connection_id) if item.channel_connection_id else None,
-                "channel_type": channel.channel_type if channel else None,
-                "account_name": channel.account_name if channel else None,
-            }
-            for item, channel in suspicious_items
-        ],
-        "stale_evidence_items": [
-            {
-                "id": str(item.id),
-                "title": item.title,
-                "platform_post_id": item.platform_post_id,
-                "published_url": item.published_url,
-                "published_at": item.published_at.isoformat() if item.published_at else None,
-                "publish_error": item.publish_error,
-                "failure_category": _classify_publish_error(item.publish_error)[0],
-                "failure_label": _classify_publish_error(item.publish_error)[1],
-                "updated_at": item.updated_at.isoformat() if item.updated_at else None,
-                "channel_connection_id": str(item.channel_connection_id) if item.channel_connection_id else None,
-                "channel_type": channel.channel_type if channel else None,
-                "account_name": channel.account_name if channel else None,
-            }
-            for item, channel in stale_evidence_items
-        ],
+        "suspicious_items": suspicious_item_payloads[:10],
+        "stale_evidence_items": stale_evidence_item_payloads[:10],
         "failed_items": failed_item_payloads[:10],
         "retry_pending_items": retry_pending_item_payloads[:10],
     }

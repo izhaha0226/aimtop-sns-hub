@@ -105,6 +105,8 @@ interface PublishObservability {
     schedule_retry_count?: number
     schedule_error_message?: string | null
     schedule_scheduled_at?: string | null
+    failure_category?: string | null
+    failure_label?: string | null
     channel_connection_id?: string | null
     channel_type?: string | null
     account_name?: string | null
@@ -611,11 +613,17 @@ export default function DashboardPage() {
                 <div className="space-y-2">
                   {(publishObservability?.suspicious_items || []).slice(0, 5).map((item) => (
                     <div key={item.id} className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
-                      <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
+                        <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium ${failureBadge(item.failure_category)}`}>{item.failure_label || "증거 누락"}</span>
+                      </div>
                       <p className="text-[11px] text-gray-500 mt-1">채널: {item.channel_type || "-"}{item.account_name ? ` · ${item.account_name}` : ""}</p>
                       <p className="text-[11px] text-amber-700 mt-1">published 상태지만 post_id / url 증거가 없습니다</p>
                       {item.schedule_status === "pending" && (item.schedule_retry_count ?? 0) > 0 && (
                         <p className="text-[11px] text-amber-700 mt-1">예약 재시도 대기 {item.schedule_retry_count}회 · 다음 예정 {item.schedule_scheduled_at ? new Date(item.schedule_scheduled_at).toLocaleString("ko-KR") : "-"}</p>
+                      )}
+                      {item.schedule_error_message && (
+                        <p className="text-[11px] text-amber-800 mt-1 line-clamp-2">최근 스케줄 오류: {item.schedule_error_message}</p>
                       )}
                       <p className="text-[11px] text-gray-500 mt-1">업데이트 {item.updated_at ? new Date(item.updated_at).toLocaleString("ko-KR") : "-"}</p>
                     </div>
