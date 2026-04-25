@@ -71,6 +71,12 @@ def _optional_bool(value):
     return bool(value)
 
 
+def _serialize_optional_bool(value):
+    if value is None:
+        return None
+    return _optional_bool(value)
+
+
 class BenchmarkCollectorService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -684,14 +690,14 @@ class BenchmarkCollectorService:
             "data_source_label": payload.get("data_source_label"),
             "view_metric_type": payload.get("view_metric_type"),
             "view_metric_label": payload.get("view_metric_label"),
-            "source_channel_connected": bool(payload.get("source_channel_connected")),
+            "source_channel_connected": _serialize_optional_bool(payload.get("source_channel_connected")),
             "source_channel_platform": payload.get("source_channel_platform"),
             "source_channel_account_name": payload.get("source_channel_account_name"),
             "source_channel_missing_reason": payload.get("source_channel_missing_reason"),
-            "source_channel_has_token": bool(payload.get("source_channel_has_token")),
+            "source_channel_has_token": _serialize_optional_bool(payload.get("source_channel_has_token")),
             "source_channel_connection_count": int(payload.get("source_channel_connection_count") or 0),
             "source_channel_duplicate_count": int(payload.get("source_channel_duplicate_count") or 0),
-            "source_channel_duplicate_warning": bool(payload.get("source_channel_duplicate_warning")),
+            "source_channel_duplicate_warning": _serialize_optional_bool(payload.get("source_channel_duplicate_warning")),
             "refreshed_at": payload.get("refreshed_at").isoformat() if isinstance(payload.get("refreshed_at"), datetime) else None,
         }
         account.metadata_json = metadata

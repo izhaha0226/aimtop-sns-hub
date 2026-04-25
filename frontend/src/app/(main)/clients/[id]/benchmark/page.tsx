@@ -823,6 +823,11 @@ export default function ClientBenchmarkPage() {
                                     24시간 이상 경과
                                   </div>
                                 )}
+                                {latestRefreshAt && latestRefreshSourceConnected === true && latestRefreshSourceHasToken === undefined && (
+                                  <div className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-slate-100 text-slate-700 border-slate-200">
+                                    마지막 점검 토큰상태 미확인
+                                  </div>
+                                )}
                                 {accountState.source_channel_connected && accountState.source_channel_has_token === false && (
                                   <div className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-rose-50 text-rose-700 border-rose-200">
                                     토큰 없음

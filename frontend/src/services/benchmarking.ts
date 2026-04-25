@@ -70,14 +70,14 @@ export interface RefreshAccountResult {
   data_source_label?: string | null
   view_metric_type?: string | null
   view_metric_label?: string | null
-  source_channel_connected?: boolean
+  source_channel_connected?: boolean | null
   source_channel_platform?: string | null
   source_channel_account_name?: string | null
   source_channel_missing_reason?: string | null
-  source_channel_has_token?: boolean
+  source_channel_has_token?: boolean | null
   source_channel_connection_count?: number
   source_channel_duplicate_count?: number
-  source_channel_duplicate_warning?: boolean
+  source_channel_duplicate_warning?: boolean | null
   refreshed_at?: string | null
 }
 

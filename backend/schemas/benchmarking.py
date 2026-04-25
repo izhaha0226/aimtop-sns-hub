@@ -81,14 +81,14 @@ class RefreshAccountResponse(BaseModel):
     data_source_label: str | None = None
     view_metric_type: str | None = None
     view_metric_label: str | None = None
-    source_channel_connected: bool = False
+    source_channel_connected: bool | None = None
     source_channel_platform: str | None = None
     source_channel_account_name: str | None = None
     source_channel_missing_reason: str | None = None
-    source_channel_has_token: bool = False
+    source_channel_has_token: bool | None = None
     source_channel_connection_count: int = 0
     source_channel_duplicate_count: int = 0
-    source_channel_duplicate_warning: bool = False
+    source_channel_duplicate_warning: bool | None = None
     refreshed_at: datetime | None = None
 
 
