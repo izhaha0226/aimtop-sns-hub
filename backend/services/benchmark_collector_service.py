@@ -340,14 +340,22 @@ class BenchmarkCollectorService:
         result = await self.db.execute(select(Client).where(Client.id == client_id, Client.is_deleted.is_(False)))
         return result.scalar_one_or_none()
 
+    def _is_placeholder_post(self, post: BenchmarkPost) -> bool:
+        raw_payload = post.raw_payload if isinstance(post.raw_payload, dict) else {}
+        return str(raw_payload.get("source") or "") == "placeholder_benchmark_pipeline"
+
+    def _filter_top_posts_for_reading(self, posts: list[BenchmarkPost], top_k: int) -> list[BenchmarkPost]:
+        meaningful_posts = [post for post in posts if not self._is_placeholder_post(post)]
+        return meaningful_posts[:top_k]
+
     async def _query_top_posts_for_client(self, client_id: uuid.UUID, platform: str, top_k: int) -> list[BenchmarkPost]:
         result = await self.db.execute(
             select(BenchmarkPost)
             .where(BenchmarkPost.client_id == client_id, BenchmarkPost.platform == platform)
             .order_by(desc(BenchmarkPost.benchmark_score), desc(BenchmarkPost.view_count))
-            .limit(top_k)
+            .limit(max(top_k * 5, 50))
         )
-        return list(result.scalars().all())
+        return self._filter_top_posts_for_reading(list(result.scalars().all()), top_k)
 
     async def _query_top_posts_for_industry(self, industry_category: str, platform: str, top_k: int) -> list[BenchmarkPost]:
         result = await self.db.execute(
@@ -359,9 +367,9 @@ class BenchmarkCollectorService:
                 Client.is_deleted.is_(False),
             )
             .order_by(desc(BenchmarkPost.benchmark_score), desc(BenchmarkPost.view_count))
-            .limit(top_k)
+            .limit(max(top_k * 5, 100))
         )
-        return list(result.scalars().all())
+        return self._filter_top_posts_for_reading(list(result.scalars().all()), top_k)
 
     def _decorate_profile(
         self,

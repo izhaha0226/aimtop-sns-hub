@@ -719,7 +719,16 @@ export default function ClientBenchmarkPage() {
               </div>
             )}
             <div className="divide-y">
-              {topPosts.length === 0 ? <div className="p-4 text-sm text-gray-400">Top post 데이터가 없습니다.</div> : topPosts.map((post, index) => (
+              {topPosts.length === 0 ? (
+                <div className="p-4 text-sm text-gray-400">
+                  Top post 데이터가 없습니다.
+                  {diagnosticSummary.placeholderPostCount > 0 && (
+                    <div className="mt-2 text-xs text-amber-700">
+                      기존 placeholder 포스트는 직접 실데이터나 업종 fallback 근거로 쓰지 않도록 Top Posts/프로필 계산에서 제외했습니다.
+                    </div>
+                  )}
+                </div>
+              ) : topPosts.map((post, index) => (
                 <div key={post.id} className="p-4">
                   <div className="flex items-center justify-between gap-4">
                     <div>
