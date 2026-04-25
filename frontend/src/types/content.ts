@@ -31,6 +31,7 @@ export interface Content {
   author_name?: string
   memo?: string
   channel_connection_id?: string | null
+  platform_post_id?: string | null
   published_url?: string | null
   publish_error?: string | null
   scheduled_at?: string

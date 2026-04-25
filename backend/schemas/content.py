@@ -32,6 +32,7 @@ class ContentResponse(BaseModel):
     hashtags: list[Any] | None
     status: str
     channel_connection_id: uuid.UUID | None = None
+    platform_post_id: str | None = None
     published_url: str | None = None
     publish_error: str | None = None
     scheduled_at: datetime | None

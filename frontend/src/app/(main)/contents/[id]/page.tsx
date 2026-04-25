@@ -65,6 +65,10 @@ export default function ContentDetailPage() {
   const selectedChannel = connectedChannels.find((channel) => channel.id === selectedChannelId)
   const selectedChannelHealth = getTokenHealth(selectedChannel?.token_expires_at)
   const selectedChannelAutoPublishSupported = isAutoPublishSupported(selectedChannel?.channel_type)
+  const hasPublishEvidence = Boolean(content?.platform_post_id || content?.published_url)
+  const hasAnyPublishTrace = Boolean(content?.platform_post_id || content?.published_url || content?.published_at)
+  const publishedWithoutEvidence = content?.status === "published" && !hasPublishEvidence
+  const failedWithStaleEvidence = content?.status === "failed" && hasAnyPublishTrace
 
   function getErrorMessage(error: unknown, fallback: string) {
     if (
@@ -368,14 +372,36 @@ export default function ContentDetailPage() {
           </div>
         )}
 
-        {content.published_url && (
-          <div className="rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-700 flex items-center gap-2">
+        <div className={`rounded-lg border px-4 py-3 text-sm ${publishedWithoutEvidence ? "border-amber-200 bg-amber-50 text-amber-800" : failedWithStaleEvidence ? "border-rose-200 bg-rose-50 text-rose-800" : hasPublishEvidence ? "border-blue-200 bg-blue-50 text-blue-800" : "border-gray-200 bg-gray-50 text-gray-700"}`}>
+          <div className="flex items-center gap-2 font-medium">
             <Link2 size={14} />
-            <a href={content.published_url} target="_blank" rel="noreferrer" className="underline underline-offset-2 truncate">
-              {content.published_url}
-            </a>
+            {publishedWithoutEvidence
+              ? "published 상태지만 외부 발행 증거는 아직 없습니다"
+              : failedWithStaleEvidence
+                ? "실패 상태인데 이전 발행 흔적이 남아 있습니다"
+                : hasPublishEvidence
+                  ? "외부 발행 증거가 기록되어 있습니다"
+                  : "외부 발행 증거 없음"}
           </div>
-        )}
+          <div className="mt-2 space-y-1 text-xs">
+            <div>내부 상태: {STATUS_LABELS[content.status]}</div>
+            <div>platform_post_id: {content.platform_post_id || "-"}</div>
+            <div className="break-all">published_url: {content.published_url || "-"}</div>
+            <div>published_at: {content.published_at ? new Date(content.published_at).toLocaleString("ko-KR") : "-"}</div>
+          </div>
+          {content.published_url && (
+            <a href={content.published_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 underline underline-offset-2">
+              외부 링크 열기
+              <ExternalLink size={12} />
+            </a>
+          )}
+          {publishedWithoutEvidence && (
+            <div className="mt-2 text-xs text-amber-700">status=published 만으로 실발행 성공으로 판단하지 않도록 주의가 필요합니다.</div>
+          )}
+          {failedWithStaleEvidence && (
+            <div className="mt-2 text-xs text-rose-700">실패 처리 후에도 이전 증거 필드가 남아 있으면 운영자가 성공처럼 오해할 수 있습니다.</div>
+          )}
+        </div>
 
         {content.author_name && (
           <p className="text-xs text-gray-400">작성자: {content.author_name}</p>
@@ -516,10 +542,12 @@ export default function ContentDetailPage() {
         )}
 
         {content.status === "published" && (
-          <span className="text-sm text-gray-400 py-1">
-            {content.published_at
-              ? `${new Date(content.published_at).toLocaleString("ko-KR")} 발행됨`
-              : "발행됨"}
+          <span className={`text-sm py-1 ${publishedWithoutEvidence ? "text-amber-700" : "text-gray-400"}`}>
+            {publishedWithoutEvidence
+              ? "published 상태지만 증거 미확인"
+              : content.published_at
+                ? `${new Date(content.published_at).toLocaleString("ko-KR")} 발행됨`
+                : "발행됨"}
           </span>
         )}
       </div>
