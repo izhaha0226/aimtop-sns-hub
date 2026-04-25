@@ -557,23 +557,39 @@ async def get_pipeline_readiness(
             )
         )
     ).scalar() or 0
-    failed_publish_count = (
-        await db.execute(
-            select(func.count()).select_from(Content).where(
-                Content.status == "failed",
-                Content.publish_error.isnot(None),
-            )
+    failed_contents_result = await db.execute(
+        select(Content).where(
+            Content.status == "failed",
+            Content.publish_error.isnot(None),
         )
-    ).scalar() or 0
-    retry_pending_schedules = (
-        await db.execute(
-            select(func.count()).select_from(Schedule).where(
-                Schedule.status == "pending",
-                Schedule.retry_count > 0,
-                Schedule.error_message.isnot(None),
-            )
+    )
+    failed_contents = list(failed_contents_result.scalars().all())
+    failed_publish_count = len(failed_contents)
+    failed_missing_evidence = _count_failed_publish_category(failed_contents, "missing_evidence")
+    failed_unsupported_platform = _count_failed_publish_category(failed_contents, "unsupported_platform")
+    failed_token_expired = _count_failed_publish_category(failed_contents, "token_expired")
+    failed_token_missing = _count_failed_publish_category(failed_contents, "token_missing")
+    failed_missing_channel = _count_failed_publish_category(failed_contents, "missing_channel")
+
+    retry_pending_result = await db.execute(
+        select(Schedule).where(
+            Schedule.status == "pending",
+            Schedule.retry_count > 0,
+            Schedule.error_message.isnot(None),
         )
-    ).scalar() or 0
+    )
+    retry_pending_rows = list(retry_pending_result.scalars().all())
+    retry_pending_schedules = len(retry_pending_rows)
+    retry_pending_payloads = [
+        {
+            "failure_category": _classify_publish_error(schedule.error_message)[0],
+        }
+        for schedule in retry_pending_rows
+    ]
+    retry_pending_token_missing = _count_retry_pending_category(retry_pending_payloads, "token_missing")
+    retry_pending_token_expired = _count_retry_pending_category(retry_pending_payloads, "token_expired")
+    retry_pending_missing_channel = _count_retry_pending_category(retry_pending_payloads, "missing_channel")
+    retry_pending_unsupported_platform = _count_retry_pending_category(retry_pending_payloads, "unsupported_platform")
 
     openai_key_present = bool(await get_runtime_setting("openai_api_key"))
     meta_app_id_present = bool(await get_runtime_setting("meta_app_id"))
@@ -651,7 +667,16 @@ async def get_pipeline_readiness(
                 "published_evidence_count": published_evidence_count,
                 "suspicious_published_without_evidence": suspicious_published_without_evidence,
                 "failed_publish_count": failed_publish_count,
+                "failed_token_missing": failed_token_missing,
+                "failed_token_expired": failed_token_expired,
+                "failed_missing_channel": failed_missing_channel,
+                "failed_unsupported_platform": failed_unsupported_platform,
+                "failed_missing_evidence": failed_missing_evidence,
                 "retry_pending_schedules": retry_pending_schedules,
+                "retry_pending_token_missing": retry_pending_token_missing,
+                "retry_pending_token_expired": retry_pending_token_expired,
+                "retry_pending_missing_channel": retry_pending_missing_channel,
+                "retry_pending_unsupported_platform": retry_pending_unsupported_platform,
             },
         },
         {

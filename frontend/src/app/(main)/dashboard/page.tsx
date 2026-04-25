@@ -191,7 +191,16 @@ const PIPELINE_DETAIL_LABELS: Record<string, string> = {
   published_evidence_count: "발행 증거 수",
   suspicious_published_without_evidence: "증거 없는 published",
   failed_publish_count: "발행 실패",
+  failed_token_missing: "실패 · 토큰 없음",
+  failed_token_expired: "실패 · 토큰 만료",
+  failed_missing_channel: "실패 · 채널/콘텐츠 누락",
+  failed_unsupported_platform: "실패 · 미지원 채널",
+  failed_missing_evidence: "실패 · 증거 누락",
   retry_pending_schedules: "재시도 대기 예약",
+  retry_pending_token_missing: "재시도 · 토큰 없음",
+  retry_pending_token_expired: "재시도 · 토큰 만료",
+  retry_pending_missing_channel: "재시도 · 채널 누락",
+  retry_pending_unsupported_platform: "재시도 · 미지원 채널",
   active_accounts: "활성 계정",
   live_supported_accounts: "실수집 지원 계정",
   usable_live_supported_accounts: "토큰 갖춘 실수집 가능 계정",
@@ -220,7 +229,26 @@ const PIPELINE_DETAIL_LABELS: Record<string, string> = {
 const PIPELINE_DETAIL_ORDER: Record<PipelineKey, string[]> = {
   ai_generation: ["blocked_tasks", "fallback_only_tasks", "fallback_missing_tasks", "primary_ready_tasks", "openai_key_present", "claude_cli_available"],
   oauth_connections: ["reauth_required", "token_missing_channels", "unknown_token_channels", "connected_channels", "supported_healthy_channels", "meta_app_id_present", "meta_app_secret_present"],
-  publishing: ["suspicious_published_without_evidence", "failed_publish_count", "retry_pending_schedules", "token_missing_channels", "unsupported_connected_channels", "unknown_token_channels", "supported_connected_channels", "supported_healthy_channels", "published_evidence_count"],
+  publishing: [
+    "suspicious_published_without_evidence",
+    "failed_publish_count",
+    "failed_token_missing",
+    "failed_token_expired",
+    "failed_missing_channel",
+    "failed_unsupported_platform",
+    "failed_missing_evidence",
+    "retry_pending_schedules",
+    "retry_pending_token_missing",
+    "retry_pending_token_expired",
+    "retry_pending_missing_channel",
+    "retry_pending_unsupported_platform",
+    "token_missing_channels",
+    "unsupported_connected_channels",
+    "unknown_token_channels",
+    "supported_connected_channels",
+    "supported_healthy_channels",
+    "published_evidence_count",
+  ],
   benchmarking: [
     "token_missing_accounts",
     "collector_error_accounts",
@@ -337,7 +365,7 @@ function getPipelineDetailEntries(key: string, details: Record<string, string | 
     .filter((detailKey) => Object.prototype.hasOwnProperty.call(details, detailKey))
     .map((detailKey) => [detailKey, details[detailKey]] as [string, string | number | boolean | null])
   const remainingEntries = Object.entries(details).filter(([detailKey]) => !orderedKeys.includes(detailKey))
-  const limit = normalizedKey === "benchmarking" ? 14 : normalizedKey === "publishing" ? 8 : 6
+  const limit = normalizedKey === "benchmarking" ? 14 : normalizedKey === "publishing" ? 12 : 6
   return [...orderedEntries, ...remainingEntries].slice(0, limit)
 }
 
