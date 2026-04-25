@@ -11,10 +11,10 @@ const PLATFORM_HINTS: Record<string, string> = {
   facebook: "페이지명 또는 page_id 입력. page_id는 metadata에 넣으면 더 안정적입니다.",
   x: "경쟁 X username 입력. 조회수는 공개 지표 프록시 추정입니다.",
   youtube: "채널 handle(@...) 또는 채널명 입력. metadata.channel_id가 있으면 더 정확합니다.",
-  threads: "현재는 수동 수집 fallback만 지원합니다.",
-  tiktok: "OAuth 연결은 있지만 벤치마킹 수집기는 아직 없습니다.",
-  linkedin: "OAuth 연결은 있지만 공개 벤치마킹 수집기는 아직 없습니다.",
-  kakao: "현재는 수동 수집 fallback만 지원합니다.",
+  threads: "자동 실수집 미지원입니다. 현재는 운영자가 수동으로 수집/확인해야 합니다.",
+  tiktok: "OAuth 연결은 있지만 벤치마킹 실수집기는 아직 없습니다.",
+  linkedin: "OAuth 연결은 있지만 공개 벤치마킹 실수집기는 아직 없습니다.",
+  kakao: "현재는 벤치마킹 실수집기 미구현입니다. 계정 등록은 가능하지만 준비 완료로 보면 안 됩니다.",
 }
 
 const PLATFORM_SUPPORT: Record<string, string> = {
@@ -22,10 +22,10 @@ const PLATFORM_SUPPORT: Record<string, string> = {
   facebook: "실수집 지원 · 조회수 프록시",
   x: "실수집 지원 · 조회수 프록시",
   youtube: "실수집 지원 · 실조회수",
-  threads: "수동 fallback",
-  tiktok: "미구현",
-  linkedin: "미구현",
-  kakao: "미구현",
+  threads: "수동 확인 전용",
+  tiktok: "미구현 · 실수집기 없음",
+  linkedin: "미구현 · 실수집기 없음",
+  kakao: "미구현 · 실수집기 없음",
 }
 
 const PLATFORM_SUPPORT_LEVEL: Record<string, "live" | "manual" | "unimplemented"> = {
@@ -230,6 +230,7 @@ export default function ClientBenchmarkPage() {
   }, [diagnosticMap, platformAccounts, statusMap])
 
   const platformSupportLevel = PLATFORM_SUPPORT_LEVEL[platform] || "unimplemented"
+  const referenceOnlyPlatform = platformSupportLevel !== "live"
   const activePlatformAccounts = useMemo(() => platformAccounts.filter((item) => item.is_active), [platformAccounts])
   const topPostsSummary = useMemo(() => {
     const liveCount = topPosts.filter((post) => postSourceLabel(post) === "실데이터").length
@@ -310,7 +311,7 @@ export default function ClientBenchmarkPage() {
       return {
         status: "blocked" as const,
         title: "실수집기 미구현",
-        detail: "현재 플랫폼은 운영 화면에서 준비 상태만 확인 가능하며 실벤치마킹 적재는 아직 지원되지 않습니다.",
+        detail: "현재 플랫폼은 계정 등록/참고 메모는 가능하지만 실벤치마킹 적재는 아직 지원되지 않습니다. 화면에 참고용 데이터가 보여도 운영 준비 완료로 보면 안 됩니다.",
       }
     }
 
@@ -318,7 +319,7 @@ export default function ClientBenchmarkPage() {
       return {
         status: "warning" as const,
         title: "수동 확인 필요",
-        detail: "자동 실수집이 아니라 운영자가 직접 수집/입력 여부를 확인해야 하는 플랫폼입니다.",
+        detail: "자동 실수집이 아니라 운영자가 직접 수집/입력 여부를 확인해야 하는 플랫폼입니다. 참고용 데이터가 보이더라도 자동 실데이터 준비 상태를 뜻하지 않습니다.",
       }
     }
 
@@ -406,21 +407,23 @@ export default function ClientBenchmarkPage() {
   const profileSummary = useMemo(() => {
     if (!profile) {
       return {
-        title: "프로필 없음",
-        detail: "아직 액션 랭귀지 프로필이 생성되지 않았습니다.",
+        title: referenceOnlyPlatform ? "참고 프로필 없음" : "프로필 없음",
+        detail: referenceOnlyPlatform
+          ? "이 플랫폼은 자동 실수집 대상이 아니므로 프로필이 보이지 않아도 운영 blocker가 아닙니다. 실연동/수동 수집 여부를 먼저 확인해야 합니다."
+          : "아직 액션 랭귀지 프로필이 생성되지 않았습니다.",
       }
     }
     if (profile.source_scope === "industry_fallback") {
       return {
-        title: "업종 fallback",
-        detail: `${profile.industry_category || "미분류 업종"} 기준 샘플 ${profile.sample_count || 0}개로 생성된 공용 프로필입니다.`,
+        title: referenceOnlyPlatform ? "업종 fallback 참고자료" : "업종 fallback",
+        detail: `${profile.industry_category || "미분류 업종"} 기준 샘플 ${profile.sample_count || 0}개로 생성된 공용 프로필입니다.${referenceOnlyPlatform ? " 자동 실수집 준비 완료를 뜻하지 않고 참고자료로만 봐야 합니다." : ""}`,
       }
     }
     return {
-      title: "직접 학습",
-      detail: `현재 클라이언트 데이터 ${profile.sample_count || 0}개 기준으로 생성된 직접 학습 프로필입니다.`,
+      title: referenceOnlyPlatform ? "직접 학습 참고자료" : "직접 학습",
+      detail: `현재 클라이언트 데이터 ${profile.sample_count || 0}개 기준으로 생성된 직접 학습 프로필입니다.${referenceOnlyPlatform ? " 다만 이 플랫폼은 자동 실수집 readiness 근거가 아니라 참고자료로만 해석해야 합니다." : ""}`,
     }
-  }, [profile])
+  }, [profile, referenceOnlyPlatform])
 
   async function handleCreateAccount() {
     if (!form.handle.trim()) return
@@ -546,6 +549,9 @@ export default function ClientBenchmarkPage() {
       <div className={`rounded-xl border px-4 py-3 text-xs ${readinessTone(readiness.status)}`}>
         <div className="font-semibold">현재 운영 판정: {readiness.title}</div>
         <div className="mt-1">{readiness.detail}</div>
+        {referenceOnlyPlatform && (
+          <div className="mt-1 text-[11px] opacity-80">이 플랫폼은 자동 실수집 readiness 대상이 아닙니다. 아래 Top Posts/프로필이 보여도 운영 참고자료로만 해석해야 합니다.</div>
+        )}
         {profile?.source_scope === "industry_fallback" && topPostsSummary.total > 0 && (
           <div className="mt-1 text-[11px] opacity-80">현재 Top Posts는 이 클라이언트 직접 수집이 아니라 같은 업종 fallback 기준일 수 있습니다. 운영 판단은 위 직접 실데이터 정합성 카드와 계정 diagnostics를 우선 보셔야 합니다.</div>
         )}
@@ -745,6 +751,7 @@ export default function ClientBenchmarkPage() {
               <h2 className="font-semibold mb-3">액션 랭귀지 프로필</h2>
               <div className="mb-3 rounded-lg border bg-slate-50 px-3 py-2 text-xs text-slate-700">
                 실데이터와 샘플 대체가 함께 있을 수 있습니다. 샘플 대체는 실제 벤치마킹 성과가 아니라 운영 화면 검증용 fallback입니다.
+                {referenceOnlyPlatform ? " 현재 플랫폼은 자동 실수집 readiness 대상이 아니므로, 프로필이 보이더라도 참고자료로만 해석해야 합니다." : ""}
               </div>
               {!profile ? <div className="text-sm text-gray-400">아직 프로필이 없습니다.</div> : (
                 <div className="space-y-4 text-sm">
@@ -771,9 +778,11 @@ export default function ClientBenchmarkPage() {
 
           <div className="bg-white rounded-xl border overflow-hidden">
             <div className="px-4 py-3 border-b bg-gray-50 font-semibold text-sm">Top Posts</div>
-            {(profile?.source_scope === "industry_fallback" || topPostsSummary.fallbackClientCount > 0) && topPostsSummary.total > 0 && (
-              <div className="mx-4 mt-4 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-700">
-                현재 Top Posts {topPostsSummary.total}개 중 직접클라이언트 {topPostsSummary.directClientCount}개, 업종 fallback {topPostsSummary.fallbackClientCount}개입니다. 이 클라이언트 직접 수집 성공 여부는 계정별 상태 배지와 직접 실데이터 정합성 카드로 판단해야 합니다.
+            {((profile?.source_scope === "industry_fallback" || topPostsSummary.fallbackClientCount > 0) || referenceOnlyPlatform) && topPostsSummary.total > 0 && (
+              <div className={`mx-4 mt-4 rounded-lg border px-3 py-2 text-xs ${referenceOnlyPlatform ? "border-amber-200 bg-amber-50 text-amber-800" : "border-violet-200 bg-violet-50 text-violet-700"}`}>
+                {referenceOnlyPlatform
+                  ? `현재 플랫폼은 자동 실수집 readiness 대상이 아닙니다. Top Posts ${topPostsSummary.total}개는 운영 참고자료일 뿐이며, 직접 실데이터 성공 판정으로 보면 안 됩니다.`
+                  : `현재 Top Posts ${topPostsSummary.total}개 중 직접클라이언트 ${topPostsSummary.directClientCount}개, 업종 fallback ${topPostsSummary.fallbackClientCount}개입니다. 이 클라이언트 직접 수집 성공 여부는 계정별 상태 배지와 직접 실데이터 정합성 카드로 판단해야 합니다.`}
               </div>
             )}
             <div className="divide-y">
