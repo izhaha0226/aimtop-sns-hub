@@ -412,7 +412,7 @@ export default function DashboardPage() {
 
   const failureBadge = (category?: string | null) => {
     if (category === "retrying") return "bg-amber-50 text-amber-700"
-    if (category === "unsupported_platform" || category === "token_expired" || category === "missing_channel") return "bg-rose-50 text-rose-700"
+    if (category === "unsupported_platform" || category === "token_expired" || category === "token_missing" || category === "missing_channel") return "bg-rose-50 text-rose-700"
     if (category === "missing_evidence") return "bg-orange-50 text-orange-700"
     return "bg-gray-100 text-gray-700"
   }

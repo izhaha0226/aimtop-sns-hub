@@ -33,6 +33,24 @@ PUBLISH_FAILURE_CATEGORIES = [
     ("retrying", "재시도 중", ("예약 발행 재시도 중",)),
 ]
 
+CHANNEL_HEALTH_PRIORITY = {
+    "token_missing": 0,
+    "reauth_required": 1,
+    "expiring": 2,
+    "unknown": 3,
+    "healthy": 4,
+}
+
+PUBLISH_FAILURE_PRIORITY = {
+    "token_missing": 0,
+    "token_expired": 1,
+    "missing_channel": 2,
+    "unsupported_platform": 3,
+    "missing_evidence": 4,
+    "retrying": 5,
+    "other": 6,
+}
+
 
 def _channel_has_access_token(channel: ChannelConnection | None) -> bool:
     if not channel or not channel.access_token:
@@ -50,6 +68,23 @@ def _classify_publish_error(error_message: str | None) -> tuple[str, str]:
 
 def _count_failed_publish_category(contents: list[Content], category_key: str) -> int:
     return sum(1 for content in contents if _classify_publish_error(content.publish_error)[0] == category_key)
+
+
+def _channel_health_sort_key(item: dict) -> tuple:
+    return (
+        CHANNEL_HEALTH_PRIORITY.get(str(item.get("health") or "healthy"), 99),
+        str(item.get("platform") or ""),
+        str(item.get("account_name") or ""),
+    )
+
+
+def _publish_failure_sort_key(item: dict) -> tuple:
+    updated_at = item.get("updated_at") or ""
+    return (
+        PUBLISH_FAILURE_PRIORITY.get(str(item.get("failure_category") or "other"), 99),
+        -datetime.fromisoformat(updated_at).timestamp() if updated_at else float("inf"),
+        str(item.get("title") or ""),
+    )
 
 
 def _pick_latest_schedule_for_content(
@@ -447,6 +482,7 @@ async def get_channels_health(
             "health_label": "토큰 없음" if health == "token_missing" else None,
         })
 
+    items.sort(key=_channel_health_sort_key)
     return {"summary": summary, "items": items}
 
 
@@ -707,7 +743,7 @@ async def get_publish_observability(
             Content.publish_error.isnot(None),
         )
         .order_by(Content.updated_at.desc())
-        .limit(10)
+        .limit(50)
     )
     failed_items = failed_result.all()
 
@@ -741,6 +777,28 @@ async def get_publish_observability(
         ).scalars().all()
         for schedule in schedule_rows:
             schedules_by_content.setdefault(str(schedule.content_id), []).append(schedule)
+
+    failed_item_payloads = [
+        {
+            "id": str(item.id),
+            "title": item.title,
+            "publish_error": item.publish_error,
+            "failure_category": _classify_publish_error(item.publish_error)[0],
+            "failure_label": _classify_publish_error(item.publish_error)[1],
+            "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+            "schedule_status": (
+                latest_schedule.status if (latest_schedule := _pick_latest_schedule_for_content(schedules_by_content, item.id)) else None
+            ),
+            "schedule_retry_count": latest_schedule.retry_count if latest_schedule else 0,
+            "schedule_error_message": latest_schedule.error_message if latest_schedule else None,
+            "schedule_scheduled_at": latest_schedule.scheduled_at.isoformat() if latest_schedule and latest_schedule.scheduled_at else None,
+            "channel_connection_id": str(item.channel_connection_id) if item.channel_connection_id else None,
+            "channel_type": channel.channel_type if channel else None,
+            "account_name": channel.account_name if channel else None,
+        }
+        for item, channel in failed_items
+    ]
+    failed_item_payloads.sort(key=_publish_failure_sort_key)
 
     return {
         "summary": {
@@ -787,26 +845,7 @@ async def get_publish_observability(
             }
             for item, channel in suspicious_items
         ],
-        "failed_items": [
-            {
-                "id": str(item.id),
-                "title": item.title,
-                "publish_error": item.publish_error,
-                "failure_category": _classify_publish_error(item.publish_error)[0],
-                "failure_label": _classify_publish_error(item.publish_error)[1],
-                "updated_at": item.updated_at.isoformat() if item.updated_at else None,
-                "schedule_status": (
-                    latest_schedule.status if (latest_schedule := _pick_latest_schedule_for_content(schedules_by_content, item.id)) else None
-                ),
-                "schedule_retry_count": latest_schedule.retry_count if latest_schedule else 0,
-                "schedule_error_message": latest_schedule.error_message if latest_schedule else None,
-                "schedule_scheduled_at": latest_schedule.scheduled_at.isoformat() if latest_schedule and latest_schedule.scheduled_at else None,
-                "channel_connection_id": str(item.channel_connection_id) if item.channel_connection_id else None,
-                "channel_type": channel.channel_type if channel else None,
-                "account_name": channel.account_name if channel else None,
-            }
-            for item, channel in failed_items
-        ],
+        "failed_items": failed_item_payloads[:10],
         "retry_pending_items": [
             {
                 "schedule_id": str(schedule.id),
