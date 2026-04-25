@@ -62,6 +62,7 @@ function metadataInputValue(platform: string, metadata?: Record<string, unknown>
 
 function badgeTone(status?: string) {
   if (!status) return "bg-gray-100 text-gray-700 border-gray-200"
+  if (status.includes("mixed")) return "bg-amber-50 text-amber-700 border-amber-200"
   if (status.includes("live_collected")) return "bg-green-50 text-green-700 border-green-200"
   if (status.includes("placeholder")) return "bg-orange-50 text-orange-700 border-orange-200"
   if (status.includes("manual") || status.includes("no_data")) return "bg-amber-50 text-amber-700 border-amber-200"
