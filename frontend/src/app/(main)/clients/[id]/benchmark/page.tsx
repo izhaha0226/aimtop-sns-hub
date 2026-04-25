@@ -255,11 +255,20 @@ export default function ClientBenchmarkPage() {
     const manualRequiredCount = activeRows.filter((item) => item.status === "manual_ingest_required").length
     const collectorErrorCount = activeRows.filter((item) => item.status === "collector_error").length
     const noDataCount = activeRows.filter((item) => item.status === "no_data_collected").length
-    const tokenMissingCount = activeRows.filter((item) => item.source_channel_connected && !item.source_channel_has_token).length
+    const tokenMissingRows = activeRows.filter((item) => item.source_channel_connected && !item.source_channel_has_token)
+    const tokenMissingCount = tokenMissingRows.length
     const duplicateConnectionAccountCount = activeRows.filter((item) => item.source_channel_duplicate_warning).length
     const duplicateConnectionCount = activeRows.reduce((sum, item) => sum + Math.max(item.source_channel_duplicate_count || 0, 0), 0)
     const lastRefreshProfileReadyCount = activeRows.filter((item) => Boolean(item.last_refresh_profile_generated || item.last_refresh_profile_id)).length
-    const blockedAccountCount = manualRequiredCount + collectorErrorCount + tokenMissingCount
+    const blockedAccountIds = new Set<string>([
+      ...activeRows.filter((item) => item.status === "manual_ingest_required" || item.status === "collector_error").map((item) => item.account_id),
+      ...tokenMissingRows.map((item) => item.account_id),
+    ])
+    const blockedOperationalIds = new Set<string>([
+      ...blockedAccountIds,
+      ...activeRows.filter((item) => item.status === "no_data_collected").map((item) => item.account_id),
+    ])
+    const blockedAccountCount = blockedAccountIds.size
     return {
       blockedAccountCount,
       manualRequiredCount,
@@ -280,7 +289,7 @@ export default function ClientBenchmarkPage() {
       recentRefreshCount: activeRows.filter((item) => Boolean(item.last_refresh_at) && !isStaleRefresh(item.last_refresh_at)).length,
       lastRefreshProfileReadyCount,
       lastRefreshProfileMissingCount: Math.max(activeRows.length - lastRefreshProfileReadyCount, 0),
-      blockedOperationalCount: blockedAccountCount + noDataCount,
+      blockedOperationalCount: blockedOperationalIds.size,
       neverRefreshedCount: activeRows.filter((item) => !item.last_refresh_at).length,
       staleRefreshCount: activeRows.filter((item) => Boolean(item.last_refresh_at) && isStaleRefresh(item.last_refresh_at)).length,
       inactiveCount: diagnostics.filter((item) => !item.is_active).length,
@@ -521,7 +530,7 @@ export default function ClientBenchmarkPage() {
               <span className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-violet-50 text-violet-700 border-violet-200">Top Posts는 업종 fallback일 수 있음</span>
             )}
           </div>
-          <div className="mt-2 text-xs text-gray-500">실데이터 계정 {diagnosticSummary.liveAccountCount} · 혼재 {diagnosticSummary.mixedCount} · 샘플대체 {diagnosticSummary.placeholderOnlyCount} · 운영 blocker {diagnosticSummary.blockedOperationalCount}</div>
+          <div className="mt-2 text-xs text-gray-500">실데이터 계정 {diagnosticSummary.liveAccountCount} · 혼재 {diagnosticSummary.mixedCount} · 샘플대체 {diagnosticSummary.placeholderOnlyCount} · 운영 blocker(중복제외) {diagnosticSummary.blockedOperationalCount}</div>
           <div className="mt-1 text-xs text-gray-500">실데이터 포스트 {diagnosticSummary.livePostCount} · 샘플 포스트 {diagnosticSummary.placeholderPostCount} · 실조회수 {diagnosticSummary.actualMetricCount} · 프록시조회수 {diagnosticSummary.proxyMetricCount}</div>
           <div className="mt-1 text-xs text-gray-500">현재 Top Posts 기준 직접클라이언트 {topPostsSummary.directClientCount} · 업종 fallback {topPostsSummary.fallbackClientCount}</div>
         </div>
