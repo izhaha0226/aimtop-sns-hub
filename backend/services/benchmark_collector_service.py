@@ -57,6 +57,20 @@ LIVE_SUPPORTED_PLATFORMS = {"youtube", "x", "instagram", "facebook"}
 MANUAL_SUPPORTED_PLATFORMS = {"threads"}
 
 
+def _optional_bool(value):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "y", "on"}:
+            return True
+        if lowered in {"false", "0", "no", "n", "off"}:
+            return False
+    return bool(value)
+
+
 class BenchmarkCollectorService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -457,14 +471,14 @@ class BenchmarkCollectorService:
             "last_refresh_data_source_label": last_refresh.get("data_source_label"),
             "last_refresh_view_metric_type": last_refresh.get("view_metric_type"),
             "last_refresh_view_metric_label": last_refresh.get("view_metric_label"),
-            "last_refresh_source_channel_connected": bool(last_refresh.get("source_channel_connected")),
+            "last_refresh_source_channel_connected": _optional_bool(last_refresh.get("source_channel_connected")),
             "last_refresh_source_channel_platform": last_refresh.get("source_channel_platform"),
             "last_refresh_source_channel_account_name": last_refresh.get("source_channel_account_name"),
             "last_refresh_source_channel_missing_reason": last_refresh.get("source_channel_missing_reason"),
-            "last_refresh_source_channel_has_token": bool(last_refresh.get("source_channel_has_token")),
+            "last_refresh_source_channel_has_token": _optional_bool(last_refresh.get("source_channel_has_token")),
             "last_refresh_source_channel_connection_count": int(last_refresh.get("source_channel_connection_count") or 0),
             "last_refresh_source_channel_duplicate_count": int(last_refresh.get("source_channel_duplicate_count") or 0),
-            "last_refresh_source_channel_duplicate_warning": bool(last_refresh.get("source_channel_duplicate_warning")),
+            "last_refresh_source_channel_duplicate_warning": _optional_bool(last_refresh.get("source_channel_duplicate_warning")),
             "last_refresh_at": self._parse_refresh_datetime(last_refresh.get("refreshed_at")),
             **post_summary,
         }

@@ -133,14 +133,14 @@ class BenchmarkAccountDiagnosticResponse(BaseModel):
     last_refresh_data_source_label: str | None = None
     last_refresh_view_metric_type: str | None = None
     last_refresh_view_metric_label: str | None = None
-    last_refresh_source_channel_connected: bool = False
+    last_refresh_source_channel_connected: bool | None = None
     last_refresh_source_channel_platform: str | None = None
     last_refresh_source_channel_account_name: str | None = None
     last_refresh_source_channel_missing_reason: str | None = None
-    last_refresh_source_channel_has_token: bool = False
+    last_refresh_source_channel_has_token: bool | None = None
     last_refresh_source_channel_connection_count: int = 0
     last_refresh_source_channel_duplicate_count: int = 0
-    last_refresh_source_channel_duplicate_warning: bool = False
+    last_refresh_source_channel_duplicate_warning: bool | None = None
     last_refresh_at: datetime | None = None
 
 
