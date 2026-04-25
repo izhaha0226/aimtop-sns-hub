@@ -918,7 +918,6 @@ async def get_publish_observability(
         .outerjoin(ChannelConnection, Content.channel_connection_id == ChannelConnection.id)
         .where(
             Content.status == "failed",
-            Content.publish_error.isnot(None),
             (
                 Content.platform_post_id.isnot(None)
                 | Content.published_url.isnot(None)
@@ -957,7 +956,7 @@ async def get_publish_observability(
 
     content_ids = {
         item.id
-        for item, _channel in [*suspicious_items, *failed_items]
+        for item, _channel in [*suspicious_items, *stale_evidence_items, *failed_items]
         if getattr(item, "id", None)
     }
     schedules_by_content: dict[str, list[Schedule]] = {}
@@ -1041,9 +1040,25 @@ async def get_publish_observability(
             "published_url": item.published_url,
             "published_at": item.published_at.isoformat() if item.published_at else None,
             "publish_error": item.publish_error,
-            "failure_category": _get_publish_signal(publish_error=item.publish_error)[0],
-            "failure_label": _get_publish_signal(publish_error=item.publish_error)[1],
+            "failure_category": _get_publish_signal(
+                publish_error=item.publish_error,
+                schedule_error=latest_schedule.error_message if latest_schedule else None,
+                default_category="missing_evidence",
+                default_label="증거는 남았지만 실패 사유 미기록",
+            )[0],
+            "failure_label": _get_publish_signal(
+                publish_error=item.publish_error,
+                schedule_error=latest_schedule.error_message if latest_schedule else None,
+                default_category="missing_evidence",
+                default_label="증거는 남았지만 실패 사유 미기록",
+            )[1],
             "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+            "schedule_status": (
+                latest_schedule.status if (latest_schedule := _pick_latest_schedule_for_content(schedules_by_content, item.id)) else None
+            ),
+            "schedule_retry_count": latest_schedule.retry_count if latest_schedule else 0,
+            "schedule_error_message": latest_schedule.error_message if latest_schedule else None,
+            "schedule_scheduled_at": latest_schedule.scheduled_at.isoformat() if latest_schedule and latest_schedule.scheduled_at else None,
             "channel_connection_id": str(item.channel_connection_id) if item.channel_connection_id else None,
             "channel_type": channel.channel_type if channel else None,
             "account_name": channel.account_name if channel else None,

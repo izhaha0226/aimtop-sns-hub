@@ -122,6 +122,10 @@ interface PublishObservability {
     failure_category?: string | null
     failure_label?: string | null
     updated_at?: string | null
+    schedule_status?: string | null
+    schedule_retry_count?: number
+    schedule_error_message?: string | null
+    schedule_scheduled_at?: string | null
     channel_connection_id?: string | null
     channel_type?: string | null
     account_name?: string | null
@@ -733,6 +737,12 @@ export default function DashboardPage() {
                       </div>
                       <p className="text-[11px] text-gray-500 mt-1">채널: {item.channel_type || "-"}{item.account_name ? ` · ${item.account_name}` : ""}</p>
                       <p className="text-[11px] text-rose-700 mt-1">failed 상태인데 post_id / url / published_at 증거가 남아 있습니다</p>
+                      {item.schedule_status === "pending" && (item.schedule_retry_count ?? 0) > 0 && (
+                        <p className="text-[11px] text-amber-700 mt-1">예약 재시도 대기 {item.schedule_retry_count}회 · 다음 예정 {item.schedule_scheduled_at ? new Date(item.schedule_scheduled_at).toLocaleString("ko-KR") : "-"}</p>
+                      )}
+                      {(item.publish_error || item.schedule_error_message) && (
+                        <p className="text-[11px] text-rose-800 mt-1 line-clamp-2">{item.publish_error || item.schedule_error_message}</p>
+                      )}
                       <p className="text-[11px] text-gray-500 mt-1">post_id: {item.platform_post_id || "-"}</p>
                       <p className="text-[11px] text-gray-500 truncate">url: {item.published_url || "-"}</p>
                       <p className="text-[11px] text-gray-500 mt-1">published_at: {item.published_at ? new Date(item.published_at).toLocaleString("ko-KR") : "-"}</p>
