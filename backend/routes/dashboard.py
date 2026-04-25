@@ -62,6 +62,10 @@ PUBLISH_FAILURE_CATEGORIES = [
             "access token is missing",
             "access token missing",
             "missing access token",
+            "token is missing",
+            "missing token",
+            "no access token",
+            "access_token",
         ),
     ),
     (
@@ -548,23 +552,11 @@ async def _summarize_ai_generation_readiness(
     }
 
 
-PUBLISH_FAILURE_RULES: list[tuple[str, tuple[str, ...]]] = [
-    ("missing_evidence", ("platform_post_id/published_url", "published 처리하지 않았습니다", "creation id missing", "post id missing")),
-    ("unsupported_platform", ("실제 발행 자동화를 지원하지 않습니다", "unsupported platform")),
-    ("token_expired", ("토큰이 만료되어 재인증이 필요합니다", "token expired", "reauth")),
-    ("token_missing", ("access token", "token is missing", "missing token", "토큰 없음")),
-    ("missing_channel", ("채널 연결을 찾을 수 없습니다", "콘텐츠 또는 채널을 찾을 수 없습니다", "content or channel", "not found")),
-]
-
-
-def _classify_publish_failure(error_message: str | None) -> str:
-    text = (error_message or "").strip().lower()
+def _classify_publish_failure(error_message: str | None) -> str | None:
+    text = (error_message or "").strip()
     if not text:
-        return "other"
-    for category, needles in PUBLISH_FAILURE_RULES:
-        if any(needle.lower() in text for needle in needles):
-            return category
-    return "other"
+        return None
+    return _classify_publish_error(text)[0]
 
 
 def _latest_schedule_map(schedules: list[Schedule]) -> dict[uuid.UUID, Schedule]:
@@ -578,7 +570,7 @@ def _latest_schedule_map(schedules: list[Schedule]) -> dict[uuid.UUID, Schedule]
     return latest
 
 
-def _resolve_publish_failure(content: Content, latest_schedule: Schedule | None) -> tuple[str | None, str]:
+def _resolve_publish_failure(content: Content, latest_schedule: Schedule | None) -> tuple[str | None, str | None]:
     message = (content.publish_error or "").strip() or (latest_schedule.error_message.strip() if latest_schedule and latest_schedule.error_message else None)
     category = _classify_publish_failure(message)
     return message, category
@@ -740,22 +732,22 @@ async def get_pipeline_readiness(
         message, category = _resolve_publish_failure(content, latest_failed_schedules.get(content.id))
         if message:
             failed_with_error += 1
+            if category == "missing_evidence":
+                failed_missing_evidence += 1
+            elif category == "unsupported_platform":
+                failed_unsupported_platform += 1
+            elif category == "token_expired":
+                failed_token_expired += 1
+            elif category == "token_missing":
+                failed_token_missing += 1
+            elif category == "missing_channel":
+                failed_missing_channel += 1
+            elif category == "retrying":
+                failed_retrying += 1
+            else:
+                failed_other += 1
         else:
             failed_without_error += 1
-        if category == "missing_evidence":
-            failed_missing_evidence += 1
-        elif category == "unsupported_platform":
-            failed_unsupported_platform += 1
-        elif category == "token_expired":
-            failed_token_expired += 1
-        elif category == "token_missing":
-            failed_token_missing += 1
-        elif category == "missing_channel":
-            failed_missing_channel += 1
-        elif category == "retrying":
-            failed_retrying += 1
-        else:
-            failed_other += 1
 
     retry_pending_result = await db.execute(
         select(Schedule).where(
@@ -956,22 +948,22 @@ async def get_publish_observability(
         resolved_error, category = _resolve_publish_failure(item, latest_failed_schedules.get(item.id))
         if resolved_error:
             failed_with_error += 1
+            if category == "missing_evidence":
+                failed_missing_evidence += 1
+            elif category == "unsupported_platform":
+                failed_unsupported_platform += 1
+            elif category == "token_expired":
+                failed_token_expired += 1
+            elif category == "token_missing":
+                failed_token_missing += 1
+            elif category == "missing_channel":
+                failed_missing_channel += 1
+            elif category == "retrying":
+                failed_retrying += 1
+            else:
+                failed_other += 1
         else:
             failed_without_error += 1
-        if category == "missing_evidence":
-            failed_missing_evidence += 1
-        elif category == "unsupported_platform":
-            failed_unsupported_platform += 1
-        elif category == "token_expired":
-            failed_token_expired += 1
-        elif category == "token_missing":
-            failed_token_missing += 1
-        elif category == "missing_channel":
-            failed_missing_channel += 1
-        elif category == "retrying":
-            failed_retrying += 1
-        else:
-            failed_other += 1
 
     published_result = await db.execute(
         select(Content, ChannelConnection)
