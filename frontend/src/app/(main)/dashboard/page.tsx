@@ -761,6 +761,7 @@ export default function DashboardPage() {
 
               <div className="rounded-lg border p-4">
                 <h3 className="text-xs font-semibold text-gray-600 mb-3">최근 발행 실패</h3>
+                <p className="text-[11px] text-gray-400 mb-3">실패인데 증거 남음 / 재시도 대기 항목은 아래 전용 칼럼으로 분리합니다</p>
                 <div className="space-y-2">
                   {(publishObservability?.failed_items || []).slice(0, 5).map((item) => (
                     <div key={item.id} className="rounded-lg bg-red-50 border border-red-100 px-3 py-2">

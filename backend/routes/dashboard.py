@@ -1056,9 +1056,14 @@ async def get_publish_observability(
         for schedule in schedule_rows:
             schedules_by_content.setdefault(str(schedule.content_id), []).append(schedule)
 
+    stale_evidence_content_ids = {str(item.id) for item, _channel in stale_evidence_items}
     failed_item_payloads = []
     for item, channel in failed_items:
         latest_schedule = _pick_latest_schedule_for_content(schedules_by_content, item.id)
+        if str(item.id) in stale_evidence_content_ids:
+            continue
+        if latest_schedule and latest_schedule.status == "pending" and (latest_schedule.retry_count or 0) > 0:
+            continue
         resolved_error, failure_category = _resolve_publish_failure(item, latest_schedule)
         failed_item_payloads.append({
             "id": str(item.id),
