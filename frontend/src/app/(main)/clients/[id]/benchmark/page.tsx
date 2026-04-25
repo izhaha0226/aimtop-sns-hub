@@ -177,7 +177,7 @@ export default function ClientBenchmarkPage() {
   const [form, setForm] = useState({ handle: "", purpose: "all", source_type: "manual", memo: "", metadataInput: "" })
   const [editForm, setEditForm] = useState({ handle: "", purpose: "all", source_type: "manual", memo: "", metadataInput: "", is_active: true })
 
-  const load = useCallback(async (currentPlatform = platform, currentTopK = topK) => {
+  const load = useCallback(async (currentPlatform: string, currentTopK: number) => {
     setLoading(true)
     try {
       const [accountRows, diagnosticRows, topPostRows, profileRow] = await Promise.all([
@@ -193,10 +193,11 @@ export default function ClientBenchmarkPage() {
     } finally {
       setLoading(false)
     }
-  }, [id, platform, topK])
+  }, [id])
 
-  useEffect(() => { void load() }, [load])
-  useEffect(() => { void load(platform, topK) }, [load, platform, topK])
+  useEffect(() => {
+    void load(platform, topK)
+  }, [load, platform, topK])
 
   const platformAccounts = useMemo(() => accounts.filter((item) => item.platform === platform), [accounts, platform])
   const diagnosticMap = useMemo(() => diagnostics.reduce<Record<string, BenchmarkAccountDiagnosticItem>>((acc, item) => {
