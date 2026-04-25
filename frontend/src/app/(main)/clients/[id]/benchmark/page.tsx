@@ -201,11 +201,19 @@ export default function ClientBenchmarkPage() {
 
   const diagnosticSummary = useMemo(() => {
     const activeRows = diagnostics.filter((item) => item.is_active)
+    const manualRequiredCount = activeRows.filter((item) => item.status === "manual_ingest_required").length
+    const collectorErrorCount = activeRows.filter((item) => item.status === "collector_error").length
+    const noDataCount = activeRows.filter((item) => item.status === "no_data_collected").length
+    const tokenMissingCount = activeRows.filter((item) => item.source_channel_connected && !item.source_channel_has_token).length
+    const duplicateConnectionAccountCount = activeRows.filter((item) => item.source_channel_duplicate_warning).length
+    const duplicateConnectionCount = activeRows.reduce((sum, item) => sum + Math.max(item.source_channel_duplicate_count || 0, 0), 0)
+    const lastRefreshProfileReadyCount = activeRows.filter((item) => Boolean(item.last_refresh_profile_generated || item.last_refresh_profile_id)).length
     return {
-      blockedCount: activeRows.filter((item) => item.status === "manual_ingest_required").length,
-      collectorErrorCount: activeRows.filter((item) => item.status === "collector_error").length,
+      blockedCount: manualRequiredCount,
+      manualRequiredCount,
+      collectorErrorCount,
       mixedCount: activeRows.filter((item) => item.status === "live_collected_mixed").length,
-      noDataCount: activeRows.filter((item) => item.status === "no_data_collected").length,
+      noDataCount,
       placeholderOnlyCount: activeRows.filter((item) => item.status === "placeholder_fallback").length,
       liveAccountCount: activeRows.filter((item) => item.status === "live_collected" || item.status === "live_collected_proxy_views").length,
       livePostCount: activeRows.reduce((sum, item) => sum + item.live_post_count, 0),
@@ -213,9 +221,14 @@ export default function ClientBenchmarkPage() {
       actualMetricCount: activeRows.reduce((sum, item) => sum + item.actual_metric_count, 0),
       proxyMetricCount: activeRows.reduce((sum, item) => sum + item.proxy_metric_count, 0),
       totalPostCount: activeRows.reduce((sum, item) => sum + item.total_post_count, 0),
-      tokenMissingCount: activeRows.filter((item) => item.source_channel_connected && !item.source_channel_has_token).length,
-      duplicateConnectionAccountCount: activeRows.filter((item) => item.source_channel_duplicate_warning).length,
-      duplicateConnectionCount: activeRows.reduce((sum, item) => sum + Math.max(item.source_channel_duplicate_count || 0, 0), 0),
+      tokenMissingCount,
+      duplicateConnectionAccountCount,
+      duplicateConnectionCount,
+      freshnessIssueCount: activeRows.filter((item) => !item.last_refresh_at || isStaleRefresh(item.last_refresh_at)).length,
+      recentRefreshCount: activeRows.filter((item) => Boolean(item.last_refresh_at) && !isStaleRefresh(item.last_refresh_at)).length,
+      lastRefreshProfileReadyCount,
+      lastRefreshProfileMissingCount: Math.max(activeRows.length - lastRefreshProfileReadyCount, 0),
+      blockedOperationalCount: manualRequiredCount + collectorErrorCount + noDataCount + tokenMissingCount,
       neverRefreshedCount: activeRows.filter((item) => !item.last_refresh_at).length,
       staleRefreshCount: activeRows.filter((item) => Boolean(item.last_refresh_at) && isStaleRefresh(item.last_refresh_at)).length,
       inactiveCount: diagnostics.filter((item) => !item.is_active).length,
@@ -456,12 +469,14 @@ export default function ClientBenchmarkPage() {
               <span className="inline-flex items-center rounded-full border px-2 py-1 text-[11px] bg-violet-50 text-violet-700 border-violet-200">Top Posts는 업종 fallback일 수 있음</span>
             )}
           </div>
-          <div className="mt-2 text-xs text-gray-500">직접 실데이터 {diagnosticSummary.livePostCount} · 샘플대체 {diagnosticSummary.placeholderPostCount} · 미적재 {diagnosticSummary.noDataCount}</div>
+          <div className="mt-2 text-xs text-gray-500">실데이터 계정 {diagnosticSummary.liveAccountCount} · 혼재 {diagnosticSummary.mixedCount} · 샘플대체 {diagnosticSummary.placeholderOnlyCount} · 운영 blocker {diagnosticSummary.blockedOperationalCount}</div>
+          <div className="mt-1 text-xs text-gray-500">실데이터 포스트 {diagnosticSummary.livePostCount} · 샘플 포스트 {diagnosticSummary.placeholderPostCount} · 실조회수 {diagnosticSummary.actualMetricCount} · 프록시조회수 {diagnosticSummary.proxyMetricCount}</div>
         </div>
         <div className="rounded-xl border bg-white p-4">
           <div className="text-xs text-gray-500">프로필 출처</div>
           <div className="mt-2 text-sm font-semibold text-gray-900">{profileSummary.title}</div>
           <div className="mt-2 text-xs text-gray-500">{profile ? `샘플 ${profile.sample_count || 0}개` : "프로필 미생성"}</div>
+          <div className="mt-1 text-xs text-gray-500">최근 점검 {diagnosticSummary.recentRefreshCount}개 · 점검 필요 {diagnosticSummary.freshnessIssueCount}개 · 프로필 생성됨 {diagnosticSummary.lastRefreshProfileReadyCount}개</div>
         </div>
       </div>
 
