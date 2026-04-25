@@ -1035,9 +1035,9 @@ async def get_publish_observability(
             Schedule.error_message.isnot(None),
         )
         .order_by(Schedule.updated_at.desc().nullslast(), Schedule.scheduled_at.asc())
-        .limit(50)
     )
     retry_pending_items = retry_pending_result.all()
+    retry_pending_schedules = len(retry_pending_items)
 
     content_ids = {
         item.id
