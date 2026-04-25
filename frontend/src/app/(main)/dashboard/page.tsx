@@ -271,7 +271,18 @@ const PIPELINE_DETAIL_LABELS: Record<string, string> = {
 
 const PIPELINE_DETAIL_ORDER: Record<PipelineKey, string[]> = {
   ai_generation: ["blocked_tasks", "fallback_only_tasks", "fallback_missing_tasks", "primary_ready_tasks", "openai_key_present", "claude_cli_available"],
-  oauth_connections: ["reauth_required", "token_missing_channels", "unknown_token_channels", "connected_channels", "healthy_channels", "supported_healthy_channels", "meta_app_id_present", "meta_app_secret_present"],
+  oauth_connections: [
+    "reauth_required",
+    "token_missing_channels",
+    "unknown_token_channels",
+    "connected_channels",
+    "supported_connected_channels",
+    "healthy_channels",
+    "supported_healthy_channels",
+    "unsupported_connected_channels",
+    "meta_app_id_present",
+    "meta_app_secret_present",
+  ],
   publishing: [
     "suspicious_published_without_evidence",
     "failed_with_stale_evidence",
@@ -424,7 +435,13 @@ function getPipelineDetailEntries(key: string, details: Record<string, string | 
     .filter((detailKey) => Object.prototype.hasOwnProperty.call(details, detailKey))
     .map((detailKey) => [detailKey, details[detailKey]] as [string, string | number | boolean | null])
   const remainingEntries = Object.entries(details).filter(([detailKey]) => !orderedKeys.includes(detailKey))
-  const limit = normalizedKey === "benchmarking" ? 14 : normalizedKey === "publishing" ? 12 : 6
+  const limit = normalizedKey === "benchmarking"
+    ? 14
+    : normalizedKey === "publishing"
+      ? 12
+      : normalizedKey === "oauth_connections"
+        ? 10
+        : 6
   return [...orderedEntries, ...remainingEntries].slice(0, limit)
 }
 
