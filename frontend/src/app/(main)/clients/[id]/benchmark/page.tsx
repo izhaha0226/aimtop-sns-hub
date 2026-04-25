@@ -617,6 +617,14 @@ export default function ClientBenchmarkPage() {
                   const latestRefreshDataSourceLabel = useRefreshMeta ? (refreshState?.data_source_label || null) : (diagnostic?.last_refresh_data_source_label || null)
                   const latestRefreshViewMetricLabel = useRefreshMeta ? (refreshState?.view_metric_label || null) : (diagnostic?.last_refresh_view_metric_label || null)
                   const latestRefreshUsedPlaceholder = useRefreshMeta ? Boolean(refreshState?.used_placeholder) : Boolean(diagnostic?.last_refresh_used_placeholder)
+                  const latestRefreshSourceConnected = useRefreshMeta ? Boolean(refreshState?.source_channel_connected) : Boolean(diagnostic?.last_refresh_source_channel_connected)
+                  const latestRefreshSourcePlatform = useRefreshMeta ? (refreshState?.source_channel_platform || null) : (diagnostic?.last_refresh_source_channel_platform || null)
+                  const latestRefreshSourceAccountName = useRefreshMeta ? (refreshState?.source_channel_account_name || null) : (diagnostic?.last_refresh_source_channel_account_name || null)
+                  const latestRefreshSourceMissingReason = useRefreshMeta ? (refreshState?.source_channel_missing_reason || null) : (diagnostic?.last_refresh_source_channel_missing_reason || null)
+                  const latestRefreshSourceHasToken = useRefreshMeta ? Boolean(refreshState?.source_channel_has_token) : Boolean(diagnostic?.last_refresh_source_channel_has_token)
+                  const latestRefreshSourceConnectionCount = useRefreshMeta ? Number(refreshState?.source_channel_connection_count || 0) : Number(diagnostic?.last_refresh_source_channel_connection_count || 0)
+                  const latestRefreshSourceDuplicateCount = useRefreshMeta ? Number(refreshState?.source_channel_duplicate_count || 0) : Number(diagnostic?.last_refresh_source_channel_duplicate_count || 0)
+                  const latestRefreshSourceDuplicateWarning = useRefreshMeta ? Boolean(refreshState?.source_channel_duplicate_warning) : Boolean(diagnostic?.last_refresh_source_channel_duplicate_warning)
                   const latestProfileGenerated = useRefreshMeta
                     ? Boolean(refreshState?.profile_generated || refreshState?.profile_id)
                     : Boolean(diagnostic?.last_refresh_profile_generated || diagnostic?.last_refresh_profile_id)
@@ -733,6 +741,16 @@ export default function ClientBenchmarkPage() {
                                 </div>
                               ) : (
                                 <div className="text-[11px] text-amber-700">연결 상태: {accountState.source_channel_missing_reason || "연결 채널 확인 필요"}</div>
+                              )}
+                              {latestRefreshAt && latestRefreshSourceConnected && (
+                                <div className={`text-[11px] ${latestRefreshSourceHasToken ? "text-slate-600" : "text-amber-700"}`}>
+                                  마지막 점검 기준 연결 채널: {latestRefreshSourceAccountName || latestRefreshSourcePlatform || item.platform}
+                                  {latestRefreshSourceHasToken ? "" : ` · ${latestRefreshSourceMissingReason || "토큰 없음"}`}
+                                  {latestRefreshSourceDuplicateWarning ? ` · 동일 플랫폼 연결 ${latestRefreshSourceConnectionCount || latestRefreshSourceDuplicateCount + 1}개 중 사용 가능한 row 기준` : ""}
+                                </div>
+                              )}
+                              {latestRefreshAt && !latestRefreshSourceConnected && latestRefreshSourceMissingReason && (
+                                <div className="text-[11px] text-amber-700">마지막 점검 기준 연결 상태: {latestRefreshSourceMissingReason}</div>
                               )}
                               {latestRefreshAt && (
                                 <div className="text-[11px] text-gray-500">마지막 새로고침: {formatDateTime(latestRefreshAt) || latestRefreshAt}</div>

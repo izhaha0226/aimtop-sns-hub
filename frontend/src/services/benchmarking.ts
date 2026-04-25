@@ -122,6 +122,14 @@ export interface BenchmarkAccountDiagnosticItem {
   last_refresh_data_source_label?: string | null
   last_refresh_view_metric_type?: string | null
   last_refresh_view_metric_label?: string | null
+  last_refresh_source_channel_connected?: boolean
+  last_refresh_source_channel_platform?: string | null
+  last_refresh_source_channel_account_name?: string | null
+  last_refresh_source_channel_missing_reason?: string | null
+  last_refresh_source_channel_has_token?: boolean
+  last_refresh_source_channel_connection_count?: number
+  last_refresh_source_channel_duplicate_count?: number
+  last_refresh_source_channel_duplicate_warning?: boolean
   last_refresh_at?: string | null
 }
 
