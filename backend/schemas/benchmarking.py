@@ -37,6 +37,8 @@ class BenchmarkAccountResponse(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
+    model_config = {"from_attributes": True}
+
 
 class BenchmarkPostResponse(BaseModel):
     id: uuid.UUID
@@ -58,6 +60,8 @@ class BenchmarkPostResponse(BaseModel):
     benchmark_score: float = 0.0
     published_at: datetime | None = None
     raw_payload: dict | None = None
+
+    model_config = {"from_attributes": True}
 
 
 class RefreshAccountResponse(BaseModel):
