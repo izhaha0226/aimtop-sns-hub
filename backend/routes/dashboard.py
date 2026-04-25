@@ -58,6 +58,24 @@ def _channel_has_access_token(channel: ChannelConnection | None) -> bool:
     return bool(decrypt_token(channel.access_token))
 
 
+def _classify_channel_health(
+    channel: ChannelConnection,
+    *,
+    now: datetime,
+    soon: datetime,
+) -> tuple[str, bool]:
+    has_access_token = _channel_has_access_token(channel)
+    if not has_access_token:
+        return "token_missing", has_access_token
+    if not channel.token_expires_at:
+        return "unknown", has_access_token
+    if channel.token_expires_at <= now:
+        return "reauth_required", has_access_token
+    if channel.token_expires_at <= soon:
+        return "expiring", has_access_token
+    return "healthy", has_access_token
+
+
 def _classify_publish_error(error_message: str | None) -> tuple[str, str]:
     text = (error_message or "").strip()
     for key, label, needles in PUBLISH_FAILURE_CATEGORIES:
@@ -460,17 +478,7 @@ async def get_channels_health(
     summary = {"healthy": 0, "expiring": 0, "reauth_required": 0, "unknown": 0, "token_missing": 0}
     items = []
     for channel in channels:
-        has_access_token = _channel_has_access_token(channel)
-        if not has_access_token:
-            health = "token_missing"
-        elif not channel.token_expires_at:
-            health = "unknown"
-        elif channel.token_expires_at <= now:
-            health = "reauth_required"
-        elif channel.token_expires_at <= soon:
-            health = "expiring"
-        else:
-            health = "healthy"
+        health, has_access_token = _classify_channel_health(channel, now=now, soon=soon)
         summary[health] += 1
         items.append({
             "id": str(channel.id),
@@ -506,17 +514,17 @@ async def get_pipeline_readiness(
     unknown_token_channels = 0
     token_missing_channels = 0
     for channel in connected_channels:
-        has_access_token = _channel_has_access_token(channel)
-        if not has_access_token:
-            token_missing_channels += 1
-        if channel.token_expires_at and channel.token_expires_at > soon and has_access_token:
+        health, _has_access_token = _classify_channel_health(channel, now=now, soon=soon)
+        if health == "healthy":
             healthy_channels += 1
             if SNSPublisher.is_supported_platform(channel.channel_type):
                 supported_healthy_channels += 1
-        elif channel.token_expires_at and channel.token_expires_at <= now:
+        elif health == "reauth_required":
             reauth_required += 1
-        elif not channel.token_expires_at:
+        elif health == "unknown":
             unknown_token_channels += 1
+        elif health == "token_missing":
+            token_missing_channels += 1
 
     benchmark_account_count = (await db.execute(select(func.count()).select_from(BenchmarkAccount))).scalar() or 0
     benchmark_post_count = (await db.execute(select(func.count()).select_from(BenchmarkPost))).scalar() or 0
