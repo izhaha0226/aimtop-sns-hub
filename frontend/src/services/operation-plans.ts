@@ -83,6 +83,18 @@ export const operationPlansService = {
     return res.data as OperationPlanRecord
   },
 
+  async update(id: string, payload: {
+    client_id?: string | null
+    brand_name?: string
+    month?: string
+    strategy_summary?: string | null
+    request_payload?: GenerateOperationPlanPayload | null
+    plan_payload?: GenerateOperationPlanResponse | null
+  }) {
+    const res = await api.put(`/api/v1/operation-plans/${id}`, payload)
+    return res.data as OperationPlanRecord
+  },
+
   async submit(id: string, memo?: string) {
     const res = await api.post(`/api/v1/operation-plans/${id}/submit`, { memo })
     return res.data as OperationPlanRecord

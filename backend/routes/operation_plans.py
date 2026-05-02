@@ -87,9 +87,12 @@ async def update_operation_plan(
     _: User = Depends(get_current_user),
 ):
     plan = await _get_operation_plan_or_404(plan_id, db)
+    updates = body.model_dump(exclude_none=True)
     if plan.status == "approved":
-        raise HTTPException(status_code=400, detail="승인 완료된 운영계획은 수정할 수 없습니다")
-    for field, value in body.model_dump(exclude_none=True).items():
+        is_client_recovery_only = set(updates.keys()) == {"client_id"} and plan.client_id is None
+        if not is_client_recovery_only:
+            raise HTTPException(status_code=400, detail="승인 완료된 운영계획은 수정할 수 없습니다")
+    for field, value in updates.items():
         setattr(plan, field, value)
     await db.commit()
     await db.refresh(plan)
@@ -165,6 +168,23 @@ async def generate_operation_plan_drafts(
     current_user: User = Depends(get_current_user),
 ):
     plan = await _get_operation_plan_or_404(plan_id, db)
+    existing_result = await db.execute(select(Content).where(Content.operation_plan_id == plan.id).order_by(Content.created_at.asc()))
+    existing_contents = existing_result.scalars().all()
+    if existing_contents:
+        manual_required_count = sum(
+            1 for content in existing_contents if (content.source_metadata or {}).get("channel_action") == "manual_required"
+        )
+        token_check_required_count = sum(
+            1 for content in existing_contents if (content.source_metadata or {}).get("channel_action") == "token_check_required"
+        )
+        return {
+            "operation_plan_id": plan.id,
+            "items": existing_contents,
+            "total": len(existing_contents),
+            "manual_required_count": manual_required_count,
+            "token_check_required_count": token_check_required_count,
+        }
+
     try:
         draft_specs = build_content_draft_specs_from_plan(
             operation_plan_id=plan.id,

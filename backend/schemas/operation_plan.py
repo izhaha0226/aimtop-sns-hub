@@ -17,6 +17,7 @@ class OperationPlanCreate(BaseModel):
 
 
 class OperationPlanUpdate(BaseModel):
+    client_id: uuid.UUID | None = None
     brand_name: str | None = None
     month: str | None = None
     strategy_summary: str | None = None

@@ -1,9 +1,10 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { AlertTriangle, CalendarDays, CheckCircle2, ClipboardList, Loader2, Sparkles, Target, UploadCloud } from "lucide-react"
 import { aiService, type GenerateOperationPlanPayload, type GenerateOperationPlanResponse } from "@/services/ai"
 import { operationPlansService, type OperationPlanDraftsResponse, type OperationPlanRecord } from "@/services/operation-plans"
+import { useSelectedClient } from "@/hooks/useSelectedClient"
 
 const CHANNEL_OPTIONS = ["instagram", "threads", "blog", "youtube", "tiktok", "facebook", "kakao", "linkedin", "x"]
 
@@ -37,10 +38,63 @@ export default function OperationPlannerPage() {
   const [draftLoading, setDraftLoading] = useState(false)
   const [draftResult, setDraftResult] = useState<OperationPlanDraftsResponse | null>(null)
   const [actionLoading, setActionLoading] = useState<"submit" | "approve" | "reject" | null>(null)
+  const [recovering, setRecovering] = useState(false)
+  const [restoring, setRestoring] = useState(true)
   const [error, setError] = useState("")
   const [statusMessage, setStatusMessage] = useState("")
+  const { selectedClientId, selectedClient, loading: clientLoading } = useSelectedClient()
 
   const canSubmit = useMemo(() => brandName.trim() && productSummary.trim() && channels.length > 0, [brandName, productSummary, channels])
+
+  useEffect(() => {
+    if (clientLoading) return
+    let cancelled = false
+
+    async function restoreLatestPlan() {
+      setRestoring(true)
+      try {
+        const response = await operationPlansService.list(selectedClientId ? { client_id: selectedClientId } : undefined)
+        let latest = Array.isArray(response.items) ? response.items.find((item) => item.plan_payload) : null
+
+        if (!latest && selectedClientId) {
+          const fallback = await operationPlansService.list()
+          latest = Array.isArray(fallback.items) ? fallback.items.find((item) => item.plan_payload) : null
+        }
+
+        if (cancelled || !latest?.plan_payload) return
+
+        const request = latest.request_payload
+        setPlan(latest.plan_payload)
+        setSavedPlan(latest)
+        setLastRequest(request)
+        setDraftResult(null)
+        setBrandName(latest.plan_payload.brand_name || latest.brand_name || "")
+        setMonth(latest.plan_payload.month || latest.month || defaultMonth())
+        if (request) {
+          setProductSummary(request.product_summary || "")
+          setTargetAudience(request.target_audience || "")
+          setGoalsText((request.goals || []).join(", "))
+          setBenchmarkText((request.benchmark_brands || []).join(", "))
+          setChannels(request.channels?.length ? request.channels : ["instagram", "threads", "blog"])
+          setSeasonContext(request.season_context || "")
+          setNotes(request.notes || "")
+        }
+        setStatusMessage(`최근 저장 운영계획을 복구했습니다: ${latest.brand_name} ${latest.month} · ${latest.status}`)
+      } catch (err) {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : "최근 운영계획 복구에 실패했습니다."
+          setError(message)
+        }
+      } finally {
+        if (!cancelled) setRestoring(false)
+      }
+    }
+
+    restoreLatestPlan()
+    return () => {
+      cancelled = true
+    }
+  }, [clientLoading, selectedClientId])
 
   function toggleChannel(channel: string) {
     setChannels((prev) => prev.includes(channel) ? prev.filter((item) => item !== channel) : [...prev, channel])
@@ -78,11 +132,16 @@ export default function OperationPlannerPage() {
 
   async function savePlan() {
     if (!plan || !lastRequest) return
+    if (!selectedClientId) {
+      setError("운영계획 저장 전에 상단에서 클라이언트를 선택해주세요. 선택 없이 저장하면 실행 단계에서 콘텐츠가 생성되지 않습니다.")
+      return
+    }
     setSaving(true)
     setError("")
-    setStatusMessage("")
+    setStatusMessage("운영계획 저장 중입니다...")
     try {
       const saved = await operationPlansService.create({
+        client_id: selectedClientId,
         brand_name: plan.brand_name,
         month: plan.month,
         strategy_summary: plan.strategy_summary,
@@ -104,7 +163,7 @@ export default function OperationPlannerPage() {
     if (!savedPlan) return
     setActionLoading(action)
     setError("")
-    setStatusMessage("")
+    setStatusMessage(action === "submit" ? "승인 요청 처리 중입니다..." : action === "approve" ? "운영계획 승인 처리 중입니다..." : "반려 처리 중입니다...")
     try {
       const memo = action === "submit" ? "대표님 승인 요청" : action === "approve" ? "운영계획 승인" : "수정 필요"
       const updated = await operationPlansService[action](savedPlan.id, memo)
@@ -121,11 +180,32 @@ export default function OperationPlannerPage() {
 
   async function generateDrafts() {
     if (!savedPlan) return
+    let executablePlan = savedPlan
+    if (!executablePlan.client_id) {
+      if (!selectedClientId) {
+        setError("콘텐츠 draft 생성 전에 상단 클라이언트를 선택해주세요. 현재 운영계획에 client_id가 없어 실행할 수 없습니다.")
+        return
+      }
+      setRecovering(true)
+      setError("")
+      setStatusMessage("저장된 운영계획을 현재 클라이언트와 연결 중입니다...")
+      try {
+        executablePlan = await operationPlansService.update(executablePlan.id, { client_id: selectedClientId })
+        setSavedPlan(executablePlan)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "운영계획 클라이언트 연결 복구에 실패했습니다."
+        setError(message)
+        setRecovering(false)
+        return
+      }
+      setRecovering(false)
+    }
+
     setDraftLoading(true)
     setError("")
-    setStatusMessage("")
+    setStatusMessage("콘텐츠 draft를 생성 중입니다... 페이지를 이동해도 저장된 운영계획에서 복구됩니다.")
     try {
-      const result = await operationPlansService.generateDrafts(savedPlan.id)
+      const result = await operationPlansService.generateDrafts(executablePlan.id)
       setDraftResult(result)
       setStatusMessage(`콘텐츠 draft ${result.total}개 생성 완료 — 예약 전 토큰확인 ${result.token_check_required_count}개, 수동필요 ${result.manual_required_count}개`)
     } catch (err) {
@@ -146,7 +226,8 @@ export default function OperationPlannerPage() {
         </div>
         <div className="rounded-2xl border bg-white px-4 py-3 text-xs text-gray-600 max-w-xs">
           <div className="flex items-center gap-2 font-semibold text-gray-800 mb-1"><CheckCircle2 size={14} className="text-green-600" /> 승인 우선 모드</div>
-          컨펌 전에는 업로드하지 않고, 계획·리스크·필요자료를 먼저 분리합니다.
+          <p>컨펌 전에는 업로드하지 않고, 계획·리스크·필요자료를 먼저 분리합니다.</p>
+          <p className="mt-2 text-blue-700 font-semibold">현재 클라이언트: {clientLoading ? "확인 중..." : selectedClient?.name || "미선택"}</p>
         </div>
       </div>
 
@@ -206,9 +287,9 @@ export default function OperationPlannerPage() {
           </div>
 
           {error && <div className="rounded-xl bg-red-50 text-red-700 text-sm p-3">{error}</div>}
-          {statusMessage && <div className="rounded-xl bg-green-50 text-green-700 text-sm p-3">{statusMessage}</div>}
+          {statusMessage && <div className="rounded-xl bg-green-50 text-green-700 text-sm p-3 flex items-center gap-2">{(loading || saving || actionLoading || draftLoading || recovering || restoring) && <Loader2 size={14} className="animate-spin" />}<span>{statusMessage}</span></div>}
 
-          <button onClick={generatePlan} disabled={!canSubmit || loading} className="w-full rounded-xl bg-blue-600 text-white py-3 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2">
+          <button onClick={generatePlan} disabled={!canSubmit || loading || saving || actionLoading !== null || draftLoading || recovering} className="w-full rounded-xl bg-blue-600 text-white py-3 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2">
             {loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
             {loading ? "메가가 운영계획 생성 중..." : "월간 운영계획 생성"}
           </button>
@@ -234,28 +315,39 @@ export default function OperationPlannerPage() {
                   <div className="flex flex-col items-end gap-2">
                     <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-700 text-xs font-semibold">{plan.benchmark_source_status}</span>
                     {savedPlan && <span className="px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-xs font-semibold">저장상태: {savedPlan.status}</span>}
+                    {savedPlan && !savedPlan.client_id && <span className="px-3 py-1 rounded-full bg-red-50 text-red-700 text-xs font-semibold">클라이언트 연결 필요</span>}
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 mt-5">
-                  <button type="button" onClick={savePlan} disabled={saving || Boolean(savedPlan)} className="rounded-xl bg-gray-900 text-white px-4 py-2 text-sm font-semibold hover:bg-black disabled:opacity-50 flex items-center gap-2">
+                  {savedPlan && (
+                    <div className="basis-full rounded-xl bg-blue-50 text-blue-800 text-xs p-3">
+                      저장된 운영계획 ID: <span className="font-mono">{savedPlan.id}</span> · 다른 메뉴로 이동해도 이 화면 진입 시 DB에서 다시 불러옵니다.
+                    </div>
+                  )}
+                  {savedPlan && !savedPlan.client_id && selectedClientId && (
+                    <div className="basis-full rounded-xl bg-amber-50 text-amber-800 text-xs p-3">
+                      이 운영계획은 이전 버전에서 클라이언트 없이 저장됐습니다. 콘텐츠 draft 생성 시 현재 클라이언트({selectedClient?.name || selectedClientId})로 자동 복구합니다.
+                    </div>
+                  )}
+                  <button type="button" onClick={savePlan} disabled={saving || Boolean(savedPlan) || clientLoading} className="rounded-xl bg-gray-900 text-white px-4 py-2 text-sm font-semibold hover:bg-black disabled:opacity-50 flex items-center gap-2">
                     {saving && <Loader2 size={14} className="animate-spin" />}
                     {savedPlan ? "저장됨" : "운영계획 저장"}
                   </button>
-                  <button type="button" onClick={() => runPlanAction("submit")} disabled={!savedPlan || savedPlan.status !== "draft" || actionLoading !== null} className="rounded-xl bg-blue-600 text-white px-4 py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+                  <button type="button" onClick={() => runPlanAction("submit")} disabled={!savedPlan || savedPlan.status !== "draft" || actionLoading !== null || draftLoading || recovering} className="rounded-xl bg-blue-600 text-white px-4 py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
                     {actionLoading === "submit" && <Loader2 size={14} className="animate-spin" />}
-                    승인 요청
+                    {actionLoading === "submit" ? "승인 요청 중..." : "승인 요청"}
                   </button>
-                  <button type="button" onClick={() => runPlanAction("approve")} disabled={!savedPlan || savedPlan.status !== "pending_approval" || actionLoading !== null} className="rounded-xl bg-green-600 text-white px-4 py-2 text-sm font-semibold hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
+                  <button type="button" onClick={() => runPlanAction("approve")} disabled={!savedPlan || savedPlan.status !== "pending_approval" || actionLoading !== null || draftLoading || recovering} className="rounded-xl bg-green-600 text-white px-4 py-2 text-sm font-semibold hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
                     {actionLoading === "approve" && <Loader2 size={14} className="animate-spin" />}
-                    승인
+                    {actionLoading === "approve" ? "승인 중..." : "승인"}
                   </button>
-                  <button type="button" onClick={() => runPlanAction("reject")} disabled={!savedPlan || savedPlan.status !== "pending_approval" || actionLoading !== null} className="rounded-xl border border-red-200 text-red-700 px-4 py-2 text-sm font-semibold hover:bg-red-50 disabled:opacity-50 flex items-center gap-2">
+                  <button type="button" onClick={() => runPlanAction("reject")} disabled={!savedPlan || savedPlan.status !== "pending_approval" || actionLoading !== null || draftLoading || recovering} className="rounded-xl border border-red-200 text-red-700 px-4 py-2 text-sm font-semibold hover:bg-red-50 disabled:opacity-50 flex items-center gap-2">
                     {actionLoading === "reject" && <Loader2 size={14} className="animate-spin" />}
-                    반려
+                    {actionLoading === "reject" ? "반려 중..." : "반려"}
                   </button>
-                  <button type="button" onClick={generateDrafts} disabled={!savedPlan || savedPlan.status !== "approved" || draftLoading || Boolean(draftResult)} className="rounded-xl bg-purple-600 text-white px-4 py-2 text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2">
-                    {draftLoading ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}
-                    {draftResult ? "draft 생성됨" : "콘텐츠 draft 생성"}
+                  <button type="button" onClick={generateDrafts} disabled={!savedPlan || savedPlan.status !== "approved" || draftLoading || recovering || Boolean(draftResult)} className="rounded-xl bg-purple-600 text-white px-4 py-2 text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2">
+                    {draftLoading || recovering ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}
+                    {recovering ? "클라이언트 연결 중..." : draftLoading ? "draft 생성 중..." : draftResult ? "draft 생성됨" : "콘텐츠 draft 생성"}
                   </button>
                 </div>
                 {draftResult && (
