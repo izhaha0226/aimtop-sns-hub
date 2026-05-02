@@ -171,6 +171,31 @@ async def generate_operation_plan_drafts(
     existing_result = await db.execute(select(Content).where(Content.operation_plan_id == plan.id).order_by(Content.created_at.asc()))
     existing_contents = existing_result.scalars().all()
     if existing_contents:
+        try:
+            draft_specs = build_content_draft_specs_from_plan(
+                operation_plan_id=plan.id,
+                status=plan.status,
+                plan_payload=plan.plan_payload,
+                client_id=plan.client_id,
+                author_id=current_user.id,
+            )
+        except OperationPlanDraftError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        for content, spec in zip(existing_contents, draft_specs, strict=False):
+            if content.status in ("draft", "rejected"):
+                content.title = spec["title"]
+                content.text = spec["text"]
+                content.hashtags = spec["hashtags"]
+                content.post_type = spec["post_type"]
+                content.source_metadata = {
+                    **(content.source_metadata or {}),
+                    **spec["source_metadata"],
+                }
+        await db.commit()
+        for content in existing_contents:
+            await db.refresh(content)
+
         manual_required_count = sum(
             1 for content in existing_contents if (content.source_metadata or {}).get("channel_action") == "manual_required"
         )

@@ -49,6 +49,51 @@ class OperationPlanDraftBuilderTest(unittest.TestCase):
         self.assertEqual(first["source_metadata"]["benchmark_source_status"], "manual_or_pending")
         self.assertIn(first["source_metadata"]["channel_action"], {"manual_required", "token_check_required"})
 
+    def test_draft_title_omits_redundant_brand_prefix_and_uses_readable_sequence(self):
+        plan_payload = self._approved_plan_payload()
+
+        drafts = build_content_draft_specs_from_plan(
+            operation_plan_id="plan-123",
+            status="approved",
+            plan_payload=plan_payload,
+            client_id="client-123",
+            author_id="author-123",
+        )
+
+        first = drafts[0]
+        self.assertNotIn("[아임탑]", first["title"])
+        self.assertRegex(first["title"], r"^2026-06 · 1주차 · [a-z_]+ · .+ · 01$")
+        self.assertEqual(first["source_metadata"]["sequence"], 1)
+        self.assertEqual(first["source_metadata"]["display_title"], first["title"])
+
+    def test_draft_body_has_topic_specific_marketing_copy_hashtags_and_image_prompt(self):
+        plan_payload = self._approved_plan_payload()
+
+        drafts = build_content_draft_specs_from_plan(
+            operation_plan_id="plan-123",
+            status="approved",
+            plan_payload=plan_payload,
+            client_id="client-123",
+            author_id="author-123",
+        )
+
+        first = drafts[0]
+        text = first["text"]
+        metadata = first["source_metadata"]
+        self.assertIn("주제:", text)
+        self.assertIn(plan_payload["weekly_plan"][0]["theme"], text)
+        self.assertIn("설명:", text)
+        self.assertIn("훅:", text)
+        self.assertIn("본문:", text)
+        self.assertIn("CTA:", text)
+        self.assertIn("병원/프랜차이즈", text)
+        self.assertIn("B2B SNS 자동화", text)
+        self.assertGreaterEqual(len(first["hashtags"]), 5)
+        self.assertTrue(any("문의" in tag or "브랜드" in tag for tag in first["hashtags"]))
+        self.assertIn("image_prompt", metadata)
+        self.assertIn(plan_payload["weekly_plan"][0]["theme"], metadata["image_prompt"])
+        self.assertIn("visual_direction", metadata)
+
     def test_rejects_non_approved_operation_plan(self):
         with self.assertRaisesRegex(OperationPlanDraftError, "승인된 운영계획"):
             build_content_draft_specs_from_plan(

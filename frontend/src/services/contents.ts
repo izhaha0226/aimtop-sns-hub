@@ -20,6 +20,8 @@ function normalizeContent(content: unknown): Content {
     platform_post_id: item.platform_post_id || null,
     published_url: item.published_url || null,
     publish_error: item.publish_error || null,
+    operation_plan_id: item.operation_plan_id || null,
+    source_metadata: item.source_metadata && typeof item.source_metadata === "object" ? item.source_metadata : null,
     scheduled_at: item.scheduled_at || undefined,
     published_at: item.published_at || undefined,
     created_at: item.created_at || new Date(0).toISOString(),

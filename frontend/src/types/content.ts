@@ -34,6 +34,22 @@ export interface Content {
   platform_post_id?: string | null
   published_url?: string | null
   publish_error?: string | null
+  operation_plan_id?: string | null
+  source_metadata?: {
+    source?: string
+    operation_plan_id?: string
+    channel?: string
+    week?: number
+    objective?: string
+    format?: string
+    sequence?: number
+    display_title?: string
+    visual_direction?: string
+    image_prompt?: string
+    channel_action?: string
+    benchmark_source_status?: string
+    [key: string]: unknown
+  } | null
   scheduled_at?: string
   published_at?: string
   created_at: string

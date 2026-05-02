@@ -1,8 +1,9 @@
 "use client"
 import { useEffect, useMemo, useState } from "react"
 import { useRouter, useParams } from "next/navigation"
-import { AlertCircle, ArrowLeft, CalendarClock, CheckCircle, ExternalLink, Link2, MailPlus, Send, Trash2, XCircle, Zap } from "lucide-react"
+import { AlertCircle, ArrowLeft, CalendarClock, CheckCircle, ExternalLink, ImagePlus, Link2, Loader2, MailPlus, Send, Trash2, XCircle, Zap } from "lucide-react"
 import { contentsService } from "@/services/contents"
+import { aiService } from "@/services/ai"
 import { approvalsService, type ExternalApprovalItem } from "@/services/approvals"
 import { channelsService, getTokenHealth, isAutoPublishSupported, type ChannelConnection } from "@/services/channels"
 import type { Content } from "@/types/content"
@@ -32,6 +33,7 @@ export default function ContentDetailPage() {
   const [memoModal, setMemoModal] = useState<"approve" | "reject" | "schedule" | "external-approval" | null>(null)
   const [memo, setMemo] = useState("")
   const [actionLoading, setActionLoading] = useState(false)
+  const [imageLoading, setImageLoading] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -59,6 +61,10 @@ export default function ContentDetailPage() {
   const safeStatus = content?.status && content.status in STATUS_LABELS ? content.status : "draft"
   const safePostType = content?.post_type && content.post_type in POST_TYPE_LABELS ? content.post_type : "text"
   const safeCreatedAt = content?.created_at ? new Date(content.created_at) : null
+  const sourceMetadata = content?.source_metadata || null
+  const imagePrompt = typeof sourceMetadata?.image_prompt === "string" ? sourceMetadata.image_prompt : ""
+  const visualDirection = typeof sourceMetadata?.visual_direction === "string" ? sourceMetadata.visual_direction : ""
+  const contentTopic = typeof sourceMetadata?.display_title === "string" ? sourceMetadata.display_title : content?.title || ""
 
   const connectedChannels = useMemo(
     () => channels.filter((channel) => channel.is_connected),
@@ -100,6 +106,38 @@ export default function ContentDetailPage() {
       router.push("/contents")
     } catch (err) {
       console.error(err)
+    }
+  }
+
+  async function handleGenerateTopicImage() {
+    if (!content) return
+    const prompt = imagePrompt || [content.title, content.text, visualDirection].filter(Boolean).join("\n")
+    if (!prompt.trim()) {
+      setActionError("이미지를 생성할 주제/본문 정보가 부족합니다")
+      return
+    }
+    setActionError(null)
+    setActionNotice(null)
+    setImageLoading(true)
+    try {
+      const result = await aiService.generateImage({
+        prompt,
+        size: "1024x1024",
+        quality: "medium",
+      })
+      if (!result.image_url) {
+        throw new Error("image_url 없음")
+      }
+      const updated = await contentsService.update(content.id, {
+        media_urls: [...safeMediaUrls, result.image_url],
+      })
+      setContent(updated)
+      setActionNotice("주제 기반 이미지를 생성해 콘텐츠에 첨부했습니다.")
+    } catch (err: unknown) {
+      console.error(err)
+      setActionError(getErrorMessage(err, "이미지 생성에 실패했습니다"))
+    } finally {
+      setImageLoading(false)
     }
   }
 
@@ -256,7 +294,7 @@ export default function ContentDetailPage() {
         >
           <ArrowLeft size={18} />
         </button>
-        <h1 className="text-xl font-bold flex-1 truncate">{content.title}</h1>
+        <h1 className="text-xl font-bold flex-1 truncate">{contentTopic}</h1>
         <span
           className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
             STATUS_COLORS[safeStatus]
@@ -290,6 +328,28 @@ export default function ContentDetailPage() {
           </span>
         </div>
 
+        {sourceMetadata && (
+          <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">주제 기반 콘텐츠 설계</p>
+                <p className="text-base font-semibold text-gray-900 mt-1">{contentTopic}</p>
+              </div>
+              {typeof sourceMetadata.sequence === "number" && (
+                <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-blue-700 border border-blue-100">
+                  #{String(sourceMetadata.sequence).padStart(2, "0")}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-gray-600">
+              <div className="rounded-lg bg-white px-3 py-2 border border-blue-100">주차: {sourceMetadata.week ? `${sourceMetadata.week}주차` : "-"}</div>
+              <div className="rounded-lg bg-white px-3 py-2 border border-blue-100">목표: {sourceMetadata.objective || "-"}</div>
+              <div className="rounded-lg bg-white px-3 py-2 border border-blue-100">형식: {sourceMetadata.format || POST_TYPE_LABELS[safePostType]}</div>
+            </div>
+            {visualDirection && <p className="text-sm text-gray-700">이미지 방향: {visualDirection}</p>}
+          </div>
+        )}
+
         {content.text && (
           <div>
             <p className="text-sm font-medium text-gray-700 mb-1.5">본문</p>
@@ -314,6 +374,25 @@ export default function ContentDetailPage() {
             </div>
           </div>
         )}
+
+        <div className="rounded-xl border border-purple-100 bg-purple-50/50 p-4 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-gray-800">주제 맞춤 이미지 생성</p>
+              <p className="text-xs text-gray-500 mt-1">운영계획 주제·목표·포맷을 반영한 이미지 프롬프트로 생성 후 이 콘텐츠에 첨부합니다.</p>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleGenerateTopicImage()}
+              disabled={imageLoading || actionLoading}
+            >
+              {imageLoading ? <Loader2 size={14} className="mr-1.5 animate-spin" /> : <ImagePlus size={14} className="mr-1.5" />}
+              이미지 생성
+            </Button>
+          </div>
+          <p className="text-xs text-gray-500 whitespace-pre-wrap break-words">{imagePrompt || "이미지 프롬프트가 없으면 제목/본문/이미지 방향을 조합해 생성합니다."}</p>
+        </div>
 
         {safeMediaUrls.length > 0 && (
           <div>
