@@ -136,3 +136,58 @@ class GenerateStrategyResponse(BaseModel):
     themes: list[ThemeSchema] = Field(default_factory=list)
     kpi: KPISchema = Field(default_factory=KPISchema)
     notes: str = ""
+
+
+# ── Generate Operation Plan ─────────────────────────────────
+
+class GenerateOperationPlanRequest(BaseModel):
+    brand_name: str = Field(..., description="Brand name to operate")
+    product_summary: str = Field(..., description="Product/service and offer summary")
+    target_audience: str = Field("", description="Target audience to analyze")
+    goals: list[str] = Field(default_factory=list, description="Operation goals")
+    channels: list[str] = Field(default_factory=lambda: ["instagram", "threads"], description="Target SNS channels")
+    benchmark_brands: list[str] = Field(default_factory=list, description="Benchmark brands/accounts")
+    month: str | None = Field(default=None, description="Target month, e.g. 2026-06")
+    season_context: str = Field("", description="Seasonal context or events")
+    budget_level: str = Field("standard", description="lean, standard, aggressive")
+    notes: str = Field("", description="Additional instructions")
+    engine: EngineOverride | None = None
+
+
+class ChannelOperationPlanSchema(BaseModel):
+    channel: str = ""
+    monthly_count: int = 0
+    recommended_formats: list[str] = Field(default_factory=list)
+    role: str = ""
+    cadence: str = ""
+
+
+class WeeklyChannelPlanSchema(BaseModel):
+    channel: str = ""
+    count: int = 0
+    formats: list[str] = Field(default_factory=list)
+
+
+class WeeklyOperationPlanSchema(BaseModel):
+    week: int = 0
+    theme: str = ""
+    objective: str = ""
+    channels: list[WeeklyChannelPlanSchema] = Field(default_factory=list)
+
+
+class GenerateOperationPlanResponse(BaseModel):
+    brand_name: str = ""
+    month: str = ""
+    strategy_summary: str = ""
+    target_insights: list[str] = Field(default_factory=list)
+    product_angles: list[str] = Field(default_factory=list)
+    seasonal_context: str = ""
+    benchmark_source_status: str = "manual_or_pending"
+    benchmark_notes: list[str] = Field(default_factory=list)
+    monthly_volume: dict[str, int] = Field(default_factory=dict)
+    total_monthly_count: int = 0
+    weekly_plan: list[WeeklyOperationPlanSchema] = Field(default_factory=list)
+    channel_plan: list[ChannelOperationPlanSchema] = Field(default_factory=list)
+    approval_checklist: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
