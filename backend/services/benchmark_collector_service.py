@@ -6,8 +6,9 @@ from types import SimpleNamespace
 import uuid
 
 import httpx
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from models.action_language_profile import ActionLanguageProfile
 from models.benchmark_account import BenchmarkAccount
@@ -25,6 +26,7 @@ CTA_RE = re.compile(r"(저장|댓글|문의|신청|클릭|링크|팔로우|구�
 STATUS_LABELS = {
     "live_collected": "실데이터 수집",
     "live_collected_proxy_views": "실데이터 수집(조회수 프록시)",
+    "live_collected_mixed": "실데이터/샘플 혼재",
     "manual_ingest_required": "수동 확인 필요",
     "collector_error": "수집 오류",
     "placeholder_fallback": "샘플 대체",
@@ -44,6 +46,35 @@ DATA_SOURCE_LABELS = {
     "facebook_page_posts": "Facebook 페이지 포스트 API",
     "placeholder_benchmark_pipeline": "샘플 placeholder 데이터",
 }
+
+SUPPORT_LEVEL_LABELS = {
+    "live": "실수집 지원",
+    "manual": "수동 확인 필요",
+    "unimplemented": "미구현",
+}
+
+LIVE_SUPPORTED_PLATFORMS = {"youtube", "x", "instagram", "facebook"}
+MANUAL_SUPPORTED_PLATFORMS = {"threads"}
+
+
+def _optional_bool(value):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "y", "on"}:
+            return True
+        if lowered in {"false", "0", "no", "n", "off"}:
+            return False
+    return bool(value)
+
+
+def _serialize_optional_bool(value):
+    if value is None:
+        return None
+    return _optional_bool(value)
 
 
 class BenchmarkCollectorService:
@@ -76,8 +107,23 @@ class BenchmarkCollectorService:
         result = await self.db.execute(select(BenchmarkAccount).where(BenchmarkAccount.id == account_id))
         return result.scalar_one_or_none()
 
+    async def list_account_diagnostics(
+        self,
+        client_id: uuid.UUID,
+        platform: str | None = None,
+    ) -> list[dict]:
+        platform_normalized = platform.lower() if platform else None
+        accounts = await self.list_accounts(client_id)
+        diagnostics: list[dict] = []
+        for account in accounts:
+            if platform_normalized and account.platform.lower() != platform_normalized:
+                continue
+            diagnostics.append(await self._build_account_diagnostic(account))
+        return diagnostics
+
     async def refresh_account(self, account: BenchmarkAccount, top_k: int = 10, window_days: int = 30) -> dict:
         await self._clear_existing_posts(account.id)
+        refresh_context = await self._build_source_channel_context(account.client_id, account.platform)
 
         try:
             posts, status_payload = await self._collect_live_posts(account, top_k=top_k, window_days=window_days)
@@ -85,10 +131,12 @@ class BenchmarkCollectorService:
             status_payload = {
                 "status": "collector_error",
                 "message": f"실수집 중 오류가 발생했습니다: {e}",
-                "live_supported": False,
+                "live_supported": self._get_support_level(account.platform.lower()) == "live",
                 "platform": account.platform,
-                "source_channel_connected": False,
+                **refresh_context,
             }
+            if status_payload.get("source_channel_connected") and status_payload.get("source_channel_has_token") is False:
+                status_payload["source_channel_missing_reason"] = status_payload.get("source_channel_missing_reason") or "연결 레코드는 있으나 access token 없음"
             posts = []
 
         used_placeholder = False
@@ -97,6 +145,17 @@ class BenchmarkCollectorService:
                 **status_payload,
                 "used_placeholder": False,
                 "message": status_payload.get("message") or "실데이터를 적재하지 못했습니다. 샘플 데이터로 대체하지 않습니다.",
+            }
+        else:
+            post_summary = self._summarize_post_payload_items(posts)
+            status_payload = {
+                **status_payload,
+                **self._build_refresh_status_from_summary(post_summary),
+                "used_placeholder": bool(post_summary.get("used_placeholder")),
+                "data_source": post_summary.get("data_source") or status_payload.get("data_source"),
+                "data_source_label": post_summary.get("data_source_label") or status_payload.get("data_source_label"),
+                "view_metric_type": post_summary.get("view_metric_type") or status_payload.get("view_metric_type"),
+                "view_metric_label": post_summary.get("view_metric_label") or status_payload.get("view_metric_label"),
             }
 
         inserted = await self._insert_posts(account, posts, window_days=window_days) if posts else 0
@@ -107,28 +166,35 @@ class BenchmarkCollectorService:
                 industry_category=client.industry_category,
                 platform=account.platform,
             )
-        return {
+
+        refreshed_at = datetime.now(timezone.utc)
+        response_payload = {
             **status_payload,
             "status_label": STATUS_LABELS.get(status_payload.get("status", ""), status_payload.get("status")),
             "inserted": inserted,
             "profile_id": profile.id if profile else None,
+            "profile_generated": bool(profile and profile.id),
             "used_placeholder": used_placeholder or bool(status_payload.get("used_placeholder")),
+            "refreshed_at": refreshed_at,
         }
+        await self._store_refresh_result(account, response_payload)
+        return response_payload
 
     async def get_top_posts(self, client_id: uuid.UUID, platform: str, top_k: int = 10) -> list[BenchmarkPost]:
         platform_normalized = platform.lower()
         direct_posts = await self._query_top_posts_for_client(client_id, platform_normalized, top_k=top_k)
         if direct_posts:
-            return direct_posts
+            return self._decorate_top_posts_for_reader(client_id, direct_posts)
 
         client = await self._get_client(client_id)
         if not client:
             return []
-        return await self._query_top_posts_for_industry(
+        industry_posts = await self._query_top_posts_for_industry(
             industry_category=client.industry_category,
             platform=platform_normalized,
             top_k=top_k,
         )
+        return self._decorate_top_posts_for_reader(client_id, industry_posts)
 
     async def rebuild_action_language_profile(self, client_id: uuid.UUID, platform: str) -> ActionLanguageProfile | None:
         platform_normalized = platform.lower()
@@ -307,14 +373,31 @@ class BenchmarkCollectorService:
         result = await self.db.execute(select(Client).where(Client.id == client_id, Client.is_deleted.is_(False)))
         return result.scalar_one_or_none()
 
+    def _is_placeholder_post(self, post: BenchmarkPost) -> bool:
+        raw_payload = post.raw_payload if isinstance(post.raw_payload, dict) else {}
+        return str(raw_payload.get("source") or "") == "placeholder_benchmark_pipeline"
+
+    def _filter_top_posts_for_reading(self, posts: list[BenchmarkPost], top_k: int) -> list[BenchmarkPost]:
+        meaningful_posts = [post for post in posts if not self._is_placeholder_post(post)]
+        return meaningful_posts[:top_k]
+
+    def _decorate_top_posts_for_reader(self, client_id: uuid.UUID, posts: list[BenchmarkPost]) -> list[BenchmarkPost]:
+        for post in posts:
+            is_direct_client_post = post.client_id == client_id
+            source_scope = "client_direct" if is_direct_client_post else "industry_fallback"
+            setattr(post, "is_direct_client_post", is_direct_client_post)
+            setattr(post, "source_scope", source_scope)
+            setattr(post, "source_scope_label", "직접 클라이언트" if is_direct_client_post else "업종 fallback")
+        return posts
+
     async def _query_top_posts_for_client(self, client_id: uuid.UUID, platform: str, top_k: int) -> list[BenchmarkPost]:
         result = await self.db.execute(
             select(BenchmarkPost)
             .where(BenchmarkPost.client_id == client_id, BenchmarkPost.platform == platform)
             .order_by(desc(BenchmarkPost.benchmark_score), desc(BenchmarkPost.view_count))
-            .limit(top_k)
+            .limit(max(top_k * 5, 50))
         )
-        return list(result.scalars().all())
+        return self._filter_top_posts_for_reading(list(result.scalars().all()), top_k)
 
     async def _query_top_posts_for_industry(self, industry_category: str, platform: str, top_k: int) -> list[BenchmarkPost]:
         result = await self.db.execute(
@@ -326,9 +409,9 @@ class BenchmarkCollectorService:
                 Client.is_deleted.is_(False),
             )
             .order_by(desc(BenchmarkPost.benchmark_score), desc(BenchmarkPost.view_count))
-            .limit(top_k)
+            .limit(max(top_k * 5, 100))
         )
-        return list(result.scalars().all())
+        return self._filter_top_posts_for_reading(list(result.scalars().all()), top_k)
 
     def _decorate_profile(
         self,
@@ -350,6 +433,284 @@ class BenchmarkCollectorService:
         for row in existing.scalars().all():
             await self.db.delete(row)
         await self.db.flush()
+
+    async def _build_account_diagnostic(self, account: BenchmarkAccount) -> dict:
+        platform = account.platform.lower()
+        support_level = self._get_support_level(platform)
+        support_label = SUPPORT_LEVEL_LABELS[support_level]
+        source_channels = await self._get_source_channels(account.client_id, platform)
+        source_channel = self._pick_best_source_channel(source_channels)
+        source_channel_has_token = self._channel_has_token(source_channel)
+        source_channel_connection_count = len(source_channels)
+        posts = await self._get_posts_for_account(account.id)
+        post_summary = self._summarize_posts(posts)
+        last_refresh = self._get_last_refresh_result(account)
+
+        diagnostic = {
+            "account_id": account.id,
+            "client_id": account.client_id,
+            "platform": platform,
+            "handle": account.handle,
+            "is_active": bool(account.is_active),
+            "support_level": support_level,
+            "support_label": support_label,
+            "status": "manual_ingest_required",
+            "status_label": STATUS_LABELS.get("manual_ingest_required"),
+            "message": "운영 진단을 계산하지 못했습니다.",
+            "live_supported": support_level == "live",
+            "source_channel_connected": bool(source_channel),
+            "source_channel_platform": platform,
+            "source_channel_account_name": getattr(source_channel, "account_name", None) if source_channel else None,
+            "source_channel_missing_reason": None,
+            "source_channel_has_token": source_channel_has_token,
+            "source_channel_connection_count": source_channel_connection_count,
+            "source_channel_duplicate_count": max(source_channel_connection_count - 1, 0),
+            "source_channel_duplicate_warning": source_channel_connection_count > 1,
+            "last_refresh_status": last_refresh.get("status"),
+            "last_refresh_status_label": last_refresh.get("status_label"),
+            "last_refresh_message": last_refresh.get("message"),
+            "last_refresh_inserted": int(last_refresh.get("inserted") or 0),
+            "last_refresh_profile_id": last_refresh.get("profile_id"),
+            "last_refresh_profile_generated": bool(last_refresh.get("profile_generated") or last_refresh.get("profile_id")),
+            "last_refresh_used_placeholder": bool(last_refresh.get("used_placeholder")),
+            "last_refresh_data_source": last_refresh.get("data_source"),
+            "last_refresh_data_source_label": last_refresh.get("data_source_label"),
+            "last_refresh_view_metric_type": last_refresh.get("view_metric_type"),
+            "last_refresh_view_metric_label": last_refresh.get("view_metric_label"),
+            "last_refresh_source_channel_connected": _optional_bool(last_refresh.get("source_channel_connected")),
+            "last_refresh_source_channel_platform": last_refresh.get("source_channel_platform"),
+            "last_refresh_source_channel_account_name": last_refresh.get("source_channel_account_name"),
+            "last_refresh_source_channel_missing_reason": last_refresh.get("source_channel_missing_reason"),
+            "last_refresh_source_channel_has_token": _optional_bool(last_refresh.get("source_channel_has_token")),
+            "last_refresh_source_channel_connection_count": int(last_refresh.get("source_channel_connection_count") or 0),
+            "last_refresh_source_channel_duplicate_count": int(last_refresh.get("source_channel_duplicate_count") or 0),
+            "last_refresh_source_channel_duplicate_warning": _optional_bool(last_refresh.get("source_channel_duplicate_warning")),
+            "last_refresh_at": self._parse_refresh_datetime(last_refresh.get("refreshed_at")),
+            **post_summary,
+        }
+
+        if not account.is_active:
+            diagnostic["status"] = "inactive"
+            diagnostic["status_label"] = "비활성"
+            diagnostic["message"] = "이 계정은 비활성 상태입니다. 활성화 후에만 실수집/수동 점검 대상에 포함됩니다."
+            return diagnostic
+
+        if support_level == "unimplemented":
+            diagnostic["message"] = f"{platform} 실수집기는 아직 구현되지 않았습니다."
+            diagnostic["source_channel_missing_reason"] = f"{platform} 실수집기 미구현"
+            return diagnostic
+
+        if support_level == "manual":
+            diagnostic["message"] = "현재 플랫폼은 자동 실수집이 아니라 운영자가 수동으로 확인해야 합니다."
+            diagnostic["source_channel_missing_reason"] = "자동 실수집 미지원"
+            return diagnostic
+
+        if not source_channel:
+            diagnostic["message"] = f"{platform} 실수집에는 연결된 소스 채널이 필요합니다."
+            diagnostic["source_channel_missing_reason"] = f"연결된 {platform} 채널 토큰 없음"
+            return diagnostic
+
+        if not source_channel_has_token:
+            diagnostic["message"] = "채널은 연결된 것처럼 보이지만 복호화 가능한 access token이 없습니다."
+            diagnostic["source_channel_missing_reason"] = "연결 레코드는 있으나 access token 없음"
+            return diagnostic
+
+        if diagnostic["live_post_count"] == 0 and diagnostic["placeholder_post_count"] == 0 and diagnostic.get("last_refresh_status") == "collector_error":
+            diagnostic["status"] = "collector_error"
+            diagnostic["status_label"] = STATUS_LABELS.get("collector_error")
+            diagnostic["message"] = diagnostic.get("last_refresh_message") or "최근 실수집 중 오류가 발생했습니다."
+            diagnostic["source_channel_missing_reason"] = diagnostic.get("source_channel_missing_reason") or "최근 새로고침에서 collector 오류 발생"
+            return diagnostic
+
+        if diagnostic["live_post_count"] > 0 and diagnostic["placeholder_post_count"] > 0:
+            diagnostic["status"] = "live_collected_mixed"
+            diagnostic["status_label"] = "실데이터/샘플 혼재"
+            diagnostic["message"] = "실데이터와 샘플 대체가 함께 있습니다. 운영 판단 시 분리해서 봐야 합니다."
+            return diagnostic
+
+        if diagnostic["live_post_count"] > 0:
+            if diagnostic["actual_metric_count"] > 0 and diagnostic["proxy_metric_count"] == 0:
+                diagnostic["status"] = "live_collected"
+                diagnostic["status_label"] = STATUS_LABELS.get("live_collected")
+                diagnostic["message"] = "실데이터가 적재되어 있습니다."
+                diagnostic["view_metric_type"] = diagnostic["view_metric_type"] or "actual"
+                diagnostic["view_metric_label"] = diagnostic["view_metric_label"] or VIEW_METRIC_LABELS.get("actual")
+            else:
+                diagnostic["status"] = "live_collected_proxy_views"
+                diagnostic["status_label"] = STATUS_LABELS.get("live_collected_proxy_views")
+                diagnostic["message"] = "실데이터는 적재되어 있으나 조회수는 프록시 지표 기준입니다."
+            return diagnostic
+
+        if diagnostic["placeholder_post_count"] > 0:
+            diagnostic["status"] = "placeholder_fallback"
+            diagnostic["status_label"] = STATUS_LABELS.get("placeholder_fallback")
+            diagnostic["message"] = "현재 적재된 포스트는 샘플 대체 데이터입니다."
+            return diagnostic
+
+        diagnostic["status"] = "no_data_collected"
+        diagnostic["status_label"] = "실데이터 없음"
+        diagnostic["message"] = "연결은 가능하지만 아직 적재된 실데이터가 없습니다. 새로고침 후 collector 상태를 확인해야 합니다."
+        return diagnostic
+
+    async def _get_posts_for_account(self, benchmark_account_id: uuid.UUID) -> list[BenchmarkPost]:
+        result = await self.db.execute(
+            select(BenchmarkPost)
+            .where(BenchmarkPost.benchmark_account_id == benchmark_account_id)
+            .order_by(desc(BenchmarkPost.benchmark_score), desc(BenchmarkPost.view_count))
+        )
+        return list(result.scalars().all())
+
+    def _summarize_posts(self, posts: list[BenchmarkPost]) -> dict:
+        return self._summarize_post_payload_items(
+            [
+                {"raw_payload": post.raw_payload or {}}
+                for post in posts
+            ]
+        )
+
+    def _summarize_post_payload_items(self, items: list[dict]) -> dict:
+        live_post_count = 0
+        placeholder_post_count = 0
+        actual_metric_count = 0
+        proxy_metric_count = 0
+        data_sources: list[str] = []
+        view_metrics: list[str] = []
+
+        for item in items:
+            raw_payload = item.get("raw_payload") or {}
+            source = str(raw_payload.get("source") or "")
+            metric = str(raw_payload.get("view_metric") or "")
+            if source == "placeholder_benchmark_pipeline":
+                placeholder_post_count += 1
+            elif source:
+                live_post_count += 1
+                data_sources.append(source)
+            if metric == "actual":
+                actual_metric_count += 1
+                view_metrics.append(metric)
+            elif metric.startswith("proxy_"):
+                proxy_metric_count += 1
+                view_metrics.append(metric)
+
+        data_source = data_sources[0] if len(set(data_sources)) == 1 and data_sources else None
+        view_metric_type = view_metrics[0] if len(set(view_metrics)) == 1 and view_metrics else None
+        return {
+            "live_post_count": live_post_count,
+            "placeholder_post_count": placeholder_post_count,
+            "actual_metric_count": actual_metric_count,
+            "proxy_metric_count": proxy_metric_count,
+            "total_post_count": len(items),
+            "data_source": data_source,
+            "data_source_label": DATA_SOURCE_LABELS.get(data_source) if data_source else None,
+            "view_metric_type": view_metric_type,
+            "view_metric_label": VIEW_METRIC_LABELS.get(view_metric_type) if view_metric_type else None,
+            "used_placeholder": placeholder_post_count > 0,
+        }
+
+    def _build_refresh_status_from_summary(self, summary: dict) -> dict:
+        live_post_count = int(summary.get("live_post_count") or 0)
+        placeholder_post_count = int(summary.get("placeholder_post_count") or 0)
+        actual_metric_count = int(summary.get("actual_metric_count") or 0)
+        proxy_metric_count = int(summary.get("proxy_metric_count") or 0)
+
+        if live_post_count > 0 and placeholder_post_count > 0:
+            return {
+                "status": "live_collected_mixed",
+                "message": "실데이터와 샘플 대체가 함께 적재되었습니다. 운영 판단 시 분리해서 봐야 합니다.",
+            }
+        if live_post_count > 0:
+            if actual_metric_count > 0 and proxy_metric_count == 0:
+                return {
+                    "status": "live_collected",
+                    "message": "실데이터 수집 완료",
+                }
+            return {
+                "status": "live_collected_proxy_views",
+                "message": "실데이터는 적재되었지만 조회수는 프록시 지표 기준입니다.",
+            }
+        if placeholder_post_count > 0:
+            return {
+                "status": "placeholder_fallback",
+                "message": "현재 적재된 포스트는 샘플 대체 데이터입니다.",
+            }
+        return {}
+
+    def _get_support_level(self, platform: str) -> str:
+        if platform in LIVE_SUPPORTED_PLATFORMS:
+            return "live"
+        if platform in MANUAL_SUPPORTED_PLATFORMS:
+            return "manual"
+        return "unimplemented"
+
+    def _get_last_refresh_result(self, account: BenchmarkAccount) -> dict:
+        metadata = account.metadata_json or {}
+        last_refresh = metadata.get("last_refresh")
+        return last_refresh if isinstance(last_refresh, dict) else {}
+
+    async def _build_source_channel_context(self, client_id: uuid.UUID, platform: str) -> dict:
+        platform_normalized = platform.lower()
+        source_channels = await self._get_source_channels(client_id, platform_normalized)
+        source_channel = self._pick_best_source_channel(source_channels)
+        source_channel_has_token = self._channel_has_token(source_channel)
+        source_channel_connection_count = len(source_channels)
+        return {
+            "source_channel_connected": bool(source_channel),
+            "source_channel_platform": platform_normalized,
+            "source_channel_account_name": getattr(source_channel, "account_name", None) if source_channel else None,
+            "source_channel_missing_reason": None if not source_channel or source_channel_has_token else "연결 레코드는 있으나 access token 없음",
+            "source_channel_has_token": source_channel_has_token,
+            "source_channel_connection_count": source_channel_connection_count,
+            "source_channel_duplicate_count": max(source_channel_connection_count - 1, 0),
+            "source_channel_duplicate_warning": source_channel_connection_count > 1,
+        }
+
+    def _parse_refresh_datetime(self, value: object) -> datetime | None:
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                return None
+        return None
+
+    async def _store_refresh_result(self, account: BenchmarkAccount, payload: dict) -> None:
+        metadata = dict(account.metadata_json or {})
+        metadata["last_refresh"] = {
+            "status": payload.get("status"),
+            "status_label": payload.get("status_label"),
+            "message": payload.get("message"),
+            "inserted": int(payload.get("inserted") or 0),
+            "profile_id": str(payload.get("profile_id")) if payload.get("profile_id") else None,
+            "profile_generated": bool(payload.get("profile_generated") or payload.get("profile_id")),
+            "used_placeholder": bool(payload.get("used_placeholder")),
+            "data_source": payload.get("data_source"),
+            "data_source_label": payload.get("data_source_label"),
+            "view_metric_type": payload.get("view_metric_type"),
+            "view_metric_label": payload.get("view_metric_label"),
+            "source_channel_connected": _serialize_optional_bool(payload.get("source_channel_connected")),
+            "source_channel_platform": payload.get("source_channel_platform"),
+            "source_channel_account_name": payload.get("source_channel_account_name"),
+            "source_channel_missing_reason": payload.get("source_channel_missing_reason"),
+            "source_channel_has_token": _serialize_optional_bool(payload.get("source_channel_has_token")),
+            "source_channel_connection_count": int(payload.get("source_channel_connection_count") or 0),
+            "source_channel_duplicate_count": int(payload.get("source_channel_duplicate_count") or 0),
+            "source_channel_duplicate_warning": _serialize_optional_bool(payload.get("source_channel_duplicate_warning")),
+            "refreshed_at": payload.get("refreshed_at").isoformat() if isinstance(payload.get("refreshed_at"), datetime) else None,
+        }
+        account.metadata_json = metadata
+        flag_modified(account, "metadata_json")
+        await self.db.commit()
+        await self.db.refresh(account)
+
+    def _channel_has_token(self, source_channel: ChannelConnection | None) -> bool | None:
+        if not source_channel:
+            return None
+        if not source_channel.access_token:
+            return False
+        return bool(decrypt_token(source_channel.access_token))
 
     async def _insert_posts(self, account: BenchmarkAccount, posts: list[dict], window_days: int) -> int:
         inserted = 0
@@ -382,19 +743,46 @@ class BenchmarkCollectorService:
 
     async def _collect_live_posts(self, account: BenchmarkAccount, top_k: int, window_days: int) -> tuple[list[dict], dict]:
         platform = account.platform.lower()
-        source_channel = await self._get_source_channel(account.client_id, platform)
+        source_channels = await self._get_source_channels(account.client_id, platform)
+        source_channel = self._pick_best_source_channel(source_channels)
         source_channel_account_name = getattr(source_channel, "account_name", None) if source_channel else None
+        source_channel_has_token = self._channel_has_token(source_channel)
+        source_channel_connection_count = len(source_channels)
+
+        def manual_payload(message: str, missing_reason: str, *, connected: bool | None = None) -> dict:
+            support_level = self._get_support_level(platform)
+            is_connected = bool(source_channel) if connected is None else connected
+            return {
+                "status": "manual_ingest_required",
+                "status_label": STATUS_LABELS.get("manual_ingest_required"),
+                "message": message,
+                "support_level": support_level,
+                "support_label": SUPPORT_LEVEL_LABELS[support_level],
+                "live_supported": support_level == "live",
+                "platform": platform,
+                "source_channel_connected": is_connected,
+                "source_channel_platform": platform,
+                "source_channel_account_name": source_channel_account_name,
+                "source_channel_missing_reason": missing_reason,
+                "source_channel_has_token": source_channel_has_token,
+                "source_channel_connection_count": source_channel_connection_count,
+                "source_channel_duplicate_count": max(source_channel_connection_count - 1, 0),
+                "source_channel_duplicate_warning": source_channel_connection_count > 1,
+            }
+
         if platform == "youtube":
             if not source_channel:
-                return [], {
-                    "status": "manual_ingest_required",
-                    "message": "YouTube 실수집에는 이 클라이언트의 연결된 YouTube 채널 토큰이 필요합니다.",
-                    "live_supported": False,
-                    "platform": platform,
-                    "source_channel_connected": False,
-                    "source_channel_platform": platform,
-                    "source_channel_missing_reason": "연결된 YouTube 채널 토큰 없음",
-                }
+                return [], manual_payload(
+                    "YouTube 실수집에는 이 클라이언트의 연결된 YouTube 채널 토큰이 필요합니다.",
+                    "연결된 YouTube 채널 토큰 없음",
+                    connected=False,
+                )
+            if not source_channel_has_token:
+                return [], manual_payload(
+                    "YouTube 채널은 연결된 것처럼 보이지만 복호화 가능한 access token이 없습니다.",
+                    "연결 레코드는 있으나 access token 없음",
+                    connected=True,
+                )
             posts = await self._collect_youtube_posts(account, source_channel, top_k=top_k, window_days=window_days)
             return posts, {
                 "status": "live_collected",
@@ -404,6 +792,10 @@ class BenchmarkCollectorService:
                 "source_channel_connected": True,
                 "source_channel_platform": platform,
                 "source_channel_account_name": source_channel_account_name,
+                "source_channel_has_token": True,
+                "source_channel_connection_count": source_channel_connection_count,
+                "source_channel_duplicate_count": max(source_channel_connection_count - 1, 0),
+                "source_channel_duplicate_warning": source_channel_connection_count > 1,
                 "data_source": "youtube_api_live",
                 "data_source_label": DATA_SOURCE_LABELS["youtube_api_live"],
                 "view_metric_type": "actual",
@@ -411,15 +803,17 @@ class BenchmarkCollectorService:
             }
         if platform == "x":
             if not source_channel:
-                return [], {
-                    "status": "manual_ingest_required",
-                    "message": "X 실수집에는 이 클라이언트의 연결된 X 채널 토큰이 필요합니다.",
-                    "live_supported": False,
-                    "platform": platform,
-                    "source_channel_connected": False,
-                    "source_channel_platform": platform,
-                    "source_channel_missing_reason": "연결된 X 채널 토큰 없음",
-                }
+                return [], manual_payload(
+                    "X 실수집에는 이 클라이언트의 연결된 X 채널 토큰이 필요합니다.",
+                    "연결된 X 채널 토큰 없음",
+                    connected=False,
+                )
+            if not source_channel_has_token:
+                return [], manual_payload(
+                    "X 채널은 연결된 것처럼 보이지만 복호화 가능한 access token이 없습니다.",
+                    "연결 레코드는 있으나 access token 없음",
+                    connected=True,
+                )
             posts = await self._collect_x_posts(account, source_channel, top_k=top_k)
             return posts, {
                 "status": "live_collected_proxy_views",
@@ -429,6 +823,10 @@ class BenchmarkCollectorService:
                 "source_channel_connected": True,
                 "source_channel_platform": platform,
                 "source_channel_account_name": source_channel_account_name,
+                "source_channel_has_token": True,
+                "source_channel_connection_count": source_channel_connection_count,
+                "source_channel_duplicate_count": max(source_channel_connection_count - 1, 0),
+                "source_channel_duplicate_warning": source_channel_connection_count > 1,
                 "data_source": "x_api_live",
                 "data_source_label": DATA_SOURCE_LABELS["x_api_live"],
                 "view_metric_type": "proxy_from_public_metrics",
@@ -436,15 +834,17 @@ class BenchmarkCollectorService:
             }
         if platform == "instagram":
             if not source_channel:
-                return [], {
-                    "status": "manual_ingest_required",
-                    "message": "Instagram 실수집에는 이 클라이언트의 연결된 Instagram 채널 토큰이 필요합니다.",
-                    "live_supported": False,
-                    "platform": platform,
-                    "source_channel_connected": False,
-                    "source_channel_platform": platform,
-                    "source_channel_missing_reason": "연결된 Instagram 채널 토큰 없음",
-                }
+                return [], manual_payload(
+                    "Instagram 실수집에는 이 클라이언트의 연결된 Instagram 채널 토큰이 필요합니다.",
+                    "연결된 Instagram 채널 토큰 없음",
+                    connected=False,
+                )
+            if not source_channel_has_token:
+                return [], manual_payload(
+                    "Instagram 채널은 연결된 것처럼 보이지만 복호화 가능한 access token이 없습니다.",
+                    "연결 레코드는 있으나 access token 없음",
+                    connected=True,
+                )
             posts = await self._collect_instagram_posts(account, source_channel, top_k=top_k)
             return posts, {
                 "status": "live_collected",
@@ -454,6 +854,10 @@ class BenchmarkCollectorService:
                 "source_channel_connected": True,
                 "source_channel_platform": platform,
                 "source_channel_account_name": source_channel_account_name,
+                "source_channel_has_token": True,
+                "source_channel_connection_count": source_channel_connection_count,
+                "source_channel_duplicate_count": max(source_channel_connection_count - 1, 0),
+                "source_channel_duplicate_warning": source_channel_connection_count > 1,
                 "data_source": "instagram_business_discovery",
                 "data_source_label": DATA_SOURCE_LABELS["instagram_business_discovery"],
                 "view_metric_type": "proxy_from_like_comment",
@@ -461,15 +865,17 @@ class BenchmarkCollectorService:
             }
         if platform == "facebook":
             if not source_channel:
-                return [], {
-                    "status": "manual_ingest_required",
-                    "message": "Facebook 실수집에는 이 클라이언트의 연결된 Facebook 페이지 토큰이 필요합니다.",
-                    "live_supported": False,
-                    "platform": platform,
-                    "source_channel_connected": False,
-                    "source_channel_platform": platform,
-                    "source_channel_missing_reason": "연결된 Facebook 페이지 토큰 없음",
-                }
+                return [], manual_payload(
+                    "Facebook 실수집에는 이 클라이언트의 연결된 Facebook 페이지 토큰이 필요합니다.",
+                    "연결된 Facebook 페이지 토큰 없음",
+                    connected=False,
+                )
+            if not source_channel_has_token:
+                return [], manual_payload(
+                    "Facebook 페이지는 연결된 것처럼 보이지만 복호화 가능한 access token이 없습니다.",
+                    "연결 레코드는 있으나 access token 없음",
+                    connected=True,
+                )
             posts = await self._collect_facebook_posts(account, source_channel, top_k=top_k)
             return posts, {
                 "status": "live_collected_proxy_views",
@@ -479,32 +885,26 @@ class BenchmarkCollectorService:
                 "source_channel_connected": True,
                 "source_channel_platform": platform,
                 "source_channel_account_name": source_channel_account_name,
+                "source_channel_has_token": True,
+                "source_channel_connection_count": source_channel_connection_count,
+                "source_channel_duplicate_count": max(source_channel_connection_count - 1, 0),
+                "source_channel_duplicate_warning": source_channel_connection_count > 1,
                 "data_source": "facebook_page_posts",
                 "data_source_label": DATA_SOURCE_LABELS["facebook_page_posts"],
                 "view_metric_type": "proxy_from_engagement",
                 "view_metric_label": VIEW_METRIC_LABELS["proxy_from_engagement"],
             }
         if platform == "threads":
-            return [], {
-                "status": "manual_ingest_required",
-                "message": "Threads는 공개 벤치마킹용 안정 API가 아직 부족해 수동 수집 대상으로 유지합니다.",
-                "live_supported": False,
-                "platform": platform,
-                "source_channel_connected": False,
-                "source_channel_platform": platform,
-                "source_channel_missing_reason": "Threads 공개 벤치마킹 안정 API 미지원",
-            }
-        return [], {
-            "status": "manual_ingest_required",
-            "message": f"{platform} 실수집기는 아직 미구현입니다.",
-            "live_supported": False,
-            "platform": platform,
-            "source_channel_connected": False,
-            "source_channel_platform": platform,
-            "source_channel_missing_reason": f"{platform} 실수집기 미구현",
-        }
+            return [], manual_payload(
+                "Threads는 공개 벤치마킹용 안정 API가 아직 부족해 수동 수집 대상으로 유지합니다.",
+                "Threads 공개 벤치마킹 안정 API 미지원",
+            )
+        return [], manual_payload(
+            f"{platform} 실수집기는 아직 미구현입니다.",
+            f"{platform} 실수집기 미구현",
+        )
 
-    async def _get_source_channel(self, client_id: uuid.UUID, platform: str) -> ChannelConnection | None:
+    async def _get_source_channels(self, client_id: uuid.UUID, platform: str) -> list[ChannelConnection]:
         result = await self.db.execute(
             select(ChannelConnection)
             .where(
@@ -512,9 +912,21 @@ class BenchmarkCollectorService:
                 ChannelConnection.channel_type == platform,
                 ChannelConnection.is_connected.is_(True),
             )
-            .order_by(ChannelConnection.updated_at.desc())
+            .order_by(ChannelConnection.updated_at.desc(), ChannelConnection.created_at.desc())
         )
-        return result.scalars().first()
+        return list(result.scalars().all())
+
+    def _pick_best_source_channel(self, channels: list[ChannelConnection]) -> ChannelConnection | None:
+        if not channels:
+            return None
+        for channel in channels:
+            if self._channel_has_token(channel):
+                return channel
+        return channels[0]
+
+    async def _get_source_channel(self, client_id: uuid.UUID, platform: str) -> ChannelConnection | None:
+        channels = await self._get_source_channels(client_id, platform)
+        return self._pick_best_source_channel(channels)
 
     async def _collect_youtube_posts(
         self,

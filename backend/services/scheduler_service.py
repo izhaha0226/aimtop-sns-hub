@@ -17,11 +17,38 @@ from models.content import Content
 from models.channel import ChannelConnection
 from services.channel_health_service import ChannelHealthService
 from services.sns_publisher import SNSPublisher
+from services.sns_oauth import decrypt_token
 
 logger = logging.getLogger(__name__)
 
 publisher = SNSPublisher()
 last_channel_health_check: datetime | None = None
+
+
+def _reset_content_publish_evidence(content: Content) -> None:
+    content.platform_post_id = None
+    content.published_url = None
+    content.published_at = None
+
+
+def _mark_content_publish_failed(
+    content: Content | None,
+    *,
+    channel_connection_id: uuid.UUID | None,
+    error_message: str,
+) -> None:
+    if content is None:
+        return
+    content.channel_connection_id = channel_connection_id
+    content.status = "failed"
+    _reset_content_publish_evidence(content)
+    content.publish_error = error_message[:500]
+
+
+def _channel_has_access_token(channel: ChannelConnection | None) -> bool:
+    if not channel or not channel.access_token:
+        return False
+    return bool(decrypt_token(channel.access_token))
 
 
 class SchedulerService:
@@ -72,6 +99,10 @@ class SchedulerService:
         channel = channel_result.scalar_one_or_none()
         if not channel:
             raise ValueError("채널 연결을 찾을 수 없습니다")
+        if not channel.is_connected:
+            raise ValueError("연결된 채널을 찾을 수 없습니다")
+        if not _channel_has_access_token(channel):
+            raise ValueError("연결 레코드는 있으나 access token 없음")
         if not SNSPublisher.is_supported_platform(channel.channel_type):
             raise ValueError(f"{channel.channel_type} 채널은 아직 실제 발행 자동화를 지원하지 않습니다")
         if channel.token_expires_at and channel.token_expires_at <= datetime.now(timezone.utc):
@@ -192,9 +223,24 @@ class SchedulerService:
 
                     if not content or not channel:
                         schedule.status = "failed"
+                        schedule.platform_post_id = None
+                        schedule.published_at = None
                         schedule.error_message = "콘텐츠 또는 채널을 찾을 수 없습니다"
+                        _mark_content_publish_failed(
+                            content,
+                            channel_connection_id=schedule.channel_connection_id,
+                            error_message=schedule.error_message,
+                        )
                         await db.commit()
                         continue
+                    if not channel.is_connected:
+                        raise ValueError("연결된 채널을 찾을 수 없습니다")
+                    if not _channel_has_access_token(channel):
+                        raise ValueError("연결 레코드는 있으나 access token 없음")
+                    if not SNSPublisher.is_supported_platform(channel.channel_type):
+                        raise ValueError(f"{channel.channel_type} 채널은 아직 실제 발행 자동화를 지원하지 않습니다")
+                    if channel.token_expires_at and channel.token_expires_at <= datetime.now(timezone.utc):
+                        raise ValueError(f"{channel.channel_type} 채널 토큰이 만료되어 재인증이 필요합니다")
 
                     # 발행 실행
                     pub_result = await publisher.publish(channel, content)
@@ -223,18 +269,31 @@ class SchedulerService:
                     )
 
                 except Exception as e:
+                    error_message = str(e)[:500]
                     schedule.status = "failed"
-                    schedule.error_message = str(e)[:500]
+                    schedule.platform_post_id = None
+                    schedule.published_at = None
+                    schedule.error_message = error_message
                     schedule.retry_count = (schedule.retry_count or 0) + 1
 
                     # 3회 미만 실패 시 다시 pending으로 (재시도)
                     if schedule.retry_count < 3:
                         schedule.status = "pending"
+                        _mark_content_publish_failed(
+                            content,
+                            channel_connection_id=schedule.channel_connection_id,
+                            error_message=f"예약 발행 재시도 중 ({schedule.retry_count}/3): {error_message}",
+                        )
                         logger.warning(
                             f"Schedule retry ({schedule.retry_count}/3): "
                             f"content={schedule.content_id}, error={e}"
                         )
                     else:
+                        _mark_content_publish_failed(
+                            content,
+                            channel_connection_id=schedule.channel_connection_id,
+                            error_message=error_message,
+                        )
                         logger.error(
                             f"Schedule failed permanently: "
                             f"content={schedule.content_id}, error={e}"

@@ -18,12 +18,37 @@ from models.channel import ChannelConnection
 from models.user import User
 from middleware.auth import get_current_user
 from services.sns_publisher import SNSPublisher
+from services.sns_oauth import decrypt_token
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/publish", tags=["publish"])
 
 publisher = SNSPublisher()
+
+
+def _reset_publish_evidence(content: Content) -> None:
+    content.platform_post_id = None
+    content.published_url = None
+    content.published_at = None
+
+
+def _mark_publish_failed(
+    content: Content,
+    *,
+    channel_connection_id: uuid.UUID | None,
+    error_message: str,
+) -> None:
+    content.channel_connection_id = channel_connection_id
+    content.status = "failed"
+    _reset_publish_evidence(content)
+    content.publish_error = error_message[:500]
+
+
+def _channel_has_access_token(channel: ChannelConnection | None) -> bool:
+    if not channel or not channel.access_token:
+        return False
+    return bool(decrypt_token(channel.access_token))
 
 
 async def _get_content_or_404(content_id: uuid.UUID, db: AsyncSession) -> Content:
@@ -69,12 +94,45 @@ async def publish_content(
             detail=f"승인된 콘텐츠만 발행 가능합니다 (현재 상태: {content.status})",
         )
 
-    channel = await _get_channel_or_404(channel_connection_id, db)
-    if not SNSPublisher.is_supported_platform(channel.channel_type):
-        raise HTTPException(
-            status_code=400,
-            detail=f"{channel.channel_type} 채널은 아직 실제 발행 자동화를 지원하지 않습니다",
+    channel_result = await db.execute(
+        select(ChannelConnection).where(
+            ChannelConnection.id == channel_connection_id,
+            ChannelConnection.is_connected == True,
         )
+    )
+    channel = channel_result.scalar_one_or_none()
+    if not channel:
+        _mark_publish_failed(
+            content,
+            channel_connection_id=channel_connection_id,
+            error_message="연결된 채널을 찾을 수 없습니다",
+        )
+        await db.commit()
+        raise HTTPException(status_code=404, detail=content.publish_error)
+    if not _channel_has_access_token(channel):
+        _mark_publish_failed(
+            content,
+            channel_connection_id=channel.id,
+            error_message="연결 레코드는 있으나 access token 없음",
+        )
+        await db.commit()
+        raise HTTPException(status_code=400, detail=content.publish_error)
+    if channel.token_expires_at and channel.token_expires_at <= datetime.now(timezone.utc):
+        _mark_publish_failed(
+            content,
+            channel_connection_id=channel.id,
+            error_message=f"{channel.channel_type} 채널 토큰이 만료되어 재인증이 필요합니다",
+        )
+        await db.commit()
+        raise HTTPException(status_code=400, detail=content.publish_error)
+    if not SNSPublisher.is_supported_platform(channel.channel_type):
+        _mark_publish_failed(
+            content,
+            channel_connection_id=channel.id,
+            error_message=f"{channel.channel_type} 채널은 아직 실제 발행 자동화를 지원하지 않습니다",
+        )
+        await db.commit()
+        raise HTTPException(status_code=400, detail=content.publish_error)
 
     try:
         result = await publisher.publish(channel, content)
@@ -82,9 +140,11 @@ async def publish_content(
         published_url = result.get("url")
 
         if not platform_post_id and not published_url:
-            content.status = "failed"
-            content.channel_connection_id = channel.id
-            content.publish_error = "발행 응답에 platform_post_id/published_url 증거가 없어 published 처리하지 않았습니다"
+            _mark_publish_failed(
+                content,
+                channel_connection_id=channel.id,
+                error_message="발행 응답에 platform_post_id/published_url 증거가 없어 published 처리하지 않았습니다",
+            )
             await db.commit()
             raise HTTPException(status_code=502, detail=content.publish_error)
 
@@ -117,8 +177,11 @@ async def publish_content(
         raise
     except Exception as e:
         # 발행 실패: 에러 기록
-        content.status = "failed"
-        content.publish_error = str(e)
+        _mark_publish_failed(
+            content,
+            channel_connection_id=channel.id,
+            error_message=str(e),
+        )
         await db.commit()
 
         logger.error(

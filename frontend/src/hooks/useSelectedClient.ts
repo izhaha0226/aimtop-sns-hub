@@ -7,6 +7,7 @@ import { getSelectedClientId, SELECTED_CLIENT_EVENT, setSelectedClientId } from 
 interface Client {
   id: string
   name: string
+  industry_category?: string | null
 }
 
 export function useSelectedClient() {

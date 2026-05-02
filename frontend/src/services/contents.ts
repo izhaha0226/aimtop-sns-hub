@@ -17,6 +17,7 @@ function normalizeContent(content: unknown): Content {
     author_name: item.author_name || undefined,
     memo: item.memo || undefined,
     channel_connection_id: item.channel_connection_id || null,
+    platform_post_id: item.platform_post_id || null,
     published_url: item.published_url || null,
     publish_error: item.publish_error || null,
     scheduled_at: item.scheduled_at || undefined,

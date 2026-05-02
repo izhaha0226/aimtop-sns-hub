@@ -11,6 +11,8 @@ class ContentCreate(BaseModel):
     text: str | None = None
     media_urls: list[str] | None = None
     hashtags: list[str] | None = None
+    operation_plan_id: uuid.UUID | None = None
+    source_metadata: dict[str, Any] | None = None
 
 
 class ContentUpdate(BaseModel):
@@ -32,6 +34,9 @@ class ContentResponse(BaseModel):
     hashtags: list[Any] | None
     status: str
     channel_connection_id: uuid.UUID | None = None
+    operation_plan_id: uuid.UUID | None = None
+    source_metadata: dict[str, Any] | None = None
+    platform_post_id: str | None = None
     published_url: str | None = None
     publish_error: str | None = None
     scheduled_at: datetime | None

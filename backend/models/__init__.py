@@ -20,6 +20,7 @@ from models.benchmark_account import BenchmarkAccount
 from models.benchmark_post import BenchmarkPost
 from models.action_language_profile import ActionLanguageProfile
 from models.industry_action_language_profile import IndustryActionLanguageProfile
+from models.operation_plan import OperationPlan
 
 __all__ = [
     "Base",
@@ -47,4 +48,5 @@ __all__ = [
     "BenchmarkPost",
     "ActionLanguageProfile",
     "IndustryActionLanguageProfile",
+    "OperationPlan",
 ]

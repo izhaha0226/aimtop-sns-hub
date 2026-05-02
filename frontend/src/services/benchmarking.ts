@@ -17,6 +17,7 @@ export interface BenchmarkAccountItem {
 export interface BenchmarkPostItem {
   id: string
   benchmark_account_id: string
+  client_id: string
   platform: string
   external_post_id?: string | null
   post_url?: string | null
@@ -33,6 +34,9 @@ export interface BenchmarkPostItem {
   benchmark_score: number
   published_at?: string | null
   raw_payload?: Record<string, unknown> | null
+  source_scope?: string | null
+  source_scope_label?: string | null
+  is_direct_client_post?: boolean
 }
 
 export interface ActionLanguageProfileItem {
@@ -58,6 +62,9 @@ export interface RefreshAccountResult {
   message: string
   inserted: number
   profile_id?: string | null
+  profile_generated?: boolean
+  support_level?: string | null
+  support_label?: string | null
   live_supported?: boolean
   platform?: string
   used_placeholder?: boolean
@@ -65,10 +72,67 @@ export interface RefreshAccountResult {
   data_source_label?: string | null
   view_metric_type?: string | null
   view_metric_label?: string | null
-  source_channel_connected?: boolean
+  source_channel_connected?: boolean | null
   source_channel_platform?: string | null
   source_channel_account_name?: string | null
   source_channel_missing_reason?: string | null
+  source_channel_has_token?: boolean | null
+  source_channel_connection_count?: number
+  source_channel_duplicate_count?: number
+  source_channel_duplicate_warning?: boolean | null
+  refreshed_at?: string | null
+}
+
+export interface BenchmarkAccountDiagnosticItem {
+  account_id: string
+  client_id: string
+  platform: string
+  handle: string
+  is_active: boolean
+  support_level: string
+  support_label: string
+  status: string
+  status_label?: string | null
+  message: string
+  live_supported: boolean
+  source_channel_connected: boolean
+  source_channel_platform?: string | null
+  source_channel_account_name?: string | null
+  source_channel_missing_reason?: string | null
+  source_channel_has_token?: boolean | null
+  source_channel_connection_count: number
+  source_channel_duplicate_count: number
+  source_channel_duplicate_warning: boolean
+  live_post_count: number
+  placeholder_post_count: number
+  actual_metric_count: number
+  proxy_metric_count: number
+  total_post_count: number
+  data_source?: string | null
+  data_source_label?: string | null
+  view_metric_type?: string | null
+  view_metric_label?: string | null
+  used_placeholder: boolean
+  last_refresh_status?: string | null
+  last_refresh_status_label?: string | null
+  last_refresh_message?: string | null
+  last_refresh_inserted?: number
+  last_refresh_profile_id?: string | null
+  last_refresh_profile_generated?: boolean
+  last_refresh_used_placeholder?: boolean
+  last_refresh_data_source?: string | null
+  last_refresh_data_source_label?: string | null
+  last_refresh_view_metric_type?: string | null
+  last_refresh_view_metric_label?: string | null
+  last_refresh_source_channel_connected?: boolean | null
+  last_refresh_source_channel_platform?: string | null
+  last_refresh_source_channel_account_name?: string | null
+  last_refresh_source_channel_missing_reason?: string | null
+  last_refresh_source_channel_has_token?: boolean | null
+  last_refresh_source_channel_connection_count?: number
+  last_refresh_source_channel_duplicate_count?: number
+  last_refresh_source_channel_duplicate_warning?: boolean | null
+  last_refresh_at?: string | null
 }
 
 export const benchmarkingService = {
@@ -92,6 +156,16 @@ export const benchmarkingService = {
       params: { top_k: topK, window_days: windowDays },
     })
     return res.data as RefreshAccountResult
+  },
+
+  async listAccountDiagnostics(clientId: string, platform?: string) {
+    const res = await api.get("/api/v1/benchmarking/account-diagnostics", {
+      params: {
+        client_id: clientId,
+        ...(platform ? { platform } : {}),
+      },
+    })
+    return Array.isArray(res.data) ? (res.data as BenchmarkAccountDiagnosticItem[]) : []
   },
 
   async getTopPosts(clientId: string, platform: string, topK = 10) {

@@ -561,10 +561,12 @@ export default function ContentDetailPage() {
         )}
 
         {content.status === "published" && (
-          <span className="text-sm text-gray-400 py-1">
-            {content.published_at
-              ? `${new Date(content.published_at).toLocaleString("ko-KR")} 발행됨`
-              : "발행됨"}
+          <span className={`text-sm py-1 ${publishedWithoutEvidence ? "text-amber-700" : "text-gray-400"}`}>
+            {publishedWithoutEvidence
+              ? "published 상태지만 증거 미확인"
+              : content.published_at
+                ? `${new Date(content.published_at).toLocaleString("ko-KR")} 발행됨`
+                : "발행됨"}
           </span>
         )}
       </div>

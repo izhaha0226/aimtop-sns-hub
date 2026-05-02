@@ -9,6 +9,7 @@ from models.user import User
 from schemas.benchmarking import (
     ActionLanguageProfileResponse,
     BenchmarkAccountCreateRequest,
+    BenchmarkAccountDiagnosticResponse,
     BenchmarkAccountResponse,
     BenchmarkAccountUpdateRequest,
     BenchmarkPostResponse,
@@ -66,6 +67,17 @@ async def refresh_account(
     if not account:
         raise HTTPException(status_code=404, detail="Benchmark account not found")
     return await svc.refresh_account(account, top_k=top_k, window_days=window_days)
+
+
+@router.get("/account-diagnostics", response_model=list[BenchmarkAccountDiagnosticResponse])
+async def list_account_diagnostics(
+    client_id: uuid.UUID,
+    platform: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    svc = BenchmarkCollectorService(db)
+    return await svc.list_account_diagnostics(client_id=client_id, platform=platform)
 
 
 @router.get("/top-posts", response_model=list[BenchmarkPostResponse])

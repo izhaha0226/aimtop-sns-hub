@@ -37,10 +37,13 @@ class BenchmarkAccountResponse(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
+    model_config = {"from_attributes": True}
+
 
 class BenchmarkPostResponse(BaseModel):
     id: uuid.UUID
     benchmark_account_id: uuid.UUID
+    client_id: uuid.UUID
     platform: str
     external_post_id: str | None = None
     post_url: str | None = None
@@ -57,6 +60,11 @@ class BenchmarkPostResponse(BaseModel):
     benchmark_score: float = 0.0
     published_at: datetime | None = None
     raw_payload: dict | None = None
+    source_scope: str = "client_direct"
+    source_scope_label: str = "직접 클라이언트"
+    is_direct_client_post: bool = True
+
+    model_config = {"from_attributes": True}
 
 
 class RefreshAccountResponse(BaseModel):
@@ -65,6 +73,9 @@ class RefreshAccountResponse(BaseModel):
     message: str
     inserted: int = 0
     profile_id: uuid.UUID | None = None
+    profile_generated: bool = False
+    support_level: str | None = None
+    support_label: str | None = None
     live_supported: bool = False
     platform: str | None = None
     used_placeholder: bool = False
@@ -72,10 +83,67 @@ class RefreshAccountResponse(BaseModel):
     data_source_label: str | None = None
     view_metric_type: str | None = None
     view_metric_label: str | None = None
+    source_channel_connected: bool | None = None
+    source_channel_platform: str | None = None
+    source_channel_account_name: str | None = None
+    source_channel_missing_reason: str | None = None
+    source_channel_has_token: bool | None = None
+    source_channel_connection_count: int = 0
+    source_channel_duplicate_count: int = 0
+    source_channel_duplicate_warning: bool | None = None
+    refreshed_at: datetime | None = None
+
+
+class BenchmarkAccountDiagnosticResponse(BaseModel):
+    account_id: uuid.UUID
+    client_id: uuid.UUID
+    platform: str
+    handle: str
+    is_active: bool = True
+    support_level: str
+    support_label: str
+    status: str
+    status_label: str | None = None
+    message: str
+    live_supported: bool = False
     source_channel_connected: bool = False
     source_channel_platform: str | None = None
     source_channel_account_name: str | None = None
     source_channel_missing_reason: str | None = None
+    source_channel_has_token: bool | None = None
+    source_channel_connection_count: int = 0
+    source_channel_duplicate_count: int = 0
+    source_channel_duplicate_warning: bool = False
+    live_post_count: int = 0
+    placeholder_post_count: int = 0
+    actual_metric_count: int = 0
+    proxy_metric_count: int = 0
+    total_post_count: int = 0
+    data_source: str | None = None
+    data_source_label: str | None = None
+    view_metric_type: str | None = None
+    view_metric_label: str | None = None
+    used_placeholder: bool = False
+    last_refresh_status: str | None = None
+    last_refresh_status_label: str | None = None
+    last_refresh_message: str | None = None
+    last_refresh_inserted: int = 0
+    last_refresh_profile_id: uuid.UUID | None = None
+    last_refresh_profile_generated: bool = False
+    last_refresh_used_placeholder: bool = False
+    last_refresh_data_source: str | None = None
+    last_refresh_data_source_label: str | None = None
+    last_refresh_view_metric_type: str | None = None
+    last_refresh_view_metric_label: str | None = None
+    last_refresh_source_channel_connected: bool | None = None
+    last_refresh_source_channel_platform: str | None = None
+    last_refresh_source_channel_account_name: str | None = None
+    last_refresh_source_channel_missing_reason: str | None = None
+    last_refresh_source_channel_has_token: bool | None = None
+    last_refresh_source_channel_connection_count: int = 0
+    last_refresh_source_channel_duplicate_count: int = 0
+    last_refresh_source_channel_duplicate_warning: bool | None = None
+    last_refresh_at: datetime | None = None
 
 
 class ActionLanguageProfileResponse(BaseModel):
