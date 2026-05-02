@@ -65,7 +65,7 @@ export default function ContentComposer({ mode }: Props) {
   const [conceptSets, setConceptSets] = useState<ConceptSet[]>([])
   const [engineProviders, setEngineProviders] = useState<LLMProviderConfigItem[]>([])
   const [engineProvider, setEngineProvider] = useState("gpt")
-  const [engineModel, setEngineModel] = useState("gpt-5.4")
+  const [engineModel, setEngineModel] = useState("gpt-5.5")
   const [benchmarkTopK, setBenchmarkTopK] = useState(10)
   const [benchmarkWindowDays, setBenchmarkWindowDays] = useState(30)
   const [applyBenchmarkPattern, setApplyBenchmarkPattern] = useState(true)

@@ -18,13 +18,33 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROVIDER_ROWS = [
     {
         "provider_name": "gpt",
-        "model_name": "gpt-5.4",
-        "label": "GPT-5.4",
+        "model_name": "gpt-5.5",
+        "label": "GPT-5.5 · 최신/고성능",
         "is_default": True,
         "supports_json": True,
         "supports_reasoning": True,
-        "max_tokens": 4096,
+        "max_tokens": 8192,
+        "timeout_seconds": 75,
+    },
+    {
+        "provider_name": "gpt",
+        "model_name": "gpt-5.4",
+        "label": "GPT-5.4 · 안정형",
+        "is_default": False,
+        "supports_json": True,
+        "supports_reasoning": True,
+        "max_tokens": 8192,
         "timeout_seconds": 60,
+    },
+    {
+        "provider_name": "gpt",
+        "model_name": "gpt-5.4-mini",
+        "label": "GPT-5.4 Mini · 빠른/저비용",
+        "is_default": False,
+        "supports_json": True,
+        "supports_reasoning": True,
+        "max_tokens": 4096,
+        "timeout_seconds": 45,
     },
     {
         "provider_name": "claude",
@@ -52,35 +72,35 @@ DEFAULT_TASK_POLICIES = {
     "strategy": {
         "routing_mode": "manual",
         "primary_provider": "gpt",
-        "primary_model": "gpt-5.4",
+        "primary_model": "gpt-5.5",
         "fallback_provider": "claude",
         "fallback_model": "claude-opus-5.7",
     },
     "benchmark_analysis": {
         "routing_mode": "manual",
         "primary_provider": "gpt",
-        "primary_model": "gpt-5.4",
+        "primary_model": "gpt-5.5",
         "fallback_provider": "claude",
         "fallback_model": "claude-opus-5.7",
     },
     "copy_generation": {
         "routing_mode": "manual",
         "primary_provider": "gpt",
-        "primary_model": "gpt-5.4",
+        "primary_model": "gpt-5.5",
         "fallback_provider": "claude",
         "fallback_model": "claude-opus-5.7",
     },
     "report_summary": {
         "routing_mode": "manual",
         "primary_provider": "gpt",
-        "primary_model": "gpt-5.4",
+        "primary_model": "gpt-5.5",
         "fallback_provider": "claude",
         "fallback_model": "claude-opus-5.7",
     },
     "comment_reply_draft": {
         "routing_mode": "manual",
         "primary_provider": "gpt",
-        "primary_model": "gpt-5.4",
+        "primary_model": "gpt-5.5",
         "fallback_provider": "claude",
         "fallback_model": "claude-opus-5.7",
     },
@@ -143,7 +163,7 @@ class LLMRouter:
         override = override or {}
         policy = await self._get_task_policy(task_type)
         provider = override.get("provider") or policy.get("primary_provider") or "gpt"
-        model = override.get("model") or policy.get("primary_model") or "gpt-5.4"
+        model = override.get("model") or policy.get("primary_model") or "gpt-5.5"
         provider_cfg = await self._get_provider_config(provider, model)
         timeout = int(override.get("timeout") or (provider_cfg.timeout_seconds if provider_cfg else 60))
 

@@ -15,7 +15,7 @@ class LLMTaskPolicy(Base):
     task_type: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
     routing_mode: Mapped[str] = mapped_column(String(30), default="manual")
     primary_provider: Mapped[str] = mapped_column(String(50), default="gpt")
-    primary_model: Mapped[str] = mapped_column(String(120), default="gpt-5.4")
+    primary_model: Mapped[str] = mapped_column(String(120), default="gpt-5.5")
     fallback_provider: Mapped[str | None] = mapped_column(String(50))
     fallback_model: Mapped[str | None] = mapped_column(String(120))
     top_k: Mapped[int] = mapped_column(Integer, default=10)

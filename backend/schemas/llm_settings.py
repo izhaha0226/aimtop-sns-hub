@@ -33,7 +33,7 @@ class LLMTaskPolicyResponse(BaseModel):
     task_type: str
     routing_mode: str = "manual"
     primary_provider: str = "gpt"
-    primary_model: str = "gpt-5.4"
+    primary_model: str = "gpt-5.5"
     fallback_provider: str | None = None
     fallback_model: str | None = None
     top_k: int = 10

@@ -19,21 +19,58 @@ router = APIRouter(prefix="/api/v1/admin/ai-settings", tags=["admin-ai-settings"
 
 
 async def _ensure_default_provider_rows(db: AsyncSession) -> None:
-    result = await db.execute(select(LLMProviderConfig))
-    if result.scalars().first():
-        return
+    """Insert newly supported models without deleting operator settings."""
+    changed = False
     for row in DEFAULT_PROVIDER_ROWS:
-        db.add(LLMProviderConfig(**row))
-    await db.commit()
+        result = await db.execute(
+            select(LLMProviderConfig).where(
+                LLMProviderConfig.provider_name == row["provider_name"],
+                LLMProviderConfig.model_name == row["model_name"],
+            )
+        )
+        existing = result.scalar_one_or_none()
+        if not existing:
+            db.add(LLMProviderConfig(**row))
+            changed = True
+            continue
+        existing.label = row["label"]
+        existing.supports_json = row["supports_json"]
+        existing.supports_reasoning = row["supports_reasoning"]
+        existing.max_tokens = row["max_tokens"]
+        if existing.model_name == "gpt-5.5":
+            existing.is_active = True
+            existing.is_default = True
+            existing.timeout_seconds = max(existing.timeout_seconds or 0, row["timeout_seconds"])
+            changed = True
+    default_result = await db.execute(select(LLMProviderConfig))
+    for item in default_result.scalars().all():
+        should_be_default = item.provider_name == "gpt" and item.model_name == "gpt-5.5"
+        if item.is_default != should_be_default:
+            item.is_default = should_be_default
+            changed = True
+    if changed:
+        await db.commit()
 
 
 async def _ensure_default_task_policies(db: AsyncSession) -> None:
-    result = await db.execute(select(LLMTaskPolicy))
-    if result.scalars().first():
-        return
+    """Create missing policies and migrate old default GPT 5.4 routes to GPT 5.5."""
+    changed = False
     for task_type, row in DEFAULT_TASK_POLICIES.items():
-        db.add(LLMTaskPolicy(task_type=task_type, **row))
-    await db.commit()
+        result = await db.execute(select(LLMTaskPolicy).where(LLMTaskPolicy.task_type == task_type))
+        existing = result.scalar_one_or_none()
+        if not existing:
+            db.add(LLMTaskPolicy(task_type=task_type, **row))
+            changed = True
+            continue
+        if existing.primary_provider == "gpt" and existing.primary_model == "gpt-5.4":
+            existing.primary_model = row["primary_model"]
+            changed = True
+        if existing.fallback_enabled and existing.fallback_provider is None:
+            existing.fallback_provider = row.get("fallback_provider")
+            existing.fallback_model = row.get("fallback_model")
+            changed = True
+    if changed:
+        await db.commit()
 
 
 @router.get("/providers", response_model=list[LLMProviderConfigResponse])
