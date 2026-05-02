@@ -12,6 +12,9 @@ class ContentCreate(BaseModel):
     media_urls: list[str] | None = None
     hashtags: list[str] | None = None
     operation_plan_id: uuid.UUID | None = None
+    topic_id: uuid.UUID | None = None
+    target_platform: str | None = None
+    variant_role: str | None = None
     source_metadata: dict[str, Any] | None = None
 
 
@@ -21,6 +24,9 @@ class ContentUpdate(BaseModel):
     text: str | None = None
     media_urls: list[str] | None = None
     hashtags: list[str] | None = None
+    topic_id: uuid.UUID | None = None
+    target_platform: str | None = None
+    variant_role: str | None = None
 
 
 class ContentResponse(BaseModel):
@@ -35,6 +41,9 @@ class ContentResponse(BaseModel):
     status: str
     channel_connection_id: uuid.UUID | None = None
     operation_plan_id: uuid.UUID | None = None
+    topic_id: uuid.UUID | None = None
+    target_platform: str | None = None
+    variant_role: str | None = None
     source_metadata: dict[str, Any] | None = None
     platform_post_id: str | None = None
     published_url: str | None = None

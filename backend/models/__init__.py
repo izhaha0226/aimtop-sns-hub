@@ -3,6 +3,7 @@ from models.client import Client, ClientUser
 from models.log import UserActivityLog, UserPermissionLog
 from models.user import User
 from models.content import Content, ContentVersion
+from models.content_topic import ContentTopic
 from models.channel import ChannelConnection
 from models.approval import Approval
 from models.schedule import Schedule
@@ -31,6 +32,7 @@ __all__ = [
     "UserPermissionLog",
     "Content",
     "ContentVersion",
+    "ContentTopic",
     "ChannelConnection",
     "Approval",
     "Schedule",

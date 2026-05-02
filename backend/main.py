@@ -12,7 +12,7 @@ from core.config import settings
 from core.database import init_db, engine
 import models  # noqa: F401
 from routes import auth, users, clients, health, onboarding
-from routes import contents, channels, dashboard, media
+from routes import contents, content_topics, channels, dashboard, media
 from routes import oauth, publish, ai
 from routes import schedule, comments, auto_reply
 from routes import analytics, notifications
@@ -28,6 +28,9 @@ async def ensure_columns():
         "ALTER TABLE contents ADD COLUMN IF NOT EXISTS published_url VARCHAR(2000)",
         "ALTER TABLE contents ADD COLUMN IF NOT EXISTS channel_connection_id UUID",
         "ALTER TABLE contents ADD COLUMN IF NOT EXISTS publish_error TEXT",
+        "ALTER TABLE contents ADD COLUMN IF NOT EXISTS topic_id UUID",
+        "ALTER TABLE contents ADD COLUMN IF NOT EXISTS target_platform VARCHAR(50)",
+        "ALTER TABLE contents ADD COLUMN IF NOT EXISTS variant_role VARCHAR(50)",
     ]
     try:
         async with engine.connect() as conn:
@@ -104,6 +107,7 @@ app.include_router(users.router)
 app.include_router(clients.router)
 app.include_router(onboarding.router)
 app.include_router(contents.router)
+app.include_router(content_topics.router)
 app.include_router(channels.router)
 app.include_router(dashboard.router)
 app.include_router(media.router)

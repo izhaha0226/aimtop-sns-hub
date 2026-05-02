@@ -59,6 +59,11 @@ class Content(Base):
     operation_plan_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("operation_plans.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    topic_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("content_topics.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    target_platform: Mapped[str | None] = mapped_column(String(50), index=True)
+    variant_role: Mapped[str | None] = mapped_column(String(50))
     source_metadata: Mapped[dict | None] = mapped_column(JSON)
     publish_error: Mapped[str | None] = mapped_column(Text)
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
