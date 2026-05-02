@@ -1,9 +1,16 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { ArrowLeft, ImagePlus, FileText, LayoutTemplate, Sparkles } from "lucide-react"
+import { ArrowLeft, ImagePlus, FileText, LayoutTemplate, Sparkles, Share2 } from "lucide-react"
 
 const OPTIONS = [
+  {
+    title: "주제 기반 멀티채널 카드뉴스",
+    description: "한 가지 주제로 5장 카드뉴스 내용부터 만들고, 첫 장 3시안 선택 후 채널별 콘텐츠로 저장합니다.",
+    href: "/contents/new/topic",
+    icon: Share2,
+    points: ["5장 스토리라인 먼저 생성", "실사1/실사2/일러스트 첫 장 시안", "Instagram/Facebook/Threads 등 변환"],
+  },
   {
     title: "텍스트 콘텐츠",
     description: "벤치마킹 계정 참고 + 본문 작성 + 이미지 첨부까지 바로 진행합니다.",
@@ -35,7 +42,7 @@ export default function ContentNewPage() {
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-5">
+      <div className="grid md:grid-cols-3 gap-5">
         {OPTIONS.map((option) => {
           const Icon = option.icon
           return (
