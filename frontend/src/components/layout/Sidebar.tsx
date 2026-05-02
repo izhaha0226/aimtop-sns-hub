@@ -3,7 +3,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   LayoutDashboard, Building2, FileText, Calendar,
-  MessageSquare, BarChart3, TrendingUp, Settings
+  MessageSquare, BarChart3, TrendingUp, Settings, ClipboardList
 } from "lucide-react"
 import { cn } from "@/utils/cn"
 
@@ -15,6 +15,7 @@ const menus = [
   { href: "/inbox", icon: MessageSquare, label: "인박스" },
   { href: "/analytics", icon: BarChart3, label: "분석" },
   { href: "/growth", icon: TrendingUp, label: "Growth Hub" },
+  { href: "/growth/planner", icon: ClipboardList, label: "운영계획" },
   { href: "/settings/users", icon: Settings, label: "설정" },
   { href: "/settings/ai-engine", icon: Settings, label: "AI 엔진" },
 ]
@@ -33,7 +34,7 @@ export default function Sidebar() {
             href={href}
             className={cn(
               "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
-              pathname.startsWith(href)
+              (href === "/growth" ? pathname === href : pathname.startsWith(href))
                 ? "bg-blue-50 text-blue-700 font-medium"
                 : "text-gray-600 hover:bg-gray-50"
             )}

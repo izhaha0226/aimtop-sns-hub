@@ -50,6 +50,59 @@ export interface EngineOverridePayload {
   fallback_enabled?: boolean
 }
 
+export interface GenerateOperationPlanPayload {
+  brand_name: string
+  product_summary: string
+  target_audience?: string
+  goals?: string[]
+  channels?: string[]
+  benchmark_brands?: string[]
+  month?: string
+  season_context?: string
+  budget_level?: string
+  notes?: string
+  engine?: EngineOverridePayload
+}
+
+export interface WeeklyChannelPlan {
+  channel: string
+  count: number
+  formats: string[]
+}
+
+export interface WeeklyOperationPlan {
+  week: number
+  theme: string
+  objective: string
+  channels: WeeklyChannelPlan[]
+}
+
+export interface ChannelOperationPlan {
+  channel: string
+  monthly_count: number
+  recommended_formats: string[]
+  role: string
+  cadence: string
+}
+
+export interface GenerateOperationPlanResponse {
+  brand_name: string
+  month: string
+  strategy_summary: string
+  target_insights: string[]
+  product_angles: string[]
+  seasonal_context: string
+  benchmark_source_status: string
+  benchmark_notes: string[]
+  monthly_volume: Record<string, number>
+  total_monthly_count: number
+  weekly_plan: WeeklyOperationPlan[]
+  channel_plan: ChannelOperationPlan[]
+  approval_checklist: string[]
+  risks: string[]
+  next_actions: string[]
+}
+
 export const aiService = {
   async generateCopy(payload: GenerateCopyPayload) {
     const res = await api.post("/api/v1/ai/generate-copy", payload)
@@ -69,5 +122,10 @@ export const aiService = {
   async generateConceptSets(topic: string, brandInfo = "", count = 3, engine?: EngineOverridePayload) {
     const res = await api.post("/api/v1/ai/concept-sets", { topic, brand_info: brandInfo, count, engine })
     return Array.isArray(res.data?.concept_sets) ? (res.data.concept_sets as ConceptSet[]) : []
+  },
+
+  async generateOperationPlan(payload: GenerateOperationPlanPayload) {
+    const res = await api.post("/api/v1/ai/generate-operation-plan", payload)
+    return res.data as GenerateOperationPlanResponse
   },
 }
