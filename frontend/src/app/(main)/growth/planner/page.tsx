@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react"
 import { AlertTriangle, CalendarDays, CheckCircle2, ClipboardList, Loader2, Sparkles, Target, UploadCloud } from "lucide-react"
-import { aiService, type GenerateOperationPlanResponse } from "@/services/ai"
+import { aiService, type GenerateOperationPlanPayload, type GenerateOperationPlanResponse } from "@/services/ai"
+import { operationPlansService, type OperationPlanRecord } from "@/services/operation-plans"
 
 const CHANNEL_OPTIONS = ["instagram", "threads", "blog", "youtube", "tiktok", "facebook", "kakao", "linkedin", "x"]
 
@@ -29,8 +30,13 @@ export default function OperationPlannerPage() {
   const [seasonContext, setSeasonContext] = useState("")
   const [notes, setNotes] = useState("")
   const [plan, setPlan] = useState<GenerateOperationPlanResponse | null>(null)
+  const [lastRequest, setLastRequest] = useState<GenerateOperationPlanPayload | null>(null)
+  const [savedPlan, setSavedPlan] = useState<OperationPlanRecord | null>(null)
   const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [actionLoading, setActionLoading] = useState<"submit" | "approve" | "reject" | null>(null)
   const [error, setError] = useState("")
+  const [statusMessage, setStatusMessage] = useState("")
 
   const canSubmit = useMemo(() => brandName.trim() && productSummary.trim() && channels.length > 0, [brandName, productSummary, channels])
 
@@ -40,26 +46,71 @@ export default function OperationPlannerPage() {
 
   async function generatePlan() {
     if (!canSubmit) return
+    const requestPayload: GenerateOperationPlanPayload = {
+      brand_name: brandName,
+      product_summary: productSummary,
+      target_audience: targetAudience,
+      goals: splitList(goalsText),
+      channels,
+      benchmark_brands: splitList(benchmarkText),
+      month,
+      season_context: seasonContext,
+      notes,
+    }
     setLoading(true)
     setError("")
+    setStatusMessage("")
     try {
-      const result = await aiService.generateOperationPlan({
-        brand_name: brandName,
-        product_summary: productSummary,
-        target_audience: targetAudience,
-        goals: splitList(goalsText),
-        channels,
-        benchmark_brands: splitList(benchmarkText),
-        month,
-        season_context: seasonContext,
-        notes,
-      })
+      const result = await aiService.generateOperationPlan(requestPayload)
+      setLastRequest(requestPayload)
       setPlan(result)
+      setSavedPlan(null)
     } catch (err) {
       const message = err instanceof Error ? err.message : "운영계획 생성에 실패했습니다."
       setError(message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function savePlan() {
+    if (!plan || !lastRequest) return
+    setSaving(true)
+    setError("")
+    setStatusMessage("")
+    try {
+      const saved = await operationPlansService.create({
+        brand_name: plan.brand_name,
+        month: plan.month,
+        strategy_summary: plan.strategy_summary,
+        request_payload: lastRequest,
+        plan_payload: plan,
+      })
+      setSavedPlan(saved)
+      setStatusMessage("운영계획을 draft 상태로 저장했습니다.")
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "운영계획 저장에 실패했습니다."
+      setError(message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function runPlanAction(action: "submit" | "approve" | "reject") {
+    if (!savedPlan) return
+    setActionLoading(action)
+    setError("")
+    setStatusMessage("")
+    try {
+      const memo = action === "submit" ? "대표님 승인 요청" : action === "approve" ? "운영계획 승인" : "수정 필요"
+      const updated = await operationPlansService[action](savedPlan.id, memo)
+      setSavedPlan(updated)
+      setStatusMessage(action === "submit" ? "승인 요청 상태로 전환했습니다." : action === "approve" ? "운영계획을 승인했습니다." : "운영계획을 반려했습니다.")
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "상태 변경에 실패했습니다."
+      setError(message)
+    } finally {
+      setActionLoading(null)
     }
   }
 
@@ -133,6 +184,7 @@ export default function OperationPlannerPage() {
           </div>
 
           {error && <div className="rounded-xl bg-red-50 text-red-700 text-sm p-3">{error}</div>}
+          {statusMessage && <div className="rounded-xl bg-green-50 text-green-700 text-sm p-3">{statusMessage}</div>}
 
           <button onClick={generatePlan} disabled={!canSubmit || loading} className="w-full rounded-xl bg-blue-600 text-white py-3 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2">
             {loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
@@ -157,7 +209,28 @@ export default function OperationPlannerPage() {
                     <h2 className="text-xl font-bold text-gray-900">{plan.brand_name} {plan.month} 운영계획</h2>
                     <p className="text-sm text-gray-600 mt-2">{plan.strategy_summary}</p>
                   </div>
-                  <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-700 text-xs font-semibold">{plan.benchmark_source_status}</span>
+                  <div className="flex flex-col items-end gap-2">
+                    <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-700 text-xs font-semibold">{plan.benchmark_source_status}</span>
+                    {savedPlan && <span className="px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-xs font-semibold">저장상태: {savedPlan.status}</span>}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 mt-5">
+                  <button type="button" onClick={savePlan} disabled={saving || Boolean(savedPlan)} className="rounded-xl bg-gray-900 text-white px-4 py-2 text-sm font-semibold hover:bg-black disabled:opacity-50 flex items-center gap-2">
+                    {saving && <Loader2 size={14} className="animate-spin" />}
+                    {savedPlan ? "저장됨" : "운영계획 저장"}
+                  </button>
+                  <button type="button" onClick={() => runPlanAction("submit")} disabled={!savedPlan || savedPlan.status !== "draft" || actionLoading !== null} className="rounded-xl bg-blue-600 text-white px-4 py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+                    {actionLoading === "submit" && <Loader2 size={14} className="animate-spin" />}
+                    승인 요청
+                  </button>
+                  <button type="button" onClick={() => runPlanAction("approve")} disabled={!savedPlan || savedPlan.status !== "pending_approval" || actionLoading !== null} className="rounded-xl bg-green-600 text-white px-4 py-2 text-sm font-semibold hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
+                    {actionLoading === "approve" && <Loader2 size={14} className="animate-spin" />}
+                    승인
+                  </button>
+                  <button type="button" onClick={() => runPlanAction("reject")} disabled={!savedPlan || savedPlan.status !== "pending_approval" || actionLoading !== null} className="rounded-xl border border-red-200 text-red-700 px-4 py-2 text-sm font-semibold hover:bg-red-50 disabled:opacity-50 flex items-center gap-2">
+                    {actionLoading === "reject" && <Loader2 size={14} className="animate-spin" />}
+                    반려
+                  </button>
                 </div>
                 <div className="grid sm:grid-cols-3 gap-3 mt-5">
                   <div className="rounded-xl bg-blue-50 p-4">
