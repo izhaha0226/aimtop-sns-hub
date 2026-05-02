@@ -74,6 +74,8 @@ class RefreshAccountResponse(BaseModel):
     inserted: int = 0
     profile_id: uuid.UUID | None = None
     profile_generated: bool = False
+    support_level: str | None = None
+    support_label: str | None = None
     live_supported: bool = False
     platform: str | None = None
     used_placeholder: bool = False

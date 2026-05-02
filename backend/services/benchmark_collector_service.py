@@ -750,11 +750,15 @@ class BenchmarkCollectorService:
         source_channel_connection_count = len(source_channels)
 
         def manual_payload(message: str, missing_reason: str, *, connected: bool | None = None) -> dict:
+            support_level = self._get_support_level(platform)
             is_connected = bool(source_channel) if connected is None else connected
             return {
                 "status": "manual_ingest_required",
+                "status_label": STATUS_LABELS.get("manual_ingest_required"),
                 "message": message,
-                "live_supported": True,
+                "support_level": support_level,
+                "support_label": SUPPORT_LEVEL_LABELS[support_level],
+                "live_supported": support_level == "live",
                 "platform": platform,
                 "source_channel_connected": is_connected,
                 "source_channel_platform": platform,

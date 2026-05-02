@@ -63,6 +63,8 @@ export interface RefreshAccountResult {
   inserted: number
   profile_id?: string | null
   profile_generated?: boolean
+  support_level?: string | null
+  support_label?: string | null
   live_supported?: boolean
   platform?: string
   used_placeholder?: boolean
