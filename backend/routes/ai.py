@@ -14,6 +14,7 @@ from schemas.ai import (
     GenerateConceptSetsRequest, GenerateConceptSetsResponse,
     ChatEditRequest, ChatEditResponse,
     GenerateStrategyRequest, GenerateStrategyResponse,
+    GenerateOperationPlanRequest, GenerateOperationPlanResponse,
 )
 from services.ai_service import (
     generate_copy,
@@ -21,6 +22,7 @@ from services.ai_service import (
     generate_concept_sets,
     chat_edit,
     generate_strategy,
+    generate_operation_plan,
 )
 from services.benchmark_collector_service import BenchmarkCollectorService
 from services.image_service import generate_image
@@ -176,3 +178,32 @@ async def api_generate_strategy(
     except Exception as e:
         logger.error("generate_strategy failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"전략서 생성 실패: {str(e)}")
+
+
+@router.post("/generate-operation-plan", response_model=GenerateOperationPlanResponse)
+async def api_generate_operation_plan(
+    req: GenerateOperationPlanRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate an approval-first monthly SNS operation plan."""
+    try:
+        result = await generate_operation_plan(
+            brand_name=req.brand_name,
+            product_summary=req.product_summary,
+            target_audience=req.target_audience,
+            goals=req.goals,
+            channels=req.channels,
+            benchmark_brands=req.benchmark_brands,
+            month=req.month,
+            season_context=req.season_context,
+            budget_level=req.budget_level,
+            notes=req.notes,
+            engine=req.engine.model_dump(exclude_none=True) if req.engine else None,
+            db=db,
+        )
+        return GenerateOperationPlanResponse(**result)
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail="AI 응답 시간 초과")
+    except Exception as e:
+        logger.error("generate_operation_plan failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"운영계획 생성 실패: {str(e)}")

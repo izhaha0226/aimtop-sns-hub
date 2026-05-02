@@ -221,3 +221,60 @@ async def generate_strategy(
     except json.JSONDecodeError:
         raw = await call_llm_text("strategy", prompt, engine=engine, timeout=180, db=db)
         return {"period": period_label, "summary": raw, "goals": [], "themes": [], "kpi": {}, "notes": ""}
+
+
+async def generate_operation_plan(
+    brand_name: str,
+    product_summary: str,
+    target_audience: str = "",
+    goals: list[str] | None = None,
+    channels: list[str] | None = None,
+    benchmark_brands: list[str] | None = None,
+    month: str | None = None,
+    season_context: str = "",
+    budget_level: str = "standard",
+    notes: str = "",
+    engine: dict | None = None,
+    db: AsyncSession | None = None,
+) -> dict:
+    """Generate a monthly brand/channel operation plan with deterministic fallback."""
+    from services.content_operation_planner import OperationPlanRequestData, build_fallback_operation_plan
+
+    req = OperationPlanRequestData(
+        brand_name=brand_name,
+        product_summary=product_summary,
+        target_audience=target_audience,
+        goals=goals or [],
+        channels=channels or [],
+        benchmark_brands=benchmark_brands or [],
+        month=month,
+        season_context=season_context,
+        budget_level=budget_level,
+        notes=notes,
+    )
+    fallback = build_fallback_operation_plan(req)
+
+    prompt = (
+        "너는 SNS 운영 총괄 에이전트다. 아래 브랜드 브리프와 deterministic baseline을 바탕으로 "
+        "월간 채널 운영계획을 JSON으로만 개선해서 반환해라. 경쟁사 문구를 복제하지 말고 구조만 참고해라. "
+        "승인 전 외부 업로드 없음 원칙을 반드시 포함해라.\n\n"
+        f"[브랜드]\n{brand_name}\n"
+        f"[상품/서비스]\n{product_summary}\n"
+        f"[타겟]\n{target_audience}\n"
+        f"[목표]\n{goals or []}\n"
+        f"[채널]\n{channels or []}\n"
+        f"[벤치마킹]\n{benchmark_brands or []}\n"
+        f"[월/시즌]\n{month or ''} / {season_context}\n"
+        f"[추가 메모]\n{notes}\n\n"
+        "반환 스키마 키는 baseline과 동일해야 한다.\n"
+        f"[baseline]\n{json.dumps(fallback, ensure_ascii=False)}"
+    )
+    try:
+        result = await call_llm_json("strategy", prompt, engine=engine, timeout=180, db=db)
+        if isinstance(result, dict):
+            merged = {**fallback, **result}
+            merged["benchmark_source_status"] = str(merged.get("benchmark_source_status") or "manual_or_pending")
+            return merged
+    except Exception as exc:
+        logger.warning("generate_operation_plan falling back to deterministic plan: %s", exc)
+    return fallback

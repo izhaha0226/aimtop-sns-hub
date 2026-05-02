@@ -16,7 +16,7 @@ from routes import contents, channels, dashboard, media
 from routes import oauth, publish, ai
 from routes import schedule, comments, auto_reply
 from routes import analytics, notifications
-from routes import approvals, reports, growth, ops, admin_secrets, admin_ai_settings, benchmarking
+from routes import approvals, reports, growth, ops, admin_secrets, admin_ai_settings, benchmarking, operation_plans
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -122,3 +122,4 @@ app.include_router(ops.router)
 app.include_router(admin_secrets.router)
 app.include_router(admin_ai_settings.router)
 app.include_router(benchmarking.router)
+app.include_router(operation_plans.router)
