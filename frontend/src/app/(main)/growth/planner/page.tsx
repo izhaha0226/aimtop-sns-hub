@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import { AlertTriangle, CalendarDays, CheckCircle2, ClipboardList, Loader2, Sparkles, Target, UploadCloud } from "lucide-react"
 import { aiService, type GenerateOperationPlanPayload, type GenerateOperationPlanResponse } from "@/services/ai"
-import { operationPlansService, type OperationPlanRecord } from "@/services/operation-plans"
+import { operationPlansService, type OperationPlanDraftsResponse, type OperationPlanRecord } from "@/services/operation-plans"
 
 const CHANNEL_OPTIONS = ["instagram", "threads", "blog", "youtube", "tiktok", "facebook", "kakao", "linkedin", "x"]
 
@@ -34,6 +34,8 @@ export default function OperationPlannerPage() {
   const [savedPlan, setSavedPlan] = useState<OperationPlanRecord | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [draftLoading, setDraftLoading] = useState(false)
+  const [draftResult, setDraftResult] = useState<OperationPlanDraftsResponse | null>(null)
   const [actionLoading, setActionLoading] = useState<"submit" | "approve" | "reject" | null>(null)
   const [error, setError] = useState("")
   const [statusMessage, setStatusMessage] = useState("")
@@ -65,6 +67,7 @@ export default function OperationPlannerPage() {
       setLastRequest(requestPayload)
       setPlan(result)
       setSavedPlan(null)
+      setDraftResult(null)
     } catch (err) {
       const message = err instanceof Error ? err.message : "운영계획 생성에 실패했습니다."
       setError(message)
@@ -87,6 +90,7 @@ export default function OperationPlannerPage() {
         plan_payload: plan,
       })
       setSavedPlan(saved)
+      setDraftResult(null)
       setStatusMessage("운영계획을 draft 상태로 저장했습니다.")
     } catch (err) {
       const message = err instanceof Error ? err.message : "운영계획 저장에 실패했습니다."
@@ -105,12 +109,30 @@ export default function OperationPlannerPage() {
       const memo = action === "submit" ? "대표님 승인 요청" : action === "approve" ? "운영계획 승인" : "수정 필요"
       const updated = await operationPlansService[action](savedPlan.id, memo)
       setSavedPlan(updated)
+      setDraftResult(null)
       setStatusMessage(action === "submit" ? "승인 요청 상태로 전환했습니다." : action === "approve" ? "운영계획을 승인했습니다." : "운영계획을 반려했습니다.")
     } catch (err) {
       const message = err instanceof Error ? err.message : "상태 변경에 실패했습니다."
       setError(message)
     } finally {
       setActionLoading(null)
+    }
+  }
+
+  async function generateDrafts() {
+    if (!savedPlan) return
+    setDraftLoading(true)
+    setError("")
+    setStatusMessage("")
+    try {
+      const result = await operationPlansService.generateDrafts(savedPlan.id)
+      setDraftResult(result)
+      setStatusMessage(`콘텐츠 draft ${result.total}개 생성 완료 — 예약 전 토큰확인 ${result.token_check_required_count}개, 수동필요 ${result.manual_required_count}개`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "콘텐츠 draft 생성에 실패했습니다. client_id 연결/승인 상태를 확인해주세요."
+      setError(message)
+    } finally {
+      setDraftLoading(false)
     }
   }
 
@@ -231,7 +253,18 @@ export default function OperationPlannerPage() {
                     {actionLoading === "reject" && <Loader2 size={14} className="animate-spin" />}
                     반려
                   </button>
+                  <button type="button" onClick={generateDrafts} disabled={!savedPlan || savedPlan.status !== "approved" || draftLoading || Boolean(draftResult)} className="rounded-xl bg-purple-600 text-white px-4 py-2 text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2">
+                    {draftLoading ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}
+                    {draftResult ? "draft 생성됨" : "콘텐츠 draft 생성"}
+                  </button>
                 </div>
+                {draftResult && (
+                  <div className="mt-4 rounded-xl border border-purple-100 bg-purple-50 p-4 text-sm text-purple-900">
+                    <p className="font-semibold">콘텐츠 draft {draftResult.total}개 생성</p>
+                    <p className="mt-1">예약 전 토큰 확인 필요: {draftResult.token_check_required_count}개 · 수동 필요: {draftResult.manual_required_count}개</p>
+                    <p className="mt-1 text-purple-700">외부 업로드/예약은 아직 실행하지 않았고, 각 콘텐츠별 승인 이후에만 진행합니다.</p>
+                  </div>
+                )}
                 <div className="grid sm:grid-cols-3 gap-3 mt-5">
                   <div className="rounded-xl bg-blue-50 p-4">
                     <p className="text-xs text-blue-600 font-semibold">총 제작량</p>

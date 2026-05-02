@@ -7,10 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_db
 from middleware.auth import get_current_user
 from models.operation_plan import OperationPlan
+from models.content import Content
 from models.user import User
 from schemas.operation_plan import (
     OperationPlanAction,
     OperationPlanCreate,
+    OperationPlanDraftsResponse,
     OperationPlanListResponse,
     OperationPlanResponse,
     OperationPlanUpdate,
@@ -20,6 +22,7 @@ from services.operation_plan_service import (
     transition_operation_plan_status,
     utc_now,
 )
+from services.operation_plan_draft_service import OperationPlanDraftError, build_content_draft_specs_from_plan
 
 router = APIRouter(prefix="/api/v1/operation-plans", tags=["operation-plans"])
 
@@ -153,3 +156,58 @@ async def reject_operation_plan(
     await db.commit()
     await db.refresh(plan)
     return plan
+
+
+@router.post("/{plan_id}/generate-drafts", response_model=OperationPlanDraftsResponse, status_code=201)
+async def generate_operation_plan_drafts(
+    plan_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    plan = await _get_operation_plan_or_404(plan_id, db)
+    try:
+        draft_specs = build_content_draft_specs_from_plan(
+            operation_plan_id=plan.id,
+            status=plan.status,
+            plan_payload=plan.plan_payload,
+            client_id=plan.client_id,
+            author_id=current_user.id,
+        )
+    except OperationPlanDraftError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    contents = [
+        Content(
+            client_id=spec["client_id"],
+            author_id=spec["author_id"],
+            operation_plan_id=spec["operation_plan_id"],
+            post_type=spec["post_type"],
+            title=spec["title"],
+            text=spec["text"],
+            media_urls=spec["media_urls"],
+            hashtags=spec["hashtags"],
+            status=spec["status"],
+            channel_connection_id=spec["channel_connection_id"],
+            scheduled_at=spec["scheduled_at"],
+            source_metadata=spec["source_metadata"],
+        )
+        for spec in draft_specs
+    ]
+    db.add_all(contents)
+    await db.commit()
+    for content in contents:
+        await db.refresh(content)
+
+    manual_required_count = sum(
+        1 for content in contents if (content.source_metadata or {}).get("channel_action") == "manual_required"
+    )
+    token_check_required_count = sum(
+        1 for content in contents if (content.source_metadata or {}).get("channel_action") == "token_check_required"
+    )
+    return {
+        "operation_plan_id": plan.id,
+        "items": contents,
+        "total": len(contents),
+        "manual_required_count": manual_required_count,
+        "token_check_required_count": token_check_required_count,
+    }

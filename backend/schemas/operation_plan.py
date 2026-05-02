@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from schemas.content import ContentResponse
+
 
 class OperationPlanCreate(BaseModel):
     client_id: uuid.UUID | None = None
@@ -51,3 +53,11 @@ class OperationPlanResponse(BaseModel):
 class OperationPlanListResponse(BaseModel):
     items: list[OperationPlanResponse]
     total: int
+
+
+class OperationPlanDraftsResponse(BaseModel):
+    operation_plan_id: uuid.UUID
+    items: list[ContentResponse]
+    total: int
+    manual_required_count: int
+    token_check_required_count: int
