@@ -99,6 +99,31 @@ export default function ContentDetailPage() {
     return fallback
   }
 
+  function buildSupermarketingImagePrompt(item: Content) {
+    const metadata = item.source_metadata || {}
+    const channel = typeof metadata.channel === "string" ? metadata.channel : "instagram"
+    const objective = typeof metadata.objective === "string" ? metadata.objective : "awareness and consideration"
+    const format = typeof metadata.format === "string" ? metadata.format : POST_TYPE_LABELS[safePostType]
+    const benchmarkStatus = typeof metadata.benchmark_source_status === "string" ? metadata.benchmark_source_status : "unknown"
+    const visual = typeof metadata.visual_direction === "string" ? metadata.visual_direction : ""
+    const explicitPrompt = typeof metadata.image_prompt === "string" ? metadata.image_prompt : ""
+    const topic = typeof metadata.display_title === "string" ? metadata.display_title : item.title
+
+    return [
+      "Create a premium Korean SNS marketing visual using the Supermarketing AimTop framework.",
+      "Goal: channel-ready execution, not generic inspiration.",
+      `Channel: ${channel}. Format: ${format}. Objective: ${objective}.`,
+      `Topic / headline idea: ${topic}`,
+      `Post copy context: ${item.text}`,
+      `Visual direction from operation plan: ${visual || "derive a clear visual metaphor from the topic and audience pain point"}`,
+      `Existing image prompt, if useful: ${explicitPrompt || "none"}`,
+      `Hashtags / strategic keywords: ${safeHashtags.join(", ") || "none"}`,
+      `Benchmark status: ${benchmarkStatus}. Use benchmark structure only: hook shape, pacing, information order, CTA rhythm. Do not copy competitor wording, layout, slogans, brand assets, or recognizable campaign logic.`,
+      "Creative requirements: distinct first-frame hook, one clear product/benefit metaphor, premium clean Korean startup aesthetic, high contrast, mobile-safe composition, strong negative space for optional overlay copy, no fake logos, no unreadable small text, no watermark.",
+      "Output style: polished social creative, realistic lighting, editorial-grade composition, conversion-aware but not clickbait."
+    ].filter(Boolean).join("\n")
+  }
+
   async function handleDelete() {
     if (!confirm("콘텐츠를 삭제하시겠습니까?")) return
     try {
@@ -111,7 +136,7 @@ export default function ContentDetailPage() {
 
   async function handleGenerateTopicImage() {
     if (!content) return
-    const prompt = imagePrompt || [content.title, content.text, visualDirection].filter(Boolean).join("\n")
+    const prompt = buildSupermarketingImagePrompt(content)
     if (!prompt.trim()) {
       setActionError("이미지를 생성할 주제/본문 정보가 부족합니다")
       return
@@ -123,6 +148,7 @@ export default function ContentDetailPage() {
       const result = await aiService.generateImage({
         prompt,
         size: "1024x1024",
+        model: "fast",
         quality: "medium",
       })
       if (!result.image_url) {

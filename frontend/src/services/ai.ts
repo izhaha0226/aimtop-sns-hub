@@ -115,7 +115,10 @@ export const aiService = {
   },
 
   async generateImage(payload: GenerateImagePayload) {
-    const res = await api.post("/api/v1/ai/generate-image", payload)
+    const res = await api.post("/api/v1/ai/generate-image", payload, {
+      // Image generation routinely takes 60s+; keep this longer than the backend/Fal roundtrip.
+      timeout: 180000,
+    })
     return res.data as GenerateImageResponse
   },
 
