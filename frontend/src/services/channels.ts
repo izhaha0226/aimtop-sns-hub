@@ -6,6 +6,11 @@ export interface ChannelConnection {
   channel_type: string
   account_name?: string | null
   account_id?: string | null
+  display_account_id?: string | null
+  display_account_name?: string | null
+  facebook_page_id?: string | null
+  facebook_page_name?: string | null
+  facebook_page_count?: number | null
   is_connected: boolean
   connected_at?: string | null
   token_expires_at?: string | null
@@ -18,14 +23,14 @@ export function isAutoPublishSupported(channelType?: string | null) {
   return AUTO_PUBLISH_SUPPORTED_CHANNELS.includes(channelType as (typeof AUTO_PUBLISH_SUPPORTED_CHANNELS)[number])
 }
 
-export function getAutoPublishBlockReason(channel?: Pick<ChannelConnection, "channel_type" | "account_id"> | null) {
+export function getAutoPublishBlockReason(channel?: Pick<ChannelConnection, "channel_type" | "account_id" | "facebook_page_id"> | null) {
   if (!channel) return "발행할 채널을 선택해 주세요"
   if (!isAutoPublishSupported(channel.channel_type)) return "현재 연동만 지원, 자동 발행 미지원"
   if (channel.channel_type === "instagram" && !channel.account_id) {
     return "Instagram 발행 계정 ID 없음 · Meta 발행 권한/비즈니스 계정 준비 후 재연동 필요"
   }
-  if (channel.channel_type === "facebook" && !channel.account_id) {
-    return "Facebook 페이지 ID 없음 · pages_manage_posts 권한 준비 후 재연동 필요"
+  if (channel.channel_type === "facebook" && !(channel.facebook_page_id || channel.account_id)) {
+    return "Facebook 페이지 ID 없음 · Facebook 페이지 권한/페이지 연결 확인 후 재연동 필요"
   }
   if (channel.channel_type === "linkedin" && !channel.account_id) {
     return "LinkedIn 작성자 ID 없음 · LinkedIn 계정 재연동 필요"
@@ -33,7 +38,21 @@ export function getAutoPublishBlockReason(channel?: Pick<ChannelConnection, "cha
   return null
 }
 
-export function isChannelAutoPublishReady(channel?: Pick<ChannelConnection, "channel_type" | "account_id"> | null) {
+export function getChannelDisplayAccountId(channel?: Pick<ChannelConnection, "account_id" | "display_account_id"> | null) {
+  return channel?.display_account_id || channel?.account_id || null
+}
+
+export function getChannelDisplayAccountName(channel?: Pick<ChannelConnection, "account_name" | "display_account_name"> | null) {
+  return channel?.display_account_name || channel?.account_name || null
+}
+
+export function getChannelPublishAccountId(channel?: Pick<ChannelConnection, "channel_type" | "account_id" | "facebook_page_id"> | null) {
+  if (!channel) return null
+  if (channel.channel_type === "facebook") return channel.facebook_page_id || channel.account_id || null
+  return channel.account_id || null
+}
+
+export function isChannelAutoPublishReady(channel?: Pick<ChannelConnection, "channel_type" | "account_id" | "facebook_page_id"> | null) {
   return getAutoPublishBlockReason(channel) === null
 }
 

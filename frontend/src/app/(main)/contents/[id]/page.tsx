@@ -5,7 +5,7 @@ import { AlertCircle, ArrowLeft, CalendarClock, CheckCircle, ExternalLink, Image
 import { contentsService } from "@/services/contents"
 import { aiService } from "@/services/ai"
 import { approvalsService, type ExternalApprovalItem } from "@/services/approvals"
-import { channelsService, getAutoPublishBlockReason, getTokenHealth, isChannelAutoPublishReady, type ChannelConnection } from "@/services/channels"
+import { channelsService, getAutoPublishBlockReason, getChannelDisplayAccountId, getChannelDisplayAccountName, getChannelPublishAccountId, getTokenHealth, isChannelAutoPublishReady, type ChannelConnection } from "@/services/channels"
 import type { Content } from "@/types/content"
 import { STATUS_LABELS, STATUS_COLORS, POST_TYPE_LABELS, POST_TYPE_COLORS } from "@/types/content"
 import { Button } from "@/components/common/Button"
@@ -93,6 +93,9 @@ export default function ContentDetailPage() {
     [connectedChannels]
   )
   const selectedChannel = connectedChannels.find((channel) => channel.id === selectedChannelId)
+  const selectedChannelDisplayAccountId = getChannelDisplayAccountId(selectedChannel)
+  const selectedChannelDisplayAccountName = getChannelDisplayAccountName(selectedChannel)
+  const selectedChannelPublishAccountId = getChannelPublishAccountId(selectedChannel)
   const selectedChannelHealth = getTokenHealth(selectedChannel?.token_expires_at)
   const selectedChannelAutoPublishBlockReason = getAutoPublishBlockReason(selectedChannel)
   const selectedChannelAutoPublishSupported = !selectedChannelAutoPublishBlockReason
@@ -383,8 +386,8 @@ export default function ContentDetailPage() {
             <p className="font-semibold text-gray-800">발행 계정</p>
             <p className="mt-1 break-all">
               {selectedChannel
-                ? `${selectedChannel.channel_type}${selectedChannel.account_name ? ` · ${selectedChannel.account_name}` : ""} · account_id: ${selectedChannel.account_id || "없음"}`
-                : "발행 채널을 선택하면 account_id를 확인할 수 있습니다"}
+                ? `${selectedChannel.channel_type}${selectedChannelDisplayAccountName ? ` · ${selectedChannelDisplayAccountName}` : ""} · 연동 ID: ${selectedChannelDisplayAccountId || "미확인"}${selectedChannel.channel_type === "facebook" ? ` · 페이지 ID: ${selectedChannelPublishAccountId || "없음"}` : ""}`
+                : "발행 채널을 선택하면 연동 계정 ID를 확인할 수 있습니다"}
             </p>
           </div>
         </div>
@@ -504,7 +507,7 @@ export default function ContentDetailPage() {
 
           {selectedChannel && (
             <div className={`rounded-lg px-3 py-2 text-xs ${!selectedChannelAutoPublishSupported ? "bg-gray-100 text-gray-700 border border-gray-200" : selectedChannelHealth === "expiring" ? "bg-yellow-50 text-yellow-700 border border-yellow-200" : "bg-blue-50 text-blue-700 border border-blue-200"}`}>
-              {selectedChannel.channel_type}{selectedChannel.account_name ? ` · ${selectedChannel.account_name}` : ""}{selectedChannel.account_id ? ` · account_id ${selectedChannel.account_id}` : " · account_id 없음"}
+              {selectedChannel.channel_type}{selectedChannelDisplayAccountName ? ` · ${selectedChannelDisplayAccountName}` : ""} · 연동 ID {selectedChannelDisplayAccountId || "미확인"}{selectedChannel.channel_type === "facebook" ? ` · 페이지 ID ${selectedChannelPublishAccountId || "없음"}` : ""}
               {!selectedChannelAutoPublishSupported ? ` · ${selectedChannelAutoPublishBlockReason || "자동 발행 미지원"}` : selectedChannel.token_expires_at ? ` · 만료 ${new Date(selectedChannel.token_expires_at).toLocaleString("ko-KR")}` : " · 만료시각 미확인"}
             </div>
           )}

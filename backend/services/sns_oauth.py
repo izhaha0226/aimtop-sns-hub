@@ -358,6 +358,14 @@ class SNSOAuth:
                             "extra_data": data,
                         }
                 elif platform == "facebook":
+                    profile_data: dict = {}
+                    profile_resp = await client.get(
+                        "https://graph.facebook.com/v19.0/me",
+                        params={"fields": "id,name", "access_token": access_token},
+                    )
+                    if profile_resp.status_code == 200:
+                        profile_data = profile_resp.json()
+
                     resp = await client.get(
                         "https://graph.facebook.com/v19.0/me/accounts",
                         params={"access_token": access_token},
@@ -366,9 +374,12 @@ class SNSOAuth:
                         items = resp.json().get("data", [])
                         page = items[0] if items else {}
                         return {
+                            # Facebook 자동 발행에는 Page ID가 필요하다. 페이지가 없으면
+                            # account_id는 비워 두고, 연결된 사용자 ID는 token-free
+                            # facebook_profile로 분리해 프론트에 표시한다.
                             "account_id": page.get("id"),
-                            "account_name": page.get("name"),
-                            "extra_data": {"pages": items},
+                            "account_name": page.get("name") or profile_data.get("name"),
+                            "extra_data": {"facebook_profile": profile_data, "pages": items},
                         }
                 elif platform == "youtube":
                     resp = await client.get(

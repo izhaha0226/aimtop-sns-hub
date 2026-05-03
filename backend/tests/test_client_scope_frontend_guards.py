@@ -68,7 +68,8 @@ class ClientScopedFrontendGuardsTest(unittest.TestCase):
         self.assertIn('콘텐츠 소속', source)
         self.assertIn('client_id', source)
         self.assertIn('발행 계정', source)
-        self.assertIn('account_id', source)
+        self.assertIn('연동 ID', source)
+        self.assertIn('getChannelDisplayAccountId', source)
 
     def test_backend_contents_list_requires_client_id_scope(self):
         source = CONTENTS_ROUTE.read_text()
