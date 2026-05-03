@@ -11,9 +11,21 @@ export interface ChannelConnection {
   facebook_page_id?: string | null
   facebook_page_name?: string | null
   facebook_page_count?: number | null
+  channel_choices?: ChannelChoice[]
+  selection_required?: boolean
   is_connected: boolean
   connected_at?: string | null
   token_expires_at?: string | null
+}
+
+export interface ChannelChoice {
+  id: string
+  label: string
+  platform?: string | null
+  page_id?: string | null
+  page_name?: string | null
+  username?: string | null
+  name?: string | null
 }
 
 export const AUTO_PUBLISH_SUPPORTED_CHANNELS = ["instagram", "facebook", "linkedin", "youtube", "x", "blog"] as const
@@ -72,5 +84,12 @@ export const channelsService = {
   async list(clientId: string) {
     const res = await api.get(`/api/v1/clients/${clientId}/channels`)
     return Array.isArray(res.data) ? res.data : []
+  },
+
+  async selectAccount(clientId: string, channelId: string, selectedId: string) {
+    const res = await api.post(`/api/v1/clients/${clientId}/channels/${channelId}/select-account`, {
+      selected_id: selectedId,
+    })
+    return res.data as ChannelConnection
   },
 }

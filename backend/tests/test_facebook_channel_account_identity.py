@@ -53,7 +53,7 @@ class FacebookChannelAccountIdentityTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(profile["extra_data"]["facebook_profile"]["id"], "user-123")
         self.assertEqual(profile["extra_data"]["pages"], [])
 
-    async def test_facebook_page_id_remains_publish_account_when_pages_exist(self):
+    async def test_facebook_page_candidates_are_returned_for_explicit_selection(self):
         import services.sns_oauth as oauth_module
 
         class PageAsyncClient(FakeAsyncClient):
@@ -61,7 +61,10 @@ class FacebookChannelAccountIdentityTest(unittest.IsolatedAsyncioTestCase):
                 if url.endswith("/me"):
                     return FakeResponse(200, {"id": "user-123", "name": "Facebook User"})
                 if url.endswith("/me/accounts"):
-                    return FakeResponse(200, {"data": [{"id": "page-456", "name": "AimTop Page"}]})
+                    return FakeResponse(200, {"data": [
+                        {"id": "page-456", "name": "AimTop Page", "access_token": "page-token-redacted"},
+                        {"id": "page-789", "name": "Topclass Page", "access_token": "page-token-redacted-2"},
+                    ]})
                 return FakeResponse(404, {})
 
         original_client = oauth_module.httpx.AsyncClient
@@ -71,10 +74,42 @@ class FacebookChannelAccountIdentityTest(unittest.IsolatedAsyncioTestCase):
         finally:
             oauth_module.httpx.AsyncClient = original_client
 
-        self.assertEqual(profile["account_id"], "page-456")
-        self.assertEqual(profile["account_name"], "AimTop Page")
+        self.assertIsNone(profile["account_id"])
+        self.assertEqual(profile["account_name"], "Facebook User")
         self.assertEqual(profile["extra_data"]["facebook_profile"]["id"], "user-123")
-        self.assertEqual(profile["extra_data"]["pages"][0]["id"], "page-456")
+        self.assertEqual(profile["extra_data"]["channel_choices"][0]["id"], "page-456")
+        self.assertEqual(profile["extra_data"]["channel_choices"][0]["label"], "AimTop Page")
+        self.assertNotIn("access_token", profile["extra_data"]["channel_choices"][0])
+
+    async def test_instagram_business_candidates_are_returned_from_pages(self):
+        import services.sns_oauth as oauth_module
+
+        class InstagramAsyncClient(FakeAsyncClient):
+            async def get(self, url, **kwargs):
+                if url.endswith("/me"):
+                    return FakeResponse(200, {"id": "user-123", "name": "Facebook User"})
+                if url.endswith("/me/accounts"):
+                    return FakeResponse(200, {"data": [
+                        {
+                            "id": "page-456",
+                            "name": "AimTop Page",
+                            "instagram_business_account": {"id": "ig-111", "username": "aimtop_ig", "name": "AimTop IG"},
+                        },
+                    ]})
+                return FakeResponse(404, {})
+
+        original_client = oauth_module.httpx.AsyncClient
+        oauth_module.httpx.AsyncClient = InstagramAsyncClient
+        try:
+            profile = await SNSOAuth().fetch_account_profile("instagram", "token-redacted")
+        finally:
+            oauth_module.httpx.AsyncClient = original_client
+
+        self.assertIsNone(profile["account_id"])
+        self.assertEqual(profile["account_name"], "Facebook User")
+        self.assertEqual(profile["extra_data"]["channel_choices"][0]["id"], "ig-111")
+        self.assertEqual(profile["extra_data"]["channel_choices"][0]["label"], "@aimtop_ig")
+        self.assertEqual(profile["extra_data"]["channel_choices"][0]["page_id"], "page-456")
 
     def test_channel_response_exposes_token_free_facebook_identity(self):
         response = ChannelConnectionResponse.model_validate({
@@ -91,6 +126,7 @@ class FacebookChannelAccountIdentityTest(unittest.IsolatedAsyncioTestCase):
             "extra_data": {
                 "facebook_profile": {"id": "user-123", "name": "Facebook User"},
                 "pages": [],
+                "channel_choices": [{"id": "page-456", "label": "AimTop Page", "access_token": "must-not-leak"}],
             },
         })
         dumped = response.model_dump()
@@ -99,6 +135,9 @@ class FacebookChannelAccountIdentityTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(dumped["display_account_name"], "Facebook User")
         self.assertIsNone(dumped["facebook_page_id"])
         self.assertEqual(dumped["facebook_page_count"], 0)
+        self.assertTrue(dumped["selection_required"])
+        self.assertEqual(dumped["channel_choices"][0]["id"], "page-456")
+        self.assertNotIn("access_token", dumped["channel_choices"][0])
         self.assertNotIn("extra_data", dumped)
 
 

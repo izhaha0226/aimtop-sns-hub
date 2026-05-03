@@ -14,6 +14,10 @@ class ChannelConnectionCreate(BaseModel):
     extra_data: dict[str, Any] | None = None
 
 
+class ChannelAccountSelection(BaseModel):
+    selected_id: str
+
+
 class ChannelConnectionResponse(BaseModel):
     id: uuid.UUID
     client_id: uuid.UUID
@@ -63,9 +67,35 @@ class ChannelConnectionResponse(BaseModel):
 
     @computed_field
     @property
+    def channel_choices(self) -> list[dict[str, Any]]:
+        raw_choices = (self.extra_data or {}).get("channel_choices")
+        if not isinstance(raw_choices, list):
+            return []
+        safe_choices: list[dict[str, Any]] = []
+        for choice in raw_choices:
+            if not isinstance(choice, dict) or not choice.get("id"):
+                continue
+            safe_choices.append({
+                key: value
+                for key, value in choice.items()
+                if key not in {"access_token", "page_access_token", "token", "secret"}
+            })
+        return safe_choices
+
+    @computed_field
+    @property
+    def selection_required(self) -> bool:
+        return not bool(self.account_id) and bool(self.channel_choices)
+
+    @computed_field
+    @property
     def display_account_id(self) -> str | None:
         if self.channel_type == "facebook":
             profile = (self.extra_data or {}).get("facebook_profile")
+            if isinstance(profile, dict) and profile.get("id"):
+                return str(profile["id"])
+        if self.channel_type in {"instagram", "threads"}:
+            profile = (self.extra_data or {}).get("meta_profile")
             if isinstance(profile, dict) and profile.get("id"):
                 return str(profile["id"])
         return self.account_id
@@ -77,6 +107,12 @@ class ChannelConnectionResponse(BaseModel):
             profile = (self.extra_data or {}).get("facebook_profile")
             if isinstance(profile, dict) and profile.get("name"):
                 return str(profile["name"])
+        if self.channel_type in {"instagram", "threads"}:
+            profile = (self.extra_data or {}).get("meta_profile")
+            if isinstance(profile, dict):
+                name = profile.get("username") or profile.get("name")
+                if name:
+                    return str(name)
         return self.account_name
 
     model_config = {"from_attributes": True}

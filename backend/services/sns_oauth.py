@@ -18,6 +18,45 @@ from services.runtime_settings import get_runtime_setting
 logger = logging.getLogger(__name__)
 
 
+def _safe_facebook_page_choices(pages: list[dict]) -> list[dict]:
+    """Return token-free Facebook Page choices for the UI."""
+    choices: list[dict] = []
+    for page in pages:
+        if not isinstance(page, dict) or not page.get("id"):
+            continue
+        choices.append({
+            "id": str(page.get("id")),
+            "label": str(page.get("name") or page.get("id")),
+            "platform": "facebook",
+            "page_id": str(page.get("id")),
+            "page_name": str(page.get("name") or page.get("id")),
+        })
+    return choices
+
+
+def _safe_instagram_choices_from_pages(pages: list[dict]) -> list[dict]:
+    """Return token-free Instagram business account choices discovered via Pages."""
+    choices: list[dict] = []
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        ig = page.get("instagram_business_account")
+        if not isinstance(ig, dict) or not ig.get("id"):
+            continue
+        username = ig.get("username") or ig.get("name") or ig.get("id")
+        label = f"@{username}" if ig.get("username") else str(username)
+        choices.append({
+            "id": str(ig.get("id")),
+            "label": label,
+            "platform": "instagram",
+            "username": str(ig.get("username")) if ig.get("username") else None,
+            "name": str(ig.get("name")) if ig.get("name") else None,
+            "page_id": str(page.get("id")) if page.get("id") else None,
+            "page_name": str(page.get("name")) if page.get("name") else None,
+        })
+    return choices
+
+
 def _get_fernet() -> Fernet | None:
     """토큰 암호화/복호화용 Fernet 인스턴스"""
     if settings.TOKEN_ENCRYPT_KEY:
@@ -346,17 +385,35 @@ class SNSOAuth:
         try:
             async with httpx.AsyncClient(timeout=20) as client:
                 if platform in ("instagram", "threads"):
-                    resp = await client.get(
+                    profile_data: dict = {}
+                    profile_resp = await client.get(
                         "https://graph.facebook.com/v19.0/me",
                         params={"fields": "id,name,username", "access_token": access_token},
                     )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        return {
-                            "account_id": data.get("id"),
-                            "account_name": data.get("username") or data.get("name"),
-                            "extra_data": data,
-                        }
+                    if profile_resp.status_code == 200:
+                        profile_data = profile_resp.json()
+
+                    pages_resp = await client.get(
+                        "https://graph.facebook.com/v19.0/me/accounts",
+                        params={
+                            "fields": "id,name,instagram_business_account{id,username,name}",
+                            "access_token": access_token,
+                        },
+                    )
+                    pages = pages_resp.json().get("data", []) if pages_resp.status_code == 200 else []
+                    choices = _safe_instagram_choices_from_pages(pages)
+                    return {
+                        # Instagram Graph publishing requires the chosen IG business/creator id.
+                        # Do not silently pick one: surface choices and require explicit selection.
+                        "account_id": None,
+                        "account_name": profile_data.get("username") or profile_data.get("name"),
+                        "extra_data": {
+                            "meta_profile": profile_data,
+                            "pages": pages,
+                            "channel_choices": choices,
+                            "selection_required": bool(choices),
+                        },
+                    }
                 elif platform == "facebook":
                     profile_data: dict = {}
                     profile_resp = await client.get(
@@ -372,14 +429,19 @@ class SNSOAuth:
                     )
                     if resp.status_code == 200:
                         items = resp.json().get("data", [])
-                        page = items[0] if items else {}
+                        choices = _safe_facebook_page_choices(items)
                         return {
-                            # Facebook 자동 발행에는 Page ID가 필요하다. 페이지가 없으면
-                            # account_id는 비워 두고, 연결된 사용자 ID는 token-free
-                            # facebook_profile로 분리해 프론트에 표시한다.
-                            "account_id": page.get("id"),
-                            "account_name": page.get("name") or profile_data.get("name"),
-                            "extra_data": {"facebook_profile": profile_data, "pages": items},
+                            # Facebook publishing needs a Page ID. Do not silently choose the
+                            # first page; keep user profile for display and require operator
+                            # selection from token-free page candidates.
+                            "account_id": None,
+                            "account_name": profile_data.get("name"),
+                            "extra_data": {
+                                "facebook_profile": profile_data,
+                                "pages": items,
+                                "channel_choices": choices,
+                                "selection_required": bool(choices),
+                            },
                         }
                 elif platform == "youtube":
                     resp = await client.get(

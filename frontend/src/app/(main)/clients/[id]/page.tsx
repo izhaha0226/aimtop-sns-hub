@@ -53,6 +53,7 @@ export default function ClientDetailPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [authLoading, setAuthLoading] = useState<string | null>(null)
+  const [selectingChannelId, setSelectingChannelId] = useState<string | null>(null)
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const [highlightedChannelId, setHighlightedChannelId] = useState<string | null>(null)
   const channelRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -175,6 +176,21 @@ export default function ClientDetailPage() {
       setNotice({ type: "error", text: `${platform} 연동 해제에 실패했습니다.` })
     } finally {
       setAuthLoading(null)
+    }
+  }
+
+  const handleSelectAccount = async (channelId: string, choiceId: string, label: string) => {
+    setSelectingChannelId(channelId)
+    setNotice(null)
+    try {
+      await channelsService.selectAccount(id, channelId, choiceId)
+      setNotice({ type: "success", text: `${label} 채널을 발행 대상으로 등록했습니다.` })
+      await load()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "채널 선택 저장에 실패했습니다."
+      setNotice({ type: "error", text: message })
+    } finally {
+      setSelectingChannelId(null)
     }
   }
 
@@ -316,6 +332,28 @@ export default function ClientDetailPage() {
                     <p className="text-sm text-gray-500 mt-1">{channel.desc}</p>
                     {(connected?.account_name || channelState?.account_name) && (
                       <p className="text-xs text-gray-500 mt-2">계정: {connected?.account_name || channelState?.account_name}</p>
+                    )}
+                    {connected?.selection_required && connected.channel_choices && connected.channel_choices.length > 0 && (
+                      <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                        <p className="text-xs font-semibold text-amber-800">등록할 페이지/채널을 선택해 주세요</p>
+                        <p className="text-[11px] text-amber-700 mt-1">OAuth 인증 후 실제 발행에 사용할 Facebook 페이지 또는 Instagram 비즈니스 채널 ID를 명시적으로 저장해야 합니다.</p>
+                        <div className="mt-2 flex flex-col gap-2">
+                          {connected.channel_choices.map((choice) => (
+                            <button
+                              key={choice.id}
+                              onClick={() => void handleSelectAccount(connected.id, choice.id, choice.label)}
+                              disabled={selectingChannelId === connected.id}
+                              className="flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-white px-3 py-2 text-left text-xs text-gray-700 hover:border-amber-400 disabled:opacity-50"
+                            >
+                              <span>
+                                <span className="font-medium">{choice.label}</span>
+                                <span className="ml-2 text-gray-400">ID: {choice.id}</span>
+                              </span>
+                              <span className="text-amber-700">선택</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     )}
                     {connected?.connected_at && (
                       <p className="text-xs text-gray-400 mt-1">연결일: {new Date(connected.connected_at).toLocaleString("ko-KR")}</p>
