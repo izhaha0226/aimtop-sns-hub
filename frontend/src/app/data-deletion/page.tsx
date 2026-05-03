@@ -33,7 +33,7 @@ export default function DataDeletionPage() {
             삭제하려면 아래 이메일로 요청해 주세요.
           </p>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-slate-700">
-            <p><strong>요청 이메일:</strong> privacy@aimtop.ai</p>
+            <p><strong>요청 이메일:</strong> izhaha@aimtop.ai</p>
             <p><strong>메일 제목:</strong> AimTop SNS Hub 사용자 데이터 삭제 요청</p>
             <p><strong>포함 정보:</strong> 가입 이메일, 회사/브랜드명, 삭제할 SNS 플랫폼, 요청 범위</p>
           </div>
@@ -69,7 +69,7 @@ export default function DataDeletionPage() {
         <section className="space-y-3">
           <h2 className="text-xl font-semibold">6. 문의</h2>
           <p className="leading-relaxed text-slate-700">
-            데이터 삭제, 개인정보, SNS 연동 해제 관련 문의는 privacy@aimtop.ai 로 보내주세요.
+            데이터 삭제, 개인정보, SNS 연동 해제 관련 문의는 izhaha@aimtop.ai 로 보내주세요.
           </p>
         </section>
       </article>

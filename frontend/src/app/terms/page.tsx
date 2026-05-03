@@ -83,8 +83,8 @@ export default function TermsPage() {
         <section className="space-y-3">
           <h2 className="text-xl font-semibold">제9조 문의</h2>
           <p className="leading-relaxed text-slate-700">
-            서비스 및 약관 문의: contact@aimtop.ai<br />
-            개인정보 문의: privacy@aimtop.ai
+            서비스 및 약관 문의: izhaha@aimtop.ai<br />
+            개인정보 문의: izhaha@aimtop.ai
           </p>
         </section>
       </article>

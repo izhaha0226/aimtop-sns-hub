@@ -89,8 +89,8 @@ export default function PrivacyPage() {
           <h2 className="text-xl font-semibold">9. 개인정보 보호 책임자</h2>
           <p className="leading-relaxed text-slate-700">
             회사명: 에임탑<br />
-            문의 이메일: privacy@aimtop.ai<br />
-            서비스 문의: contact@aimtop.ai
+            문의 이메일: izhaha@aimtop.ai<br />
+            서비스 문의: izhaha@aimtop.ai
           </p>
         </section>
 
