@@ -61,7 +61,9 @@ PLATFORM_CONFIGS = {
     "instagram": {
         "auth_url": "https://www.facebook.com/v19.0/dialog/oauth",
         "token_url": "https://graph.facebook.com/v19.0/oauth/access_token",
-        "scopes": "instagram_basic,instagram_content_publish,pages_read_engagement,pages_show_list",
+        # Connect-only scope set. Request instagram_basic / instagram_content_publish
+        # only after the Instagram API product/use-case and App Review access are ready.
+        "scopes": "pages_show_list,pages_read_engagement",
     },
     "facebook": {
         "auth_url": "https://www.facebook.com/v19.0/dialog/oauth",
