@@ -49,11 +49,24 @@ class SNSPublisher:
         2단계: 미디어 발행
         """
         access_token = decrypt_token(account.access_token)
-        ig_user_id = (account.extra_data or {}).get("instagram_user_id", account.account_id)
+        if not access_token:
+            raise ValueError("Instagram access token이 없어 재연동이 필요합니다")
+
+        extra_data = account.extra_data if isinstance(account.extra_data, dict) else {}
+        ig_user_id = extra_data.get("instagram_user_id") or account.account_id
+        if not ig_user_id:
+            raise ValueError(
+                "Instagram 발행 계정 ID가 없어 자동 발행할 수 없습니다. "
+                "현재 연결은 Meta 최소 권한 연결 상태이므로 Instagram Graph API 발행용 "
+                "instagram_business_account ID와 instagram_content_publish 권한을 준비한 뒤 재연동해야 합니다."
+            )
+
         base_url = "https://graph.facebook.com/v19.0"
 
         caption = self._build_caption(content)
         media_url = (content.media_urls or [None])[0]
+        if not media_url:
+            raise ValueError("Instagram 자동 발행에는 공개 접근 가능한 이미지 URL이 필요합니다")
 
         async with httpx.AsyncClient(timeout=60) as client:
             # Step 1: Create media container

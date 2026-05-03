@@ -5,7 +5,7 @@ import { AlertCircle, ArrowLeft, CalendarClock, CheckCircle, ExternalLink, Image
 import { contentsService } from "@/services/contents"
 import { aiService } from "@/services/ai"
 import { approvalsService, type ExternalApprovalItem } from "@/services/approvals"
-import { channelsService, getTokenHealth, isAutoPublishSupported, type ChannelConnection } from "@/services/channels"
+import { channelsService, getAutoPublishBlockReason, getTokenHealth, isChannelAutoPublishReady, type ChannelConnection } from "@/services/channels"
 import type { Content } from "@/types/content"
 import { STATUS_LABELS, STATUS_COLORS, POST_TYPE_LABELS, POST_TYPE_COLORS } from "@/types/content"
 import { Button } from "@/components/common/Button"
@@ -71,15 +71,17 @@ export default function ContentDetailPage() {
     [channels]
   )
   const availableChannels = useMemo(
-    () => connectedChannels.filter((channel) => getTokenHealth(channel.token_expires_at) !== "reauth_required" && isAutoPublishSupported(channel.channel_type)),
+    () => connectedChannels.filter((channel) => getTokenHealth(channel.token_expires_at) !== "reauth_required" && isChannelAutoPublishReady(channel)),
     [connectedChannels]
   )
   const selectedChannel = connectedChannels.find((channel) => channel.id === selectedChannelId)
   const selectedChannelHealth = getTokenHealth(selectedChannel?.token_expires_at)
-  const selectedChannelAutoPublishSupported = isAutoPublishSupported(selectedChannel?.channel_type)
+  const selectedChannelAutoPublishBlockReason = getAutoPublishBlockReason(selectedChannel)
+  const selectedChannelAutoPublishSupported = !selectedChannelAutoPublishBlockReason
   const persistedChannel = channels.find((channel) => channel.id === content?.channel_connection_id)
   const persistedChannelHealth = persistedChannel ? getTokenHealth(persistedChannel.token_expires_at) : null
-  const persistedChannelAutoPublishSupported = persistedChannel ? isAutoPublishSupported(persistedChannel.channel_type) : null
+  const persistedChannelAutoPublishBlockReason = persistedChannel ? getAutoPublishBlockReason(persistedChannel) : null
+  const persistedChannelAutoPublishSupported = persistedChannel ? !persistedChannelAutoPublishBlockReason : null
   const hasPublishEvidence = Boolean(content?.platform_post_id || content?.published_url)
   const hasAnyPublishTrace = Boolean(content?.platform_post_id || content?.published_url || content?.published_at)
   const publishedWithoutEvidence = content?.status === "published" && !hasPublishEvidence
@@ -211,8 +213,8 @@ export default function ContentDetailPage() {
       setActionError("재인증이 필요한 채널은 발행할 수 없습니다")
       return
     }
-    if (!selectedChannelAutoPublishSupported) {
-      setActionError("선택한 채널은 아직 실제 발행 자동화를 지원하지 않습니다")
+    if (selectedChannelAutoPublishBlockReason) {
+      setActionError(selectedChannelAutoPublishBlockReason)
       return
     }
     if (!confirm("지금 바로 발행하시겠습니까?")) return
@@ -242,8 +244,8 @@ export default function ContentDetailPage() {
       setActionError("재인증이 필요한 채널은 예약할 수 없습니다")
       return
     }
-    if (!selectedChannelAutoPublishSupported) {
-      setActionError("선택한 채널은 아직 실제 발행 자동화를 지원하지 않습니다")
+    if (selectedChannelAutoPublishBlockReason) {
+      setActionError(selectedChannelAutoPublishBlockReason)
       return
     }
 
@@ -457,11 +459,11 @@ export default function ContentDetailPage() {
             <option value="">발행 채널 선택</option>
             {connectedChannels.map((channel) => {
               const health = getTokenHealth(channel.token_expires_at)
-              const unsupported = !isAutoPublishSupported(channel.channel_type)
-              const disabled = health === "reauth_required" || unsupported
+              const blockReason = getAutoPublishBlockReason(channel)
+              const disabled = health === "reauth_required" || Boolean(blockReason)
               return (
                 <option key={channel.id} value={channel.id} disabled={disabled}>
-                  {channel.channel_type}{channel.account_name ? ` · ${channel.account_name}` : ""}{disabled ? unsupported ? " (자동발행 미지원)" : " (재인증 필요)" : health === "expiring" ? " (만료 임박)" : ""}
+                  {channel.channel_type}{channel.account_name ? ` · ${channel.account_name}` : ""}{disabled ? blockReason ? ` (${blockReason})` : " (재인증 필요)" : health === "expiring" ? " (만료 임박)" : ""}
                 </option>
               )
             })}
@@ -470,7 +472,7 @@ export default function ContentDetailPage() {
           {selectedChannel && (
             <div className={`rounded-lg px-3 py-2 text-xs ${!selectedChannelAutoPublishSupported ? "bg-gray-100 text-gray-700 border border-gray-200" : selectedChannelHealth === "expiring" ? "bg-yellow-50 text-yellow-700 border border-yellow-200" : "bg-blue-50 text-blue-700 border border-blue-200"}`}>
               {selectedChannel.channel_type}{selectedChannel.account_name ? ` · ${selectedChannel.account_name}` : ""}
-              {!selectedChannelAutoPublishSupported ? " · 현재 연동만 지원, 자동 발행 미지원" : selectedChannel.token_expires_at ? ` · 만료 ${new Date(selectedChannel.token_expires_at).toLocaleString("ko-KR")}` : " · 만료시각 미확인"}
+              {!selectedChannelAutoPublishSupported ? ` · ${selectedChannelAutoPublishBlockReason || "자동 발행 미지원"}` : selectedChannel.token_expires_at ? ` · 만료 ${new Date(selectedChannel.token_expires_at).toLocaleString("ko-KR")}` : " · 만료시각 미확인"}
             </div>
           )}
 
