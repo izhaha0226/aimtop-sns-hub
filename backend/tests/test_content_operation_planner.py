@@ -2,6 +2,7 @@ import unittest
 
 from services.content_operation_planner import (
     OperationPlanRequestData,
+    build_brand_study,
     build_fallback_operation_plan,
     build_supermarketing_strategy,
 )
@@ -101,6 +102,28 @@ class ContentOperationPlannerTest(unittest.TestCase):
         self.assertEqual(plan["benchmark_source_status"], "live_or_cached_evidence")
         self.assertEqual(plan["benchmark_insights"][0]["evidence_count"], 6)
         self.assertIn("증거 6개", plan["benchmark_notes"][0])
+
+    def test_brand_study_locks_primary_offer_before_weekly_plan(self):
+        req = OperationPlanRequestData(
+            brand_name="탑클래스",
+            product_summary="김기원VIP멤버십, 프리미엄 입시/학습 관리 프로그램",
+            target_audience="상위권 도약을 원하는 학생과 학부모",
+            goals=["VIP 멤버십 상담 신청", "신뢰 형성"],
+            channels=["instagram", "kakao", "blog"],
+            benchmark_brands=["클래스101"],
+            month="2026-05",
+        )
+
+        study = build_brand_study(req)
+        strategy = build_supermarketing_strategy(req)
+        plan = build_fallback_operation_plan(req)
+
+        self.assertEqual(plan["primary_offer"], "김기원VIP멤버십")
+        self.assertTrue(any("김기원VIP멤버십" in item for item in study))
+        self.assertTrue(any("김기원VIP멤버십" in item for item in strategy))
+        self.assertTrue(any("김기원VIP멤버십" in item for item in plan["product_angles"]))
+        self.assertTrue(any("김기원VIP멤버십" in week["theme"] for week in plan["weekly_plan"]))
+        self.assertTrue(any("대표 홍보 오퍼" in item for item in plan["approval_checklist"]))
 
 
 if __name__ == "__main__":

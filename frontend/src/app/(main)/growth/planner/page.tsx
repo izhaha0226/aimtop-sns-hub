@@ -379,6 +379,10 @@ export default function OperationPlannerPage() {
                 <InfoList title="상품성 앵글" icon={<Sparkles size={16} />} items={plan.product_angles} />
               </div>
 
+              {(plan.brand_study || []).length > 0 && (
+                <InfoList title={`우리 브랜드 스터디${plan.primary_offer ? ` · 대표 오퍼: ${plan.primary_offer}` : ""}`} icon={<Target size={16} />} items={plan.brand_study} tone="green" />
+              )}
+
               {(plan.supermarketing_strategy || []).length > 0 && (
                 <InfoList title="슈퍼마케팅 전략 판단" icon={<Sparkles size={16} />} items={plan.supermarketing_strategy} tone="green" />
               )}

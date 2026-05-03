@@ -40,6 +40,22 @@ CHANNEL_FORMATS: dict[str, list[str]] = {
     "linkedin": ["전문성 글", "인사이트 카드", "케이스 스터디", "성과 지표 공유"],
 }
 
+OFFER_KEYWORDS = (
+    "vip",
+    "멤버십",
+    "membership",
+    "프로그램",
+    "클래스",
+    "강의",
+    "컨설팅",
+    "상담",
+    "패키지",
+    "구독",
+    "챌린지",
+    "마스터",
+    "코스",
+)
+
 
 @dataclass(frozen=True)
 class OperationPlanRequestData:
@@ -103,13 +119,52 @@ def _volume_for_channel(channel: str, goal_count: int) -> int:
     return base
 
 
-def _weekly_theme(week: int, brand_name: str, goals: list[str], season_context: str) -> str:
+def _split_offer_phrases(text: str) -> list[str]:
+    """Extract concrete brand/offer candidates from raw product/notes text."""
+    import re
+
+    chunks = re.split(r"[\n,;/|·•]+", text or "")
+    candidates: list[str] = []
+    for chunk in chunks:
+        value = re.sub(r"\s+", " ", chunk).strip(" -:：()[]{}\t")
+        if not value:
+            continue
+        lower = value.lower()
+        has_offer_keyword = any(keyword in lower for keyword in OFFER_KEYWORDS)
+        if has_offer_keyword or len(value) <= 24:
+            if value not in candidates:
+                candidates.append(value)
+    return candidates[:5]
+
+
+def _primary_offer(req: OperationPlanRequestData) -> str:
+    combined = "\n".join([req.product_summary, req.notes, ", ".join(req.goals)])
+    candidates = _split_offer_phrases(combined)
+    if candidates:
+        return candidates[0]
+    return req.product_summary.strip() or f"{req.brand_name} 대표 오퍼"
+
+
+def build_brand_study(req: OperationPlanRequestData) -> list[str]:
+    """Study our own brand before borrowing benchmark structures."""
+    primary = _primary_offer(req)
+    goals = [goal.strip() for goal in req.goals if str(goal).strip()] or ["문의/전환"]
+    audience = req.target_audience or "구매/문의 가능성이 높은 잠재 고객"
+    return [
+        f"Primary offer: 이번 운영계획의 1순위 홍보 대상은 '{primary}'로 고정한다.",
+        f"Audience fit: '{audience}'가 이 오퍼를 왜 지금 선택해야 하는지 문제/욕구/장벽을 먼저 해석한다.",
+        f"Conversion path: {', '.join(goals)} 목표에 맞춰 인지→신뢰→혜택 이해→상담/신청 CTA 순서로 설계한다.",
+        "Benchmark boundary: 경쟁사는 우리 오퍼를 설명하기 위한 구조 참고일 뿐이며, 우리 브랜드/대표 오퍼보다 앞에 오면 안 된다.",
+    ]
+
+
+def _weekly_theme(week: int, brand_name: str, goals: list[str], season_context: str, primary_offer: str) -> str:
     goal = goals[(week - 1) % len(goals)] if goals else "인지도 확보"
     themes = {
-        1: f"{brand_name} 문제 인식과 시즌 공감 형성",
-        2: f"상품성/차별점 증명과 {goal} 메시지 강화",
-        3: "벤치마킹 패턴을 변주한 참여/저장 유도 콘텐츠",
-        4: "전환 CTA와 월말 리마인드/성과 회수",
+        1: f"{brand_name} 문제 인식과 '{primary_offer}' 필요성 공감 형성",
+        2: f"'{primary_offer}' 상품성/차별점 증명과 {goal} 메시지 강화",
+        3: f"벤치마킹 패턴을 변주한 '{primary_offer}' 참여/저장 유도 콘텐츠",
+        4: f"'{primary_offer}' 상담/신청 CTA와 월말 리마인드/성과 회수",
     }
     if week == 1 and season_context:
         return f"{themes[week]} ({season_context})"
@@ -127,6 +182,7 @@ def build_supermarketing_strategy(req: OperationPlanRequestData) -> list[str]:
     """
     goals = [goal.strip() for goal in req.goals if str(goal).strip()] or ["브랜드 인지도", "문의/전환"]
     channels = _normalize_channels(req.channels)
+    primary_offer = _primary_offer(req)
     if req.benchmark_insights:
         live_count = sum(1 for item in req.benchmark_insights if str(item.get("source_status") or "").startswith("live_collected"))
         evidence_count = sum(int(item.get("evidence_count") or 0) for item in req.benchmark_insights)
@@ -143,7 +199,7 @@ def build_supermarketing_strategy(req: OperationPlanRequestData) -> list[str]:
     return [
         (
             "Brief lock: "
-            f"{req.brand_name}의 오퍼는 '{req.product_summary}'이며, 핵심 타겟은 "
+            f"{req.brand_name}의 대표 오퍼는 '{primary_offer}'이며, 상품/서비스 맥락은 '{req.product_summary}'이다. 핵심 타겟은 "
             f"'{req.target_audience or '구매/문의 가능성이 높은 잠재 고객'}'로 둔다."
         ),
         (
@@ -170,6 +226,8 @@ def build_fallback_operation_plan(req: OperationPlanRequestData) -> dict[str, An
     goals = [goal.strip() for goal in req.goals if str(goal).strip()] or ["브랜드 인지도", "문의/전환"]
     month = _resolve_month(req.month)
     season_context = _seasonal_text(month, req.season_context)
+    primary_offer = _primary_offer(req)
+    brand_study = build_brand_study(req)
     supermarketing_strategy = build_supermarketing_strategy(req)
     monthly_volume = {channel: _volume_for_channel(channel, len(goals)) for channel in channels}
     total_volume = sum(monthly_volume.values())
@@ -202,7 +260,7 @@ def build_fallback_operation_plan(req: OperationPlanRequestData) -> dict[str, An
         weekly_plan.append(
             {
                 "week": week,
-                "theme": _weekly_theme(week, req.brand_name, goals, season_context),
+                "theme": _weekly_theme(week, req.brand_name, goals, season_context, primary_offer),
                 "objective": goals[(week - 1) % len(goals)],
                 "channels": weekly_channels,
             }
@@ -237,10 +295,13 @@ def build_fallback_operation_plan(req: OperationPlanRequestData) -> dict[str, An
         ),
         "target_insights": [
             f"핵심 타겟: {req.target_audience or '구매/문의 가능성이 높은 잠재 고객'}",
-            "초반에는 문제 공감, 중반에는 상품성 증명, 후반에는 행동 유도를 강화합니다.",
+            f"초반에는 문제 공감, 중반에는 '{primary_offer}' 상품성 증명, 후반에는 행동 유도를 강화합니다.",
         ],
+        "brand_study": brand_study,
+        "primary_offer": primary_offer,
         "product_angles": [
-            f"상품/서비스 핵심: {req.product_summary}",
+            f"대표 홍보 오퍼: {primary_offer}",
+            f"상품/서비스 전체 맥락: {req.product_summary}",
             "비교 우위, 사용 장면, 고객 변화, 리스크 제거 메시지로 분해합니다.",
         ],
         "supermarketing_strategy": supermarketing_strategy,
@@ -254,12 +315,14 @@ def build_fallback_operation_plan(req: OperationPlanRequestData) -> dict[str, An
         "channel_plan": channel_plan,
         "approval_checklist": [
             "브랜드명/상품 설명/타겟 정의가 정확한지 승인",
+            f"대표 홍보 오퍼가 '{primary_offer}'로 맞는지 승인",
             "월간 총 제작 수량이 실제 운영 리소스에 맞는지 승인",
             "채널별 콘텐츠 포맷과 업로드 빈도 승인",
             "벤치마킹 브랜드 참고 범위와 금지 표현 확인",
             "승인 전 외부 채널 업로드 없음",
         ],
         "risks": [
+            f"대표 오퍼('{primary_offer}')가 실제 이번 달 우선순위와 다르면 운영계획 전체가 빗나갈 수 있음",
             "실수집 벤치마킹 데이터가 없으면 수동/프록시 분석으로 표시해야 합니다.",
             "콘텐츠 수량이 많을수록 이미지 제작/검수 병목이 발생할 수 있습니다.",
             "프로모션/가격/의료·금융·법률 표현은 업로드 전 별도 검수가 필요합니다.",

@@ -194,6 +194,8 @@ class GenerateOperationPlanResponse(BaseModel):
     month: str = ""
     strategy_summary: str = ""
     target_insights: list[str] = Field(default_factory=list)
+    brand_study: list[str] = Field(default_factory=list)
+    primary_offer: str = ""
     product_angles: list[str] = Field(default_factory=list)
     supermarketing_strategy: list[str] = Field(default_factory=list)
     seasonal_context: str = ""
