@@ -1,5 +1,6 @@
 "use client"
 import { useEffect, useMemo, useState } from "react"
+import type { ChangeEvent } from "react"
 import { useRouter } from "next/navigation"
 import { FileText, Loader2, Plus, Trash2 } from "lucide-react"
 import { contentsService } from "@/services/contents"
@@ -91,6 +92,8 @@ export default function ContentsPage() {
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState("")
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [selectedContentIds, setSelectedContentIds] = useState<string[]>([])
+  const [bulkDeleting, setBulkDeleting] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -109,7 +112,11 @@ export default function ContentsPage() {
           client_id: selectedClientId,
           ...(statusFilter ? { status: statusFilter } : {}),
         })
-        if (!cancelled) setContents(data)
+        const scopedData = data.filter((item) => item.client_id === selectedClientId)
+        if (!cancelled) {
+          setContents(scopedData)
+          setSelectedContentIds((ids) => ids.filter((contentId) => scopedData.some((item) => item.id === contentId)))
+        }
       } catch (err) {
         console.error(err)
         if (!cancelled) setError("콘텐츠 목록을 불러오지 못했습니다")
@@ -122,6 +129,40 @@ export default function ContentsPage() {
   }, [clientLoading, selectedClientId, statusFilter])
 
   const weekGroups = useMemo(() => groupContentsByWeek(contents), [contents])
+  const allVisibleContentIds = useMemo(() => contents.map((item) => item.id), [contents])
+  const allVisibleSelected = allVisibleContentIds.length > 0 && allVisibleContentIds.every((id) => selectedContentIds.includes(id))
+
+  const toggleContentSelection = (event: ChangeEvent<HTMLInputElement>, contentId: string) => {
+    event.stopPropagation()
+    setSelectedContentIds((ids) =>
+      ids.includes(contentId) ? ids.filter((id) => id !== contentId) : [...ids, contentId]
+    )
+  }
+
+  const toggleAllVisibleContents = () => {
+    setSelectedContentIds(allVisibleSelected ? [] : allVisibleContentIds)
+  }
+
+  const bulkDeleteSelectedContents = async () => {
+    if (!selectedClientId || selectedContentIds.length === 0) return
+    if (!window.confirm(`선택한 콘텐츠 ${selectedContentIds.length}개를 삭제할까요?`)) return
+
+    setBulkDeleting(true)
+    setNotice(null)
+    setError(null)
+    try {
+      const result = await contentsService.bulkDelete(selectedClientId, selectedContentIds)
+      const deletedIds = new Set(result.deleted_ids || selectedContentIds)
+      setContents((items) => items.filter((item) => !deletedIds.has(item.id)))
+      setSelectedContentIds([])
+      setNotice(`선택 콘텐츠 ${result.deleted_count ?? deletedIds.size}개를 삭제했습니다${result.skipped_count ? ` · 제외 ${result.skipped_count}개` : ""}`)
+    } catch (err) {
+      console.error(err)
+      setError("선택 콘텐츠 삭제에 실패했습니다")
+    } finally {
+      setBulkDeleting(false)
+    }
+  }
 
   const deleteContent = async (content: Content) => {
     const title = cleanDisplayTitle(content, 0)
@@ -133,6 +174,7 @@ export default function ContentsPage() {
     try {
       await contentsService.delete(content.id)
       setContents((items) => items.filter((item) => item.id !== content.id))
+      setSelectedContentIds((ids) => ids.filter((id) => id !== content.id))
       setNotice("콘텐츠를 삭제했습니다")
     } catch (err) {
       console.error(err)
@@ -158,20 +200,42 @@ export default function ContentsPage() {
         </button>
       </div>
 
-      <div className="flex gap-1 mb-4 bg-white border rounded-lg p-1 w-fit">
-        {STATUS_FILTERS.map((f) => (
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-1 bg-white border rounded-lg p-1 w-fit">
+          {STATUS_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              onClick={() => setStatusFilter(f.value)}
+              className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
+                statusFilter === f.value
+                  ? "bg-blue-600 text-white font-medium"
+                  : "text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 text-sm">
           <button
-            key={f.value}
-            onClick={() => setStatusFilter(f.value)}
-            className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
-              statusFilter === f.value
-                ? "bg-blue-600 text-white font-medium"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
+            type="button"
+            onClick={toggleAllVisibleContents}
+            disabled={contents.length === 0 || bulkDeleting}
+            className="rounded-lg border px-3 py-1.5 text-gray-600 hover:bg-gray-50 disabled:opacity-40"
           >
-            {f.label}
+            {allVisibleSelected ? "전체 해제" : "전체 선택"}
           </button>
-        ))}
+          <button
+            type="button"
+            onClick={bulkDeleteSelectedContents}
+            disabled={selectedContentIds.length === 0 || bulkDeleting || !selectedClientId}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
+          >
+            {bulkDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+            선택 삭제 {selectedContentIds.length > 0 ? `(${selectedContentIds.length})` : ""}
+          </button>
+        </div>
       </div>
 
       {(notice || error) && (
@@ -218,8 +282,17 @@ export default function ContentsPage() {
                     <div
                       key={c.id}
                       onClick={() => router.push(`/contents/${c.id}`)}
-                      className="grid grid-cols-[56px_1fr_110px_100px_96px_96px] items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors"
+                      className="grid grid-cols-[32px_56px_1fr_110px_100px_96px_96px] items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors"
                     >
+                      <input
+                        type="checkbox"
+                        checked={selectedContentIds.includes(c.id)}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => toggleContentSelection(event, c.id)}
+                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        aria-label={`${displayTitle} 선택`}
+                      />
+
                       <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-900 text-xs font-bold text-white">
                         {String(sequence).padStart(2, "0")}
                       </div>

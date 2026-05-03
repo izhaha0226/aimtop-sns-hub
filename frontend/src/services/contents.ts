@@ -30,17 +30,19 @@ function normalizeContent(content: unknown): Content {
 }
 
 export const contentsService = {
-  async list(params?: { client_id?: string; status?: string; post_type?: string }) {
+  async list(params?: { client_id?: string; status?: string; post_type?: string }): Promise<Content[]> {
     const res = await api.get("/api/v1/contents", { params })
-    const items = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.items) ? res.data.items : []
+    const items: unknown[] = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.items) ? res.data.items : []
     return items.map(normalizeContent)
   },
   async create(data: ContentCreate) {
     const res = await api.post("/api/v1/contents", data)
     return normalizeContent(res.data)
   },
-  async get(id: string) {
-    const res = await api.get(`/api/v1/contents/${id}`)
+  async get(id: string, clientId?: string) {
+    const res = await api.get(`/api/v1/contents/${id}`, {
+      params: clientId ? { client_id: clientId } : undefined,
+    })
     return normalizeContent(res.data)
   },
   async update(id: string, data: Partial<ContentCreate>) {
@@ -49,6 +51,13 @@ export const contentsService = {
   },
   async delete(id: string) {
     await api.delete(`/api/v1/contents/${id}`)
+  },
+  async bulkDelete(clientId: string, contentIds: string[]) {
+    const res = await api.post("/api/v1/contents/bulk-delete", {
+      client_id: clientId,
+      content_ids: contentIds,
+    })
+    return res.data as { deleted_ids: string[]; skipped_ids: string[]; deleted_count: number; skipped_count: number }
   },
   async requestApproval(id: string) {
     const res = await api.post(`/api/v1/contents/${id}/request-approval`)

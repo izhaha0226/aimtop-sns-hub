@@ -11,12 +11,14 @@ import { STATUS_LABELS, STATUS_COLORS, POST_TYPE_LABELS, POST_TYPE_COLORS } from
 import { Button } from "@/components/common/Button"
 import { Modal } from "@/components/common/Modal"
 import { useAuth } from "@/hooks/useAuth"
+import { useSelectedClient } from "@/hooks/useSelectedClient"
 
 export default function ContentDetailPage() {
   const router = useRouter()
   const params = useParams()
   const id = params.id as string
   const { isApprover } = useAuth()
+  const { selectedClientId, loading: clientLoading } = useSelectedClient()
 
   const [content, setContent] = useState<Content | null>(null)
   const [channels, setChannels] = useState<ChannelConnection[]>([])
@@ -36,25 +38,41 @@ export default function ContentDetailPage() {
   const [imageLoading, setImageLoading] = useState(false)
 
   useEffect(() => {
+    if (clientLoading) return
+    if (!selectedClientId) {
+      router.replace("/contents")
+      return
+    }
+
+    let cancelled = false
     async function load() {
+      setLoading(true)
       try {
-        const item = await contentsService.get(id)
+        const item = await contentsService.get(id, selectedClientId)
+        if (item.client_id !== selectedClientId) {
+          router.replace("/contents")
+          return
+        }
+        if (cancelled) return
         setContent(item)
         const [channelItems, approvalItems] = await Promise.all([
           channelsService.list(item.client_id),
           approvalsService.listForContent(id).catch(() => []),
         ])
+        if (cancelled) return
         setChannels(channelItems)
         setExternalApprovals(approvalItems)
         setSelectedChannelId(item.channel_connection_id || channelItems.find((channel) => channel.is_connected && getTokenHealth(channel.token_expires_at) !== "reauth_required")?.id || "")
       } catch (err) {
         console.error(err)
+        if (!cancelled) router.replace("/contents")
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
     void load()
-  }, [id])
+    return () => { cancelled = true }
+  }, [clientLoading, id, router, selectedClientId])
 
   const safeHashtags = Array.isArray(content?.hashtags) ? content.hashtags : []
   const safeMediaUrls = Array.isArray(content?.media_urls) ? content.media_urls : []

@@ -10,7 +10,14 @@ from models.approval import Approval
 from models.schedule import Schedule
 from models.channel import ChannelConnection
 from models.user import User
-from schemas.content import ContentCreate, ContentUpdate, ContentResponse, ContentListResponse
+from schemas.content import (
+    ContentBulkDeleteRequest,
+    ContentBulkDeleteResponse,
+    ContentCreate,
+    ContentListResponse,
+    ContentResponse,
+    ContentUpdate,
+)
 from schemas.approval import ApprovalCreate
 from schemas.schedule import ScheduleCreate, ScheduleResponse
 from middleware.auth import get_current_user
@@ -106,13 +113,51 @@ async def create_content(
     return content
 
 
-@router.get("/{content_id}", response_model=ContentResponse)
-async def get_content(
-    content_id: uuid.UUID,
+@router.post("/bulk-delete", response_model=ContentBulkDeleteResponse)
+async def bulk_delete_contents(
+    body: ContentBulkDeleteRequest,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    return await _get_content_or_404(content_id, db)
+    unique_ids = list(dict.fromkeys(body.content_ids))
+    if not unique_ids:
+        return {"deleted_ids": [], "skipped_ids": [], "deleted_count": 0, "skipped_count": 0}
+
+    result = await db.execute(
+        select(Content).where(
+            Content.id.in_(unique_ids),
+            Content.client_id == body.client_id,
+            Content.status != "trashed",
+        )
+    )
+    contents = result.scalars().all()
+    deleted_ids = [content.id for content in contents]
+    deleted_id_set = set(deleted_ids)
+    skipped_ids = [content_id for content_id in unique_ids if content_id not in deleted_id_set]
+
+    for content in contents:
+        content.status = "trashed"
+
+    await db.commit()
+    return {
+        "deleted_ids": deleted_ids,
+        "skipped_ids": skipped_ids,
+        "deleted_count": len(deleted_ids),
+        "skipped_count": len(skipped_ids),
+    }
+
+
+@router.get("/{content_id}", response_model=ContentResponse)
+async def get_content(
+    content_id: uuid.UUID,
+    client_id: uuid.UUID | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    content = await _get_content_or_404(content_id, db)
+    if client_id and content.client_id != client_id:
+        raise HTTPException(status_code=404, detail="선택한 클라이언트의 콘텐츠가 아닙니다")
+    return content
 
 
 @router.put("/{content_id}", response_model=ContentResponse)

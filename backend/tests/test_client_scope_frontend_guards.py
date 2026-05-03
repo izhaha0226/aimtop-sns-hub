@@ -22,6 +22,33 @@ class ClientScopedFrontendGuardsTest(unittest.TestCase):
             re.compile(r"contentsService\.list\([^\)]*client_id:\s*selectedClientId", re.DOTALL),
         )
         self.assertIn('clientLoading', source)
+        self.assertRegex(
+            source,
+            re.compile(r"data\.filter\(\(item\)\s*=>\s*item\.client_id\s*===\s*selectedClientId", re.DOTALL),
+            "The contents page must defensively drop cross-client rows returned by stale/cached APIs.",
+        )
+
+    def test_content_detail_redirects_when_selected_client_does_not_match_content(self):
+        source = CONTENT_DETAIL_PAGE.read_text()
+
+        self.assertIn('useSelectedClient', source)
+        self.assertIn('selectedClientId', source)
+        self.assertIn('contentsService.get(id, selectedClientId)', source)
+        self.assertRegex(
+            source,
+            re.compile(r"item\.client_id\s*!==\s*selectedClientId", re.DOTALL),
+        )
+        self.assertIn('router.replace("/contents")', source)
+
+    def test_contents_page_has_bulk_selection_delete_controls(self):
+        source = CONTENTS_PAGE.read_text()
+
+        self.assertIn('selectedContentIds', source)
+        self.assertIn('toggleContentSelection', source)
+        self.assertIn('toggleAllVisibleContents', source)
+        self.assertIn('bulkDeleteSelectedContents', source)
+        self.assertIn('contentsService.bulkDelete', source)
+        self.assertIn('선택 삭제', source)
 
     def test_header_does_not_treat_content_detail_id_as_client_id(self):
         source = HEADER.read_text()
@@ -45,8 +72,26 @@ class ClientScopedFrontendGuardsTest(unittest.TestCase):
     def test_backend_contents_list_requires_client_id_scope(self):
         source = CONTENTS_ROUTE.read_text()
 
-        self.assertIn('client_id: uuid.UUID = Query(...)', source)
-        self.assertNotIn('client_id: uuid.UUID | None = Query(None)', source)
+        self.assertRegex(
+            source,
+            re.compile(r"async def list_contents\([^)]*client_id:\s*uuid\.UUID\s*=\s*Query\(\.\.\.\)", re.DOTALL),
+        )
+        self.assertNotRegex(
+            source,
+            re.compile(r"async def list_contents\([^)]*client_id:\s*uuid\.UUID\s*\|\s*None\s*=\s*Query\(None\)", re.DOTALL),
+        )
+
+    def test_backend_bulk_delete_is_client_scoped(self):
+        source = CONTENTS_ROUTE.read_text()
+
+        self.assertIn('@router.post("/bulk-delete"', source)
+        self.assertIn('ContentBulkDeleteRequest', source)
+        self.assertIn('ContentBulkDeleteResponse', source)
+        self.assertRegex(
+            source,
+            re.compile(r"Content\.client_id\s*==\s*body\.client_id", re.DOTALL),
+        )
+        self.assertIn('Content.status != "trashed"', source)
 
     def test_planner_does_not_restore_other_clients_latest_plan(self):
         source = PLANNER_PAGE.read_text()

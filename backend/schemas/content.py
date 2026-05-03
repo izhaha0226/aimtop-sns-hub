@@ -59,3 +59,15 @@ class ContentResponse(BaseModel):
 class ContentListResponse(BaseModel):
     items: list[ContentResponse]
     total: int
+
+
+class ContentBulkDeleteRequest(BaseModel):
+    client_id: uuid.UUID
+    content_ids: list[uuid.UUID]
+
+
+class ContentBulkDeleteResponse(BaseModel):
+    deleted_ids: list[uuid.UUID]
+    skipped_ids: list[uuid.UUID]
+    deleted_count: int
+    skipped_count: int
