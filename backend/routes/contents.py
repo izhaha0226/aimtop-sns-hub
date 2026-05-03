@@ -73,16 +73,14 @@ async def _ensure_channel_publishable(channel_connection_id: uuid.UUID | None, d
 
 @router.get("", response_model=ContentListResponse)
 async def list_contents(
-    client_id: uuid.UUID | None = Query(None),
+    client_id: uuid.UUID = Query(...),
     status: str | None = Query(None),
     post_type: str | None = Query(None),
     author_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    query = select(Content).where(Content.status != "trashed")
-    if client_id:
-        query = query.where(Content.client_id == client_id)
+    query = select(Content).where(Content.status != "trashed", Content.client_id == client_id)
     if status:
         query = query.where(Content.status == status)
     if post_type:

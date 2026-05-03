@@ -2,13 +2,14 @@
 import { Bell, ChevronDown, CheckCheck, LogOut, User } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useAuth } from "@/hooks/useAuth"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, usePathname, useRouter } from "next/navigation"
 import { useSelectedClient } from "@/hooks/useSelectedClient"
 import { notificationsService, type NotificationItem } from "@/services/notifications"
 
 export default function Header() {
   const { user, logout } = useAuth()
   const params = useParams<{ id?: string | string[] }>()
+  const pathname = usePathname()
   const { clients, selectedClientId, selectClient } = useSelectedClient()
   const [profileOpen, setProfileOpen] = useState(false)
   const [clientOpen, setClientOpen] = useState(false)
@@ -48,9 +49,10 @@ export default function Header() {
   }, [])
 
   const routeClientId = useMemo(() => {
+    if (!pathname.startsWith("/clients/")) return ""
     if (!params?.id) return ""
     return Array.isArray(params.id) ? params.id[0] || "" : params.id
-  }, [params])
+  }, [params, pathname])
 
   const activeClientId = routeClientId || selectedClientId
   const activeClientName = clients.find((client) => client.id === activeClientId)?.name || ""

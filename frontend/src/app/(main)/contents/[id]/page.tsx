@@ -356,6 +356,21 @@ export default function ContentDetailPage() {
           </span>
         </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600">
+          <div>
+            <p className="font-semibold text-gray-800">콘텐츠 소속</p>
+            <p className="mt-1 break-all">{content.client_name || "클라이언트명 미확인"} · client_id: {content.client_id || "-"}</p>
+          </div>
+          <div>
+            <p className="font-semibold text-gray-800">발행 계정</p>
+            <p className="mt-1 break-all">
+              {selectedChannel
+                ? `${selectedChannel.channel_type}${selectedChannel.account_name ? ` · ${selectedChannel.account_name}` : ""} · account_id: ${selectedChannel.account_id || "없음"}`
+                : "발행 채널을 선택하면 account_id를 확인할 수 있습니다"}
+            </p>
+          </div>
+        </div>
+
         {sourceMetadata && (
           <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 space-y-2">
             <div className="flex items-center justify-between gap-3">
@@ -471,7 +486,7 @@ export default function ContentDetailPage() {
 
           {selectedChannel && (
             <div className={`rounded-lg px-3 py-2 text-xs ${!selectedChannelAutoPublishSupported ? "bg-gray-100 text-gray-700 border border-gray-200" : selectedChannelHealth === "expiring" ? "bg-yellow-50 text-yellow-700 border border-yellow-200" : "bg-blue-50 text-blue-700 border border-blue-200"}`}>
-              {selectedChannel.channel_type}{selectedChannel.account_name ? ` · ${selectedChannel.account_name}` : ""}
+              {selectedChannel.channel_type}{selectedChannel.account_name ? ` · ${selectedChannel.account_name}` : ""}{selectedChannel.account_id ? ` · account_id ${selectedChannel.account_id}` : " · account_id 없음"}
               {!selectedChannelAutoPublishSupported ? ` · ${selectedChannelAutoPublishBlockReason || "자동 발행 미지원"}` : selectedChannel.token_expires_at ? ` · 만료 ${new Date(selectedChannel.token_expires_at).toLocaleString("ko-KR")}` : " · 만료시각 미확인"}
             </div>
           )}
