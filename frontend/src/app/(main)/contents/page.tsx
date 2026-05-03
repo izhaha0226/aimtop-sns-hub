@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { FileText, Loader2, Plus, Trash2 } from "lucide-react"
 import { contentsService } from "@/services/contents"
+import { useSelectedClient } from "@/hooks/useSelectedClient"
 import type { Content } from "@/types/content"
 import { STATUS_LABELS, STATUS_COLORS, POST_TYPE_LABELS, POST_TYPE_COLORS } from "@/types/content"
 
@@ -85,6 +86,7 @@ function groupContentsByWeek(contents: Content[]): WeekGroup[] {
 
 export default function ContentsPage() {
   const router = useRouter()
+  const { selectedClientId, selectedClient, loading: clientLoading } = useSelectedClient()
   const [contents, setContents] = useState<Content[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState("")
@@ -93,12 +95,20 @@ export default function ContentsPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (clientLoading) return
     let cancelled = false
     const fetchContents = async () => {
       setLoading(true)
       setError(null)
       try {
-        const data = await contentsService.list(statusFilter ? { status: statusFilter } : undefined)
+        if (!selectedClientId) {
+          setContents([])
+          return
+        }
+        const data = await contentsService.list({
+          client_id: selectedClientId,
+          ...(statusFilter ? { status: statusFilter } : {}),
+        })
         if (!cancelled) setContents(data)
       } catch (err) {
         console.error(err)
@@ -109,7 +119,7 @@ export default function ContentsPage() {
     }
     fetchContents()
     return () => { cancelled = true }
-  }, [statusFilter])
+  }, [clientLoading, selectedClientId, statusFilter])
 
   const weekGroups = useMemo(() => groupContentsByWeek(contents), [contents])
 
@@ -137,7 +147,7 @@ export default function ContentsPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold">콘텐츠</h1>
-          <p className="text-sm text-gray-500 mt-1">운영계획 draft는 주차별로 묶고, 제목 앞 순번으로 검수 순서를 표시합니다.</p>
+          <p className="text-sm text-gray-500 mt-1">현재 클라이언트({clientLoading ? "확인 중..." : selectedClient?.name || "미선택"})의 콘텐츠만 표시합니다.</p>
         </div>
         <button
           onClick={() => router.push("/contents/new")}
@@ -170,8 +180,13 @@ export default function ContentsPage() {
         </div>
       )}
 
-      {loading ? (
+      {loading || clientLoading ? (
         <div className="text-center py-12 text-gray-400">불러오는 중...</div>
+      ) : !selectedClientId ? (
+        <div className="bg-white rounded-xl border p-12 text-center">
+          <FileText size={32} className="mx-auto text-gray-300 mb-3" />
+          <p className="text-gray-400 text-sm">상단에서 클라이언트를 선택해주세요</p>
+        </div>
       ) : contents.length === 0 ? (
         <div className="bg-white rounded-xl border p-12 text-center">
           <FileText size={32} className="mx-auto text-gray-300 mb-3" />

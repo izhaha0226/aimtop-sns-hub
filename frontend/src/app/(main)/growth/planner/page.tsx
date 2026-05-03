@@ -53,14 +53,18 @@ export default function OperationPlannerPage() {
       setRestoring(true)
       try {
         const response = await operationPlansService.list(selectedClientId ? { client_id: selectedClientId } : undefined)
-        let latest = Array.isArray(response.items) ? response.items.find((item) => item.plan_payload) : null
+        const latest = Array.isArray(response.items) ? response.items.find((item) => item.plan_payload) : null
 
-        if (!latest && selectedClientId) {
-          const fallback = await operationPlansService.list()
-          latest = Array.isArray(fallback.items) ? fallback.items.find((item) => item.plan_payload) : null
+        if (cancelled) return
+
+        if (!latest?.plan_payload) {
+          setPlan(null)
+          setSavedPlan(null)
+          setLastRequest(null)
+          setDraftResult(null)
+          setStatusMessage(selectedClientId ? "현재 클라이언트에 저장된 운영계획이 없습니다." : "상단에서 클라이언트를 선택해주세요.")
+          return
         }
-
-        if (cancelled || !latest?.plan_payload) return
 
         const request = latest.request_payload
         setPlan(latest.plan_payload)
