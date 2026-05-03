@@ -4,12 +4,12 @@ from services.sns_oauth import PLATFORM_CONFIGS
 
 
 class SNSOAuthScopeTest(unittest.TestCase):
-    def test_facebook_connect_scope_omits_unapproved_write_permissions(self):
+    def test_facebook_publish_scope_includes_required_page_post_permission(self):
         scopes = set(PLATFORM_CONFIGS["facebook"]["scopes"].split(","))
 
         self.assertIn("pages_show_list", scopes)
         self.assertIn("pages_read_engagement", scopes)
-        self.assertNotIn("pages_manage_posts", scopes)
+        self.assertIn("pages_manage_posts", scopes)
         self.assertNotIn("pages_manage_metadata", scopes)
 
     def test_instagram_connect_scope_omits_unapproved_instagram_permissions(self):

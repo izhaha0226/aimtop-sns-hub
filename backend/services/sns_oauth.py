@@ -68,9 +68,9 @@ PLATFORM_CONFIGS = {
     "facebook": {
         "auth_url": "https://www.facebook.com/v19.0/dialog/oauth",
         "token_url": "https://graph.facebook.com/v19.0/oauth/access_token",
-        # Connect-only scope set. Request write scopes such as pages_manage_posts only
-        # after the Meta app has the required product/use-case and App Review access.
-        "scopes": "pages_show_list,pages_read_engagement",
+        # Publish-enabled scope set. If Meta App Review/Advanced Access is not ready,
+        # Meta may reject pages_manage_posts during OAuth; keep the error surfaced clearly.
+        "scopes": "pages_show_list,pages_read_engagement,pages_manage_posts",
     },
     "threads": {
         "auth_url": "https://www.facebook.com/v19.0/dialog/oauth",

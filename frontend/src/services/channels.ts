@@ -11,7 +11,7 @@ export interface ChannelConnection {
   token_expires_at?: string | null
 }
 
-export const AUTO_PUBLISH_SUPPORTED_CHANNELS = ["instagram", "youtube", "x", "blog"] as const
+export const AUTO_PUBLISH_SUPPORTED_CHANNELS = ["instagram", "facebook", "linkedin", "youtube", "x", "blog"] as const
 
 export function isAutoPublishSupported(channelType?: string | null) {
   if (!channelType) return false
@@ -23,6 +23,12 @@ export function getAutoPublishBlockReason(channel?: Pick<ChannelConnection, "cha
   if (!isAutoPublishSupported(channel.channel_type)) return "현재 연동만 지원, 자동 발행 미지원"
   if (channel.channel_type === "instagram" && !channel.account_id) {
     return "Instagram 발행 계정 ID 없음 · Meta 발행 권한/비즈니스 계정 준비 후 재연동 필요"
+  }
+  if (channel.channel_type === "facebook" && !channel.account_id) {
+    return "Facebook 페이지 ID 없음 · pages_manage_posts 권한 준비 후 재연동 필요"
+  }
+  if (channel.channel_type === "linkedin" && !channel.account_id) {
+    return "LinkedIn 작성자 ID 없음 · LinkedIn 계정 재연동 필요"
   }
   return null
 }

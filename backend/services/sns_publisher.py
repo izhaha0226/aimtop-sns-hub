@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class SNSPublisher:
     """SNS 플랫폼별 콘텐츠 발행"""
 
-    SUPPORTED_PLATFORMS = {"instagram", "threads", "youtube", "blog", "x"}
+    SUPPORTED_PLATFORMS = {"instagram", "threads", "youtube", "blog", "x", "facebook", "linkedin"}
 
     @classmethod
     def is_supported_platform(cls, platform: str) -> bool:
@@ -40,6 +40,10 @@ class SNSPublisher:
             return await self._publish_blog(account, content)
         elif platform == "x":
             return await self._publish_x(account, content)
+        elif platform == "facebook":
+            return await self._publish_facebook(account, content)
+        elif platform == "linkedin":
+            return await self._publish_linkedin(account, content)
         raise ValueError(f"Unsupported platform: {platform}")
 
     async def _publish_instagram(self, account, content) -> dict:
@@ -280,6 +284,114 @@ class SNSPublisher:
                 "published_at": datetime.now(timezone.utc).isoformat(),
             }
 
+    async def _publish_facebook(self, account, content) -> dict:
+        """
+        Facebook Page Graph API 발행.
+        - 이미지가 있으면 /{page-id}/photos
+        - 텍스트만 있으면 /{page-id}/feed
+        """
+        access_token = decrypt_token(account.access_token)
+        if not access_token:
+            raise ValueError("Facebook access token이 없어 재연동이 필요합니다")
+
+        page_id = self._resolve_facebook_page_id(account)
+        if not page_id:
+            raise ValueError("Facebook 페이지 ID가 없어 자동 발행할 수 없습니다. 페이지 권한을 준비한 뒤 재연동해야 합니다")
+
+        page_token = self._resolve_facebook_page_token(account) or access_token
+        caption = self._build_caption(content)
+        media_url = (content.media_urls or [None])[0]
+        base_url = "https://graph.facebook.com/v19.0"
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            if media_url:
+                resp = await client.post(
+                    f"{base_url}/{page_id}/photos",
+                    data={
+                        "access_token": page_token,
+                        "url": media_url,
+                        "caption": caption,
+                        "published": "true",
+                    },
+                )
+            else:
+                resp = await client.post(
+                    f"{base_url}/{page_id}/feed",
+                    data={
+                        "access_token": page_token,
+                        "message": caption,
+                    },
+                )
+
+            if resp.status_code not in (200, 201):
+                logger.error("Facebook publish failed: %s", resp.text)
+                raise ValueError(f"Facebook publish failed: {resp.text}")
+
+            data = resp.json() or {}
+            post_id = data.get("post_id") or data.get("id")
+            if not post_id:
+                raise ValueError(f"Facebook post id missing: {resp.text}")
+
+            logger.info("Facebook published: %s", post_id)
+            return {
+                "platform_post_id": post_id,
+                "url": f"https://www.facebook.com/{post_id}",
+                "published_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+    async def _publish_linkedin(self, account, content) -> dict:
+        """LinkedIn Posts API를 통한 개인/조직 텍스트 발행."""
+        access_token = decrypt_token(account.access_token)
+        if not access_token:
+            raise ValueError("LinkedIn access token이 없어 재연동이 필요합니다")
+
+        author_urn = self._resolve_linkedin_author_urn(account)
+        if not author_urn:
+            raise ValueError("LinkedIn 작성자 ID가 없어 자동 발행할 수 없습니다. LinkedIn 계정 정보를 재연동해야 합니다")
+
+        commentary = self._build_caption(content)
+        media_urls = [url for url in (content.media_urls or []) if url]
+        if media_urls:
+            commentary = f"{commentary}\n\n" + "\n".join(media_urls)
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                "https://api.linkedin.com/rest/posts",
+                json={
+                    "author": author_urn,
+                    "commentary": commentary,
+                    "visibility": "PUBLIC",
+                    "distribution": {
+                        "feedDistribution": "MAIN_FEED",
+                        "targetEntities": [],
+                        "thirdPartyDistributionChannels": [],
+                    },
+                    "lifecycleState": "PUBLISHED",
+                    "isReshareDisabledByAuthor": False,
+                },
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                    "Linkedin-Version": "202405",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                },
+            )
+            if resp.status_code not in (200, 201):
+                logger.error("LinkedIn publish failed: %s", resp.text)
+                raise ValueError(f"LinkedIn publish failed: {resp.text}")
+
+            data = resp.json() or {}
+            post_id = data.get("id") or getattr(resp, "headers", {}).get("x-restli-id")
+            if not post_id:
+                raise ValueError(f"LinkedIn post id missing: {resp.text}")
+
+            logger.info("LinkedIn published: %s", post_id)
+            return {
+                "platform_post_id": post_id,
+                "url": f"https://www.linkedin.com/feed/update/{post_id}",
+                "published_at": datetime.now(timezone.utc).isoformat(),
+            }
+
     async def _publish_x(self, account, content) -> dict:
         """
         X API v2 - 트윗 작성
@@ -340,3 +452,48 @@ class SNSPublisher:
         if not username:
             return None
         return str(username).lstrip("@")
+
+    @staticmethod
+    def _resolve_facebook_page_id(account) -> str | None:
+        extra = account.extra_data if isinstance(account.extra_data, dict) else {}
+        page_id = extra.get("page_id") or account.account_id
+        if page_id:
+            return str(page_id)
+        pages = extra.get("pages") if isinstance(extra.get("pages"), list) else []
+        page = pages[0] if pages else {}
+        return str(page.get("id")) if page.get("id") else None
+
+    @staticmethod
+    def _resolve_facebook_page_token(account) -> str | None:
+        extra = account.extra_data if isinstance(account.extra_data, dict) else {}
+        direct = extra.get("page_access_token")
+        if direct:
+            return str(direct)
+        page_id = SNSPublisher._resolve_facebook_page_id(account)
+        pages = extra.get("pages") if isinstance(extra.get("pages"), list) else []
+        for page in pages:
+            if not isinstance(page, dict):
+                continue
+            if page_id and str(page.get("id")) != page_id:
+                continue
+            token = page.get("access_token")
+            if token:
+                return str(token)
+        return None
+
+    @staticmethod
+    def _resolve_linkedin_author_urn(account) -> str | None:
+        extra = account.extra_data if isinstance(account.extra_data, dict) else {}
+        explicit = extra.get("author_urn") or extra.get("linkedin_author_urn")
+        if explicit:
+            return str(explicit)
+        organization_id = extra.get("organization_id") or extra.get("linkedin_organization_id")
+        if organization_id:
+            return f"urn:li:organization:{organization_id}"
+        person_id = extra.get("person_id") or extra.get("sub") or account.account_id
+        if person_id:
+            person_id = str(person_id)
+            if person_id.startswith("urn:li:"):
+                return person_id
+            return f"urn:li:person:{person_id}"
+        return None
