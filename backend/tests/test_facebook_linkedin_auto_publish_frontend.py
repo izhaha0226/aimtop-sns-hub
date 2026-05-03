@@ -17,12 +17,12 @@ class FacebookLinkedInAutoPublishFrontendTest(unittest.TestCase):
 
 
 class FacebookPublishScopeTest(unittest.TestCase):
-    def test_facebook_publish_scope_includes_pages_manage_posts(self):
+    def test_facebook_connect_scope_omits_unapproved_publish_permissions(self):
         scopes = set(PLATFORM_CONFIGS["facebook"]["scopes"].split(","))
 
         self.assertIn("pages_show_list", scopes)
         self.assertIn("pages_read_engagement", scopes)
-        self.assertIn("pages_manage_posts", scopes)
+        self.assertNotIn("pages_manage_posts", scopes)
         self.assertNotIn("pages_manage_metadata", scopes)
 
 
