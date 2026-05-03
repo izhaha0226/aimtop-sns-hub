@@ -230,6 +230,7 @@ async def generate_operation_plan(
     goals: list[str] | None = None,
     channels: list[str] | None = None,
     benchmark_brands: list[str] | None = None,
+    benchmark_insights: list[dict] | None = None,
     month: str | None = None,
     season_context: str = "",
     budget_level: str = "standard",
@@ -247,6 +248,7 @@ async def generate_operation_plan(
         goals=goals or [],
         channels=channels or [],
         benchmark_brands=benchmark_brands or [],
+        benchmark_insights=benchmark_insights or [],
         month=month,
         season_context=season_context,
         budget_level=budget_level,
@@ -264,7 +266,9 @@ async def generate_operation_plan(
         "4) Execution translation: 승리 앵글을 채널별 콘텐츠 역할, 월간 수량, 주차별 테마로 변환한다.\n"
         "5) Validation: 승인 전 외부 업로드 금지, 승인 후 CTR/저장/댓글/문의 전환으로 검증한다.\n\n"
         "반드시 supermarketing_strategy 배열에 위 전략 판단을 4~6개 bullet로 요약하고, "
-        "weekly_plan은 이 전략 spine에서 파생되게 만들어라. 외부 실수집 근거가 없으면 benchmark_source_status는 manual_or_pending으로 둔다. "
+        "weekly_plan은 이 전략 spine에서 파생되게 만들어라. benchmark_insights가 있으면 그 안의 "
+        "hook_patterns/format_patterns/cta_patterns/apply_points를 우선 반영하되, 원문 문구를 복제하지 말고 구조만 변환한다. "
+        "외부 실수집 근거가 없으면 benchmark_source_status는 manual_or_pending으로 둔다. "
         "응답은 JSON만 반환해라.\n\n"
         f"[브랜드]\n{brand_name}\n"
         f"[상품/서비스]\n{product_summary}\n"
@@ -272,6 +276,7 @@ async def generate_operation_plan(
         f"[목표]\n{goals or []}\n"
         f"[채널]\n{channels or []}\n"
         f"[벤치마킹]\n{benchmark_brands or []}\n"
+        f"[벤치마킹 수집/분석 근거]\n{json.dumps(benchmark_insights or [], ensure_ascii=False)}\n"
         f"[월/시즌]\n{month or ''} / {season_context}\n"
         f"[추가 메모]\n{notes}\n\n"
         "반환 스키마 키는 baseline과 동일해야 하며 supermarketing_strategy를 유지/개선해야 한다.\n"

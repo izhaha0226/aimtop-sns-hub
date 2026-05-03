@@ -103,6 +103,7 @@ export default function OperationPlannerPage() {
   async function generatePlan() {
     if (!canSubmit) return
     const requestPayload: GenerateOperationPlanPayload = {
+      client_id: selectedClientId,
       brand_name: brandName,
       product_summary: productSummary,
       target_audience: targetAudience,
@@ -380,6 +381,33 @@ export default function OperationPlannerPage() {
 
               {(plan.supermarketing_strategy || []).length > 0 && (
                 <InfoList title="슈퍼마케팅 전략 판단" icon={<Sparkles size={16} />} items={plan.supermarketing_strategy} tone="green" />
+              )}
+
+              {(plan.benchmark_insights || []).length > 0 && (
+                <div className="bg-white border rounded-2xl p-5 shadow-sm">
+                  <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2"><ClipboardList size={16} /> 벤치마킹 수집/구조 분석</h3>
+                  <div className="grid lg:grid-cols-2 gap-3">
+                    {plan.benchmark_insights.slice(0, 8).map((insight, index) => (
+                      <div key={`${insight.brand}-${insight.channel}-${index}`} className="rounded-xl border bg-gray-50 p-4 text-sm">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-semibold text-gray-900">{insight.brand} · {insight.channel}</p>
+                            <p className="text-xs text-gray-500 mt-1">상태: {insight.source_status} / {insight.support_level} / 증거 {insight.evidence_count}개</p>
+                          </div>
+                          <span className={`px-2 py-1 rounded-full text-[11px] font-semibold ${insight.evidence_count > 0 ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}`}>
+                            {insight.evidence_count > 0 ? "분석 반영" : "수동 필요"}
+                          </span>
+                        </div>
+                        <div className="mt-3 space-y-2 text-xs text-gray-600">
+                          <p><span className="font-semibold text-gray-800">Hook:</span> {(insight.hook_patterns || []).join(", ") || "-"}</p>
+                          <p><span className="font-semibold text-gray-800">Format:</span> {(insight.format_patterns || []).join(", ") || "-"}</p>
+                          <p><span className="font-semibold text-gray-800">CTA:</span> {(insight.cta_patterns || []).join(", ") || "-"}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-3">※ 경쟁사 문구/슬로건은 복제하지 않고 hook shape, format, CTA rhythm만 운영계획에 변환 반영합니다.</p>
+                </div>
               )}
 
               <div className="bg-white border rounded-2xl p-5 shadow-sm">

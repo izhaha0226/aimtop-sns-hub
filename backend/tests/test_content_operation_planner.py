@@ -74,6 +74,34 @@ class ContentOperationPlannerTest(unittest.TestCase):
         self.assertTrue(any("Benchmark rule" in item for item in plan["supermarketing_strategy"]))
         self.assertTrue(any("승인 전 외부 업로드" in item for item in plan["supermarketing_strategy"]))
 
+    def test_benchmark_insights_are_reflected_honestly(self):
+        req = OperationPlanRequestData(
+            brand_name="탑클래스",
+            product_summary="인플루언서 재능 마켓과 가정의달 선물 오퍼",
+            channels=["instagram"],
+            benchmark_brands=["클래스101"],
+            benchmark_insights=[
+                {
+                    "brand": "클래스101",
+                    "channel": "instagram",
+                    "source_status": "live_collected_proxy_views",
+                    "support_level": "live",
+                    "evidence_count": 6,
+                    "hook_patterns": ["질문형 훅"],
+                    "format_patterns": ["카드뉴스"],
+                    "cta_patterns": ["저장 유도"],
+                    "apply_points": ["구조만 변환"],
+                    "warnings": ["복제 금지"],
+                }
+            ],
+        )
+
+        plan = build_fallback_operation_plan(req)
+
+        self.assertEqual(plan["benchmark_source_status"], "live_or_cached_evidence")
+        self.assertEqual(plan["benchmark_insights"][0]["evidence_count"], 6)
+        self.assertIn("증거 6개", plan["benchmark_notes"][0])
+
 
 if __name__ == "__main__":
     unittest.main()

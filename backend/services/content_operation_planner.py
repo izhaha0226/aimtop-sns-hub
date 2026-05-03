@@ -53,6 +53,7 @@ class OperationPlanRequestData:
     season_context: str = ""
     budget_level: str = "standard"
     notes: str = ""
+    benchmark_insights: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _normalize_channels(channels: list[str] | None) -> list[str]:
@@ -126,11 +127,19 @@ def build_supermarketing_strategy(req: OperationPlanRequestData) -> list[str]:
     """
     goals = [goal.strip() for goal in req.goals if str(goal).strip()] or ["브랜드 인지도", "문의/전환"]
     channels = _normalize_channels(req.channels)
-    benchmark_scope = (
-        ", ".join(req.benchmark_brands)
-        if req.benchmark_brands
-        else "입력된 벤치마킹 브랜드 없음 — 업종 공통 패턴만 가정"
-    )
+    if req.benchmark_insights:
+        live_count = sum(1 for item in req.benchmark_insights if str(item.get("source_status") or "").startswith("live_collected"))
+        evidence_count = sum(int(item.get("evidence_count") or 0) for item in req.benchmark_insights)
+        benchmark_scope = (
+            f"{len(req.benchmark_insights)}개 벤치마킹 인사이트 / 증거 포스트 {evidence_count}개 "
+            f"/ 실수집 가능·성공 {live_count}개. 문구 복제 금지, 구조만 변환."
+        )
+    else:
+        benchmark_scope = (
+            ", ".join(req.benchmark_brands)
+            if req.benchmark_brands
+            else "입력된 벤치마킹 브랜드 없음 — 업종 공통 패턴만 가정"
+        )
     return [
         (
             "Brief lock: "
@@ -202,6 +211,22 @@ def build_fallback_operation_plan(req: OperationPlanRequestData) -> dict[str, An
     benchmark_notes = [
         f"{brand}: 문구 복제가 아니라 후킹 구조·포맷·CTA 패턴만 참고" for brand in req.benchmark_brands
     ] or ["벤치마킹 계정 미입력: 업종 공통 패턴 기반 초안으로 시작"]
+    if req.benchmark_insights:
+        benchmark_notes = []
+        for insight in req.benchmark_insights[:8]:
+            brand = insight.get("brand") or "벤치마킹 대상"
+            channel = insight.get("channel") or "channel"
+            evidence_count = int(insight.get("evidence_count") or 0)
+            status = insight.get("source_status") or "manual_or_pending"
+            benchmark_notes.append(f"{brand}/{channel}: {status}, 증거 {evidence_count}개 — hook/format/CTA 구조만 변환")
+
+    benchmark_source_status = "manual_or_pending"
+    if req.benchmark_insights:
+        statuses = {str(item.get("source_status") or "manual_or_pending") for item in req.benchmark_insights}
+        if any(status.startswith("live_collected") for status in statuses):
+            benchmark_source_status = "live_or_cached_evidence"
+        elif any(status in {"no_data_collected", "collector_error"} for status in statuses):
+            benchmark_source_status = "collector_checked_no_live_data"
 
     return {
         "brand_name": req.brand_name,
@@ -220,8 +245,9 @@ def build_fallback_operation_plan(req: OperationPlanRequestData) -> dict[str, An
         ],
         "supermarketing_strategy": supermarketing_strategy,
         "seasonal_context": season_context,
-        "benchmark_source_status": "manual_or_pending",
+        "benchmark_source_status": benchmark_source_status,
         "benchmark_notes": benchmark_notes,
+        "benchmark_insights": req.benchmark_insights,
         "monthly_volume": monthly_volume,
         "total_monthly_count": total_volume,
         "weekly_plan": weekly_plan,

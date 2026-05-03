@@ -51,6 +51,7 @@ export interface EngineOverridePayload {
 }
 
 export interface GenerateOperationPlanPayload {
+  client_id?: string | null
   brand_name: string
   product_summary: string
   target_audience?: string
@@ -85,6 +86,19 @@ export interface ChannelOperationPlan {
   cadence: string
 }
 
+export interface BenchmarkOperationInsight {
+  brand: string
+  channel: string
+  source_status: string
+  support_level: string
+  evidence_count: number
+  hook_patterns: string[]
+  format_patterns: string[]
+  cta_patterns: string[]
+  apply_points: string[]
+  warnings: string[]
+}
+
 export interface GenerateOperationPlanResponse {
   brand_name: string
   month: string
@@ -95,6 +109,7 @@ export interface GenerateOperationPlanResponse {
   seasonal_context: string
   benchmark_source_status: string
   benchmark_notes: string[]
+  benchmark_insights: BenchmarkOperationInsight[]
   monthly_volume: Record<string, number>
   total_monthly_count: number
   weekly_plan: WeeklyOperationPlan[]

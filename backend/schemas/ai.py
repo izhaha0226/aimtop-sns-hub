@@ -141,6 +141,7 @@ class GenerateStrategyResponse(BaseModel):
 # ── Generate Operation Plan ─────────────────────────────────
 
 class GenerateOperationPlanRequest(BaseModel):
+    client_id: uuid.UUID | None = Field(default=None, description="Selected client for benchmark collection/context")
     brand_name: str = Field(..., description="Brand name to operate")
     product_summary: str = Field(..., description="Product/service and offer summary")
     target_audience: str = Field("", description="Target audience to analyze")
@@ -175,6 +176,19 @@ class WeeklyOperationPlanSchema(BaseModel):
     channels: list[WeeklyChannelPlanSchema] = Field(default_factory=list)
 
 
+class BenchmarkOperationInsightSchema(BaseModel):
+    brand: str = ""
+    channel: str = ""
+    source_status: str = "manual_or_pending"
+    support_level: str = "manual"
+    evidence_count: int = 0
+    hook_patterns: list[str] = Field(default_factory=list)
+    format_patterns: list[str] = Field(default_factory=list)
+    cta_patterns: list[str] = Field(default_factory=list)
+    apply_points: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class GenerateOperationPlanResponse(BaseModel):
     brand_name: str = ""
     month: str = ""
@@ -185,6 +199,7 @@ class GenerateOperationPlanResponse(BaseModel):
     seasonal_context: str = ""
     benchmark_source_status: str = "manual_or_pending"
     benchmark_notes: list[str] = Field(default_factory=list)
+    benchmark_insights: list[BenchmarkOperationInsightSchema] = Field(default_factory=list)
     monthly_volume: dict[str, int] = Field(default_factory=dict)
     total_monthly_count: int = 0
     weekly_plan: list[WeeklyOperationPlanSchema] = Field(default_factory=list)

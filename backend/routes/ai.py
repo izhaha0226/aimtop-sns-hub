@@ -3,6 +3,8 @@ AI Routes - API endpoints for AI-powered content generation.
 """
 from fastapi import APIRouter, Depends, HTTPException
 import logging
+import re
+from collections import Counter
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +32,156 @@ from services.image_service import generate_image
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/ai", tags=["AI"])
+
+
+def _benchmark_key(value: str) -> str:
+    return re.sub(r"[^0-9a-z가-힣]", "", str(value or "").lower())
+
+
+def _detect_hook_patterns(text: str) -> list[str]:
+    value = str(text or "").strip()
+    patterns: list[str] = []
+    if not value:
+        return patterns
+    if "?" in value or any(token in value for token in ["왜", "어떻게", "무엇", "가능할까"]):
+        patterns.append("질문형 훅")
+    if re.search(r"\d|[0-9]+가지|TOP|top", value, re.I):
+        patterns.append("숫자/리스트형 훅")
+    if any(token in value for token in ["실패", "문제", "고민", "불편", "걱정"]):
+        patterns.append("문제 제기형 훅")
+    if any(token in value for token in ["혜택", "할인", "무료", "이벤트", "선착순"]):
+        patterns.append("혜택/프로모션형 훅")
+    if any(token in value for token in ["후기", "사례", "전후", "비포", "결과"]):
+        patterns.append("사례/증거형 훅")
+    return patterns or ["공감/정보형 훅"]
+
+
+def _detect_cta_patterns(text: str) -> list[str]:
+    value = str(text or "")
+    patterns = []
+    if any(token in value for token in ["저장", "save"]):
+        patterns.append("저장 유도")
+    if any(token in value for token in ["댓글", "comment"]):
+        patterns.append("댓글/대화 유도")
+    if any(token in value for token in ["문의", "상담", "DM", "디엠"]):
+        patterns.append("상담/문의 유도")
+    if any(token in value for token in ["링크", "클릭", "프로필"]):
+        patterns.append("링크 클릭 유도")
+    if any(token in value for token in ["구매", "예약", "신청"]):
+        patterns.append("전환 행동 유도")
+    return patterns
+
+
+def _summarize_benchmark_posts(posts) -> dict:
+    hook_counter: Counter[str] = Counter()
+    cta_counter: Counter[str] = Counter()
+    format_counter: Counter[str] = Counter()
+    for post in posts:
+        text = getattr(post, "hook_text", None) or getattr(post, "content_text", None) or ""
+        for pattern in _detect_hook_patterns(text):
+            hook_counter[pattern] += 1
+        cta_text = getattr(post, "cta_text", None) or getattr(post, "content_text", None) or ""
+        for pattern in _detect_cta_patterns(cta_text):
+            cta_counter[pattern] += 1
+        fmt = getattr(post, "format_type", None) or "일반 포스트"
+        format_counter[str(fmt)] += 1
+    hook_patterns = [name for name, _ in hook_counter.most_common(5)]
+    cta_patterns = [name for name, _ in cta_counter.most_common(5)] or ["명시 CTA 약함 — 운영계획에서 CTA를 보강"]
+    format_patterns = [name for name, _ in format_counter.most_common(5)] or ["수집 포맷 없음"]
+    return {
+        "hook_patterns": hook_patterns,
+        "cta_patterns": cta_patterns,
+        "format_patterns": format_patterns,
+    }
+
+
+async def _build_operation_benchmark_insights(
+    db: AsyncSession,
+    *,
+    client_id,
+    benchmark_brands: list[str],
+    channels: list[str],
+) -> list[dict]:
+    if not client_id or not benchmark_brands:
+        return []
+    svc = BenchmarkCollectorService(db)
+    accounts = await svc.list_accounts(client_id)
+    channel_set = {str(channel or "").lower() for channel in channels if str(channel or "").strip()}
+    brand_keys = {_benchmark_key(name): name for name in benchmark_brands if _benchmark_key(name)}
+    diagnostics = await svc.list_account_diagnostics(client_id=client_id)
+    diagnostics_by_account = {str(item.get("account_id")): item for item in diagnostics}
+    insights: list[dict] = []
+    matched_pairs: set[tuple[str, str]] = set()
+
+    for account in accounts:
+        platform = str(account.platform or "").lower()
+        if channel_set and platform not in channel_set:
+            continue
+        handle_key = _benchmark_key(account.handle)
+        matched_brand = None
+        for key, original in brand_keys.items():
+            if key and (key in handle_key or handle_key in key):
+                matched_brand = original
+                break
+        if not matched_brand:
+            continue
+
+        diagnostic = diagnostics_by_account.get(str(account.id), {})
+        refresh_status = None
+        if diagnostic.get("live_supported") and diagnostic.get("source_channel_has_token") and getattr(account, "is_active", True):
+            try:
+                refresh_status = await svc.refresh_account(account, top_k=8, window_days=30)
+            except Exception as exc:  # keep planner usable and honest
+                refresh_status = {"status": "collector_error", "message": str(exc)}
+        posts = await svc.get_top_posts(client_id, platform, top_k=8)
+        summary = _summarize_benchmark_posts(posts)
+        status = str((refresh_status or {}).get("status") or diagnostic.get("status") or "manual_or_pending")
+        support_level = str(diagnostic.get("support_level") or "manual")
+        evidence_count = len(posts)
+        warnings = [
+            "경쟁사 문구/슬로건/캠페인 논리는 복제 금지",
+        ]
+        if evidence_count == 0:
+            warnings.append(diagnostic.get("source_channel_missing_reason") or "수집된 포스트 없음 — 수동 확인 필요")
+        insights.append(
+            {
+                "brand": matched_brand,
+                "channel": platform,
+                "source_status": status,
+                "support_level": support_level,
+                "evidence_count": evidence_count,
+                "hook_patterns": summary["hook_patterns"],
+                "format_patterns": summary["format_patterns"],
+                "cta_patterns": summary["cta_patterns"],
+                "apply_points": [
+                    "반응 포스트의 첫 문장 구조를 우리 브랜드 문제/혜택 언어로 재작성",
+                    "반복 포맷은 주차별 카드뉴스·숏폼·검색형 콘텐츠로 변환",
+                    "CTA 리듬은 저장/댓글/문의/링크 클릭 중 채널 목적에 맞춰 분산",
+                ],
+                "warnings": warnings,
+            }
+        )
+        matched_pairs.add((matched_brand, platform))
+
+    for brand in benchmark_brands:
+        for channel in channel_set or {"manual"}:
+            if (brand, channel) in matched_pairs:
+                continue
+            insights.append(
+                {
+                    "brand": brand,
+                    "channel": channel,
+                    "source_status": "manual_or_pending",
+                    "support_level": "manual",
+                    "evidence_count": 0,
+                    "hook_patterns": [],
+                    "format_patterns": [],
+                    "cta_patterns": [],
+                    "apply_points": ["등록된 벤치마킹 계정/수집 데이터가 없어 브랜드명은 전략 참고값으로만 사용"],
+                    "warnings": ["자동 서칭 근거 없음 — 벤치마킹 계정 등록 또는 수동 자료 첨부 필요"],
+                }
+            )
+    return insights[:20]
 
 
 @router.post("/generate-copy", response_model=GenerateCopyResponse)
@@ -187,6 +339,12 @@ async def api_generate_operation_plan(
 ):
     """Generate an approval-first monthly SNS operation plan."""
     try:
+        benchmark_insights = await _build_operation_benchmark_insights(
+            db,
+            client_id=req.client_id,
+            benchmark_brands=req.benchmark_brands,
+            channels=req.channels,
+        )
         result = await generate_operation_plan(
             brand_name=req.brand_name,
             product_summary=req.product_summary,
@@ -194,6 +352,7 @@ async def api_generate_operation_plan(
             goals=req.goals,
             channels=req.channels,
             benchmark_brands=req.benchmark_brands,
+            benchmark_insights=benchmark_insights,
             month=req.month,
             season_context=req.season_context,
             budget_level=req.budget_level,
