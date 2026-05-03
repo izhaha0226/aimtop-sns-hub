@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { AlertTriangle, CalendarDays, CheckCircle2, ClipboardList, Loader2, Sparkles, Target, UploadCloud } from "lucide-react"
+import { AlertTriangle, CalendarDays, ClipboardList, Loader2, Sparkles, Target, UploadCloud } from "lucide-react"
 import { aiService, type GenerateOperationPlanPayload, type GenerateOperationPlanResponse } from "@/services/ai"
 import { operationPlansService, type OperationPlanDraftsResponse, type OperationPlanRecord } from "@/services/operation-plans"
 import { useSelectedClient } from "@/hooks/useSelectedClient"
@@ -37,7 +37,6 @@ export default function OperationPlannerPage() {
   const [saving, setSaving] = useState(false)
   const [draftLoading, setDraftLoading] = useState(false)
   const [draftResult, setDraftResult] = useState<OperationPlanDraftsResponse | null>(null)
-  const [actionLoading, setActionLoading] = useState<"submit" | "approve" | "reject" | null>(null)
   const [recovering, setRecovering] = useState(false)
   const [restoring, setRestoring] = useState(true)
   const [error, setError] = useState("")
@@ -79,7 +78,7 @@ export default function OperationPlannerPage() {
           setSeasonContext(request.season_context || "")
           setNotes(request.notes || "")
         }
-        setStatusMessage(`최근 저장 운영계획을 복구했습니다: ${latest.brand_name} ${latest.month} · ${latest.status}`)
+        setStatusMessage(`최근 저장 운영계획을 복구했습니다: ${latest.brand_name} ${latest.month}`)
       } catch (err) {
         if (!cancelled) {
           const message = err instanceof Error ? err.message : "최근 운영계획 복구에 실패했습니다."
@@ -141,41 +140,25 @@ export default function OperationPlannerPage() {
     setError("")
     setStatusMessage("운영계획 저장 중입니다...")
     try {
-      const saved = await operationPlansService.create({
+      const payload = {
         client_id: selectedClientId,
         brand_name: plan.brand_name,
         month: plan.month,
         strategy_summary: plan.strategy_summary,
         request_payload: lastRequest,
         plan_payload: plan,
-      })
+      }
+      const saved = savedPlan
+        ? await operationPlansService.update(savedPlan.id, payload)
+        : await operationPlansService.create(payload)
       setSavedPlan(saved)
       setDraftResult(null)
-      setStatusMessage("운영계획을 draft 상태로 저장했습니다.")
+      setStatusMessage(savedPlan ? "수정한 운영계획을 저장했습니다." : "운영계획을 저장했습니다.")
     } catch (err) {
       const message = err instanceof Error ? err.message : "운영계획 저장에 실패했습니다."
       setError(message)
     } finally {
       setSaving(false)
-    }
-  }
-
-  async function runPlanAction(action: "submit" | "approve" | "reject") {
-    if (!savedPlan) return
-    setActionLoading(action)
-    setError("")
-    setStatusMessage(action === "submit" ? "승인 요청 처리 중입니다..." : action === "approve" ? "운영계획 승인 처리 중입니다..." : "반려 처리 중입니다...")
-    try {
-      const memo = action === "submit" ? "대표님 승인 요청" : action === "approve" ? "운영계획 승인" : "수정 필요"
-      const updated = await operationPlansService[action](savedPlan.id, memo)
-      setSavedPlan(updated)
-      setDraftResult(null)
-      setStatusMessage(action === "submit" ? "승인 요청 상태로 전환했습니다." : action === "approve" ? "운영계획을 승인했습니다." : "운영계획을 반려했습니다.")
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "상태 변경에 실패했습니다."
-      setError(message)
-    } finally {
-      setActionLoading(null)
     }
   }
 
@@ -210,11 +193,59 @@ export default function OperationPlannerPage() {
       setDraftResult(result)
       setStatusMessage(`콘텐츠 draft ${result.total}개 생성 완료 — 예약 전 토큰확인 ${result.token_check_required_count}개, 수동필요 ${result.manual_required_count}개`)
     } catch (err) {
-      const message = err instanceof Error ? err.message : "콘텐츠 draft 생성에 실패했습니다. client_id 연결/승인 상태를 확인해주세요."
+      const message = err instanceof Error ? err.message : "콘텐츠 draft 생성에 실패했습니다. client_id 연결 상태를 확인해주세요."
       setError(message)
     } finally {
       setDraftLoading(false)
     }
+  }
+
+  const recommendedTotalCount = useMemo(() => {
+    if (!plan) return 0
+    return (plan.channel_plan || []).reduce((sum, channel) => sum + Number(channel.monthly_count || 0), 0)
+  }, [plan])
+
+  function updateChannelMonthlyCount(channelName: string, rawValue: string) {
+    if (!plan) return
+    const nextCount = Math.max(1, Number.parseInt(rawValue || "1", 10) || 1)
+    const weeklyPlan = plan.weekly_plan || []
+    const totalWeeks = Math.max(1, weeklyPlan.length)
+    const base = Math.floor(nextCount / totalWeeks)
+    const remainder = nextCount % totalWeeks
+    const channelMeta = plan.channel_plan.find((item) => item.channel === channelName)
+    const existingWeeklyFormats = weeklyPlan.flatMap((week) => week.channels || []).find((item) => item.channel === channelName)?.formats
+    const fallbackFormats = existingWeeklyFormats?.length ? existingWeeklyFormats : channelMeta?.recommended_formats?.length ? channelMeta.recommended_formats : ["정보형 포스트"]
+
+    const nextWeeklyPlan = weeklyPlan.map((week, index) => {
+      const distributedCount = base + (index < remainder ? 1 : 0)
+      const otherChannels = (week.channels || []).filter((item) => item.channel !== channelName)
+      if (distributedCount <= 0) {
+        return { ...week, channels: otherChannels }
+      }
+      return {
+        ...week,
+        channels: [
+          ...otherChannels,
+          { channel: channelName, count: distributedCount, formats: fallbackFormats },
+        ],
+      }
+    })
+
+    const nextChannelPlan = plan.channel_plan.map((item) => item.channel === channelName ? { ...item, monthly_count: nextCount } : item)
+    const nextMonthlyVolume = {
+      ...(plan.monthly_volume || {}),
+      [channelName]: nextCount,
+    }
+    const nextTotal = nextChannelPlan.reduce((sum, item) => sum + Number(item.monthly_count || 0), 0)
+
+    setPlan({
+      ...plan,
+      channel_plan: nextChannelPlan,
+      monthly_volume: nextMonthlyVolume,
+      total_monthly_count: nextTotal,
+      weekly_plan: nextWeeklyPlan,
+    })
+    setDraftResult(null)
   }
 
   return (
@@ -226,20 +257,21 @@ export default function OperationPlannerPage() {
           <p className="text-sm text-gray-500 mt-2">브랜드·상품·벤치마킹·시즌을 넣으면 월간 제작 수량과 채널별 콘텐츠 계획을 만듭니다.</p>
         </div>
         <div className="rounded-2xl border bg-white px-4 py-3 text-xs text-gray-600 max-w-xs">
-          <div className="flex items-center gap-2 font-semibold text-gray-800 mb-1"><CheckCircle2 size={14} className="text-green-600" /> 승인 우선 모드</div>
-          <p>컨펌 전에는 업로드하지 않고, 계획·리스크·필요자료를 먼저 분리합니다.</p>
+          <div className="flex items-center gap-2 font-semibold text-gray-800 mb-1"><Sparkles size={14} className="text-blue-600" /> 추천 후 수정 모드</div>
+          <p>메가가 월간 수량과 채널 배분을 먼저 추천하고, 대표님이 화면에서 바로 수정합니다.</p>
           <p className="mt-2 text-blue-700 font-semibold">현재 클라이언트: {clientLoading ? "확인 중..." : selectedClient?.name || "미선택"}</p>
         </div>
       </div>
 
-      <div className="grid xl:grid-cols-[420px_1fr] gap-6 items-start">
-        <section className="bg-white border rounded-2xl p-5 space-y-4 shadow-sm">
+      <div className="space-y-6">
+        <section className="bg-white border rounded-2xl p-5 shadow-sm">
+          <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">브랜드명 *</label>
             <input value={brandName} onChange={(e) => setBrandName(e.target.value)} placeholder="예: 아임탑, 메가커피, 병원 브랜드" className="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
 
-          <div>
+          <div className="md:col-span-2">
             <label className="block text-sm font-semibold text-gray-700 mb-1">상품/서비스 설명 *</label>
             <textarea value={productSummary} onChange={(e) => setProductSummary(e.target.value)} rows={4} placeholder="무엇을 팔고, 어떤 차별점이 있는지 적어주세요." className="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
@@ -255,7 +287,7 @@ export default function OperationPlannerPage() {
             <p className="text-xs text-gray-400 mt-1">쉼표 또는 줄바꿈으로 여러 개 입력</p>
           </div>
 
-          <div>
+          <div className="md:col-span-2 xl:col-span-4">
             <label className="block text-sm font-semibold text-gray-700 mb-2">운영 채널</label>
             <div className="flex flex-wrap gap-2">
               {CHANNEL_OPTIONS.map((channel) => (
@@ -266,7 +298,7 @@ export default function OperationPlannerPage() {
             </div>
           </div>
 
-          <div>
+          <div className="md:col-span-2">
             <label className="block text-sm font-semibold text-gray-700 mb-1">벤치마킹 브랜드/계정</label>
             <textarea value={benchmarkText} onChange={(e) => setBenchmarkText(e.target.value)} rows={3} placeholder="예: 스타벅스, HubSpot, @competitor" className="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
@@ -282,15 +314,18 @@ export default function OperationPlannerPage() {
             </div>
           </div>
 
-          <div>
+          <div className="md:col-span-2">
             <label className="block text-sm font-semibold text-gray-700 mb-1">추가 메모</label>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="금지 표현, 필수 메시지, 운영 리소스 등" className="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
+          </div>
 
-          {error && <div className="rounded-xl bg-red-50 text-red-700 text-sm p-3">{error}</div>}
-          {statusMessage && <div className="rounded-xl bg-green-50 text-green-700 text-sm p-3 flex items-center gap-2">{(loading || saving || actionLoading || draftLoading || recovering || restoring) && <Loader2 size={14} className="animate-spin" />}<span>{statusMessage}</span></div>}
+          <div className="mt-4 space-y-3">
+            {error && <div className="rounded-xl bg-red-50 text-red-700 text-sm p-3">{error}</div>}
+            {statusMessage && <div className="rounded-xl bg-green-50 text-green-700 text-sm p-3 flex items-center gap-2">{(loading || saving || draftLoading || recovering || restoring) && <Loader2 size={14} className="animate-spin" />}<span>{statusMessage}</span></div>}
+          </div>
 
-          <button onClick={generatePlan} disabled={!canSubmit || loading || saving || actionLoading !== null || draftLoading || recovering} className="w-full rounded-xl bg-blue-600 text-white py-3 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2">
+          <button onClick={generatePlan} disabled={!canSubmit || loading || saving || draftLoading || recovering} className="mt-4 w-full rounded-xl bg-blue-600 text-white py-3 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2">
             {loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
             {loading ? "메가가 운영계획 생성 중..." : "월간 운영계획 생성"}
           </button>
@@ -301,7 +336,7 @@ export default function OperationPlannerPage() {
             <div className="bg-white border rounded-2xl p-8 text-center text-gray-500 shadow-sm">
               <ClipboardList className="mx-auto text-blue-500 mb-3" size={36} />
               <p className="font-semibold text-gray-800">브랜드 브리프를 입력하면 월간 운영계획이 여기에 표시됩니다.</p>
-              <p className="text-sm mt-2">채널별 수량, 주차별 테마, 승인 체크리스트까지 한 번에 생성합니다.</p>
+              <p className="text-sm mt-2">채널별 추천 수량과 주차별 테마를 한 번에 생성합니다.</p>
             </div>
           )}
 
@@ -315,7 +350,7 @@ export default function OperationPlannerPage() {
                   </div>
                   <div className="flex flex-col items-end gap-2">
                     <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-700 text-xs font-semibold">{plan.benchmark_source_status}</span>
-                    {savedPlan && <span className="px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-xs font-semibold">저장상태: {savedPlan.status}</span>}
+                    {savedPlan && <span className="px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-xs font-semibold">DB 저장됨</span>}
                     {savedPlan && !savedPlan.client_id && <span className="px-3 py-1 rounded-full bg-red-50 text-red-700 text-xs font-semibold">클라이언트 연결 필요</span>}
                   </div>
                 </div>
@@ -330,23 +365,11 @@ export default function OperationPlannerPage() {
                       이 운영계획은 이전 버전에서 클라이언트 없이 저장됐습니다. 콘텐츠 draft 생성 시 현재 클라이언트({selectedClient?.name || selectedClientId})로 자동 복구합니다.
                     </div>
                   )}
-                  <button type="button" onClick={savePlan} disabled={saving || Boolean(savedPlan) || clientLoading} className="rounded-xl bg-gray-900 text-white px-4 py-2 text-sm font-semibold hover:bg-black disabled:opacity-50 flex items-center gap-2">
+                  <button type="button" onClick={savePlan} disabled={saving || clientLoading} className="rounded-xl bg-gray-900 text-white px-4 py-2 text-sm font-semibold hover:bg-black disabled:opacity-50 flex items-center gap-2">
                     {saving && <Loader2 size={14} className="animate-spin" />}
-                    {savedPlan ? "저장됨" : "운영계획 저장"}
+                    {savedPlan ? "운영계획 수정 저장" : "운영계획 저장"}
                   </button>
-                  <button type="button" onClick={() => runPlanAction("submit")} disabled={!savedPlan || savedPlan.status !== "draft" || actionLoading !== null || draftLoading || recovering} className="rounded-xl bg-blue-600 text-white px-4 py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
-                    {actionLoading === "submit" && <Loader2 size={14} className="animate-spin" />}
-                    {actionLoading === "submit" ? "승인 요청 중..." : "승인 요청"}
-                  </button>
-                  <button type="button" onClick={() => runPlanAction("approve")} disabled={!savedPlan || savedPlan.status !== "pending_approval" || actionLoading !== null || draftLoading || recovering} className="rounded-xl bg-green-600 text-white px-4 py-2 text-sm font-semibold hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
-                    {actionLoading === "approve" && <Loader2 size={14} className="animate-spin" />}
-                    {actionLoading === "approve" ? "승인 중..." : "승인"}
-                  </button>
-                  <button type="button" onClick={() => runPlanAction("reject")} disabled={!savedPlan || savedPlan.status !== "pending_approval" || actionLoading !== null || draftLoading || recovering} className="rounded-xl border border-red-200 text-red-700 px-4 py-2 text-sm font-semibold hover:bg-red-50 disabled:opacity-50 flex items-center gap-2">
-                    {actionLoading === "reject" && <Loader2 size={14} className="animate-spin" />}
-                    {actionLoading === "reject" ? "반려 중..." : "반려"}
-                  </button>
-                  <button type="button" onClick={generateDrafts} disabled={!savedPlan || savedPlan.status !== "approved" || draftLoading || recovering || Boolean(draftResult)} className="rounded-xl bg-purple-600 text-white px-4 py-2 text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2">
+                  <button type="button" onClick={generateDrafts} disabled={!savedPlan || draftLoading || recovering || Boolean(draftResult)} className="rounded-xl bg-purple-600 text-white px-4 py-2 text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2">
                     {draftLoading || recovering ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}
                     {recovering ? "클라이언트 연결 중..." : draftLoading ? "draft 생성 중..." : draftResult ? "draft 생성됨" : "콘텐츠 draft 생성"}
                   </button>
@@ -355,13 +378,13 @@ export default function OperationPlannerPage() {
                   <div className="mt-4 rounded-xl border border-purple-100 bg-purple-50 p-4 text-sm text-purple-900">
                     <p className="font-semibold">콘텐츠 draft {draftResult.total}개 생성</p>
                     <p className="mt-1">예약 전 토큰 확인 필요: {draftResult.token_check_required_count}개 · 수동 필요: {draftResult.manual_required_count}개</p>
-                    <p className="mt-1 text-purple-700">외부 업로드/예약은 아직 실행하지 않았고, 각 콘텐츠별 승인 이후에만 진행합니다.</p>
+                    <p className="mt-1 text-purple-700">외부 업로드/예약은 아직 실행하지 않았고, 생성된 draft에서 바로 수정할 수 있습니다.</p>
                   </div>
                 )}
                 <div className="grid sm:grid-cols-3 gap-3 mt-5">
                   <div className="rounded-xl bg-blue-50 p-4">
-                    <p className="text-xs text-blue-600 font-semibold">총 제작량</p>
-                    <p className="text-2xl font-bold text-blue-900 mt-1">{plan.total_monthly_count}개</p>
+                    <p className="text-xs text-blue-600 font-semibold">추천 총 제작량</p>
+                    <p className="text-2xl font-bold text-blue-900 mt-1">{recommendedTotalCount}개</p>
                   </div>
                   <div className="rounded-xl bg-purple-50 p-4">
                     <p className="text-xs text-purple-600 font-semibold">운영 채널</p>
@@ -415,13 +438,24 @@ export default function OperationPlannerPage() {
               )}
 
               <div className="bg-white border rounded-2xl p-5 shadow-sm">
-                <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2"><CalendarDays size={16} /> 채널별 제작 수량</h3>
+                <h3 className="font-bold text-gray-900 mb-1 flex items-center gap-2"><CalendarDays size={16} /> 채널별 추천 제작 수량</h3>
+                <p className="text-xs text-gray-500 mb-4">메가가 추천한 수량입니다. 숫자를 수정하면 총 제작량과 주차별 배분이 함께 조정됩니다.</p>
                 <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
                   {plan.channel_plan.map((channel) => (
                     <div key={channel.channel} className="rounded-xl border p-4 bg-gray-50">
                       <div className="flex items-center justify-between gap-2">
                         <p className="font-semibold text-gray-900">{channel.channel}</p>
-                        <span className="text-sm font-bold text-blue-700">{channel.monthly_count}개</span>
+                        <label className="flex items-center gap-1 text-sm font-bold text-blue-700">
+                          <input
+                            type="number"
+                            min={1}
+                            value={channel.monthly_count}
+                            onChange={(e) => updateChannelMonthlyCount(channel.channel, e.target.value)}
+                            className="w-16 rounded-lg border bg-white px-2 py-1 text-right text-sm font-bold text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            aria-label={`${channel.channel} 월간 제작 수량`}
+                          />
+                          개
+                        </label>
                       </div>
                       <p className="text-xs text-gray-500 mt-2">{channel.role}</p>
                       <p className="text-xs text-gray-600 mt-2">{channel.cadence}</p>
@@ -458,10 +492,9 @@ export default function OperationPlannerPage() {
               </div>
 
               <div className="grid lg:grid-cols-2 gap-5">
-                <InfoList title="승인 체크리스트" icon={<CheckCircle2 size={16} />} items={plan.approval_checklist} />
                 <InfoList title="리스크/확인 필요" icon={<AlertTriangle size={16} />} items={plan.risks} tone="amber" />
                 <InfoList title="벤치마킹 메모" icon={<ClipboardList size={16} />} items={plan.benchmark_notes} />
-                <InfoList title="컨펌 후 다음 액션" icon={<UploadCloud size={16} />} items={plan.next_actions} tone="green" />
+                <InfoList title="다음 액션" icon={<UploadCloud size={16} />} items={plan.next_actions} tone="green" />
               </div>
             </>
           )}

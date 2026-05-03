@@ -1,4 +1,4 @@
-"""Build content draft specs from an approved operation plan.
+"""Build content draft specs from a saved operation plan.
 
 This service is intentionally side-effect free. Routes may persist the returned
 specs as Content records, but the builder itself never schedules or uploads.
@@ -24,9 +24,9 @@ def build_content_draft_specs_from_plan(
     client_id: Any | None,
     author_id: Any | None,
 ) -> list[dict[str, Any]]:
-    """Convert an approved operation-plan payload into draft content specs."""
-    if status != "approved":
-        raise OperationPlanDraftError("승인된 운영계획만 콘텐츠 draft를 생성할 수 있습니다")
+    """Convert a saved operation-plan payload into draft content specs."""
+    if status not in {"draft", "approved"}:
+        raise OperationPlanDraftError("저장된 운영계획만 콘텐츠 draft를 생성할 수 있습니다")
     if not client_id:
         raise OperationPlanDraftError("content draft 생성을 위해 client_id가 필요합니다")
     if not plan_payload:

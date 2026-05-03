@@ -94,15 +94,19 @@ class OperationPlanDraftBuilderTest(unittest.TestCase):
         self.assertIn(plan_payload["weekly_plan"][0]["theme"], metadata["image_prompt"])
         self.assertIn("visual_direction", metadata)
 
-    def test_rejects_non_approved_operation_plan(self):
-        with self.assertRaisesRegex(OperationPlanDraftError, "승인된 운영계획"):
-            build_content_draft_specs_from_plan(
-                operation_plan_id="plan-123",
-                status="pending_approval",
-                plan_payload=self._approved_plan_payload(),
-                client_id="client-123",
-                author_id="author-123",
-            )
+    def test_builds_draft_specs_from_saved_draft_plan_without_approval_gate(self):
+        plan_payload = self._approved_plan_payload()
+
+        drafts = build_content_draft_specs_from_plan(
+            operation_plan_id="plan-123",
+            status="draft",
+            plan_payload=plan_payload,
+            client_id="client-123",
+            author_id="author-123",
+        )
+
+        self.assertGreater(len(drafts), 0)
+        self.assertTrue(all(item["status"] == "draft" for item in drafts))
 
     def test_requires_client_before_creating_content_records(self):
         with self.assertRaisesRegex(OperationPlanDraftError, "client_id"):

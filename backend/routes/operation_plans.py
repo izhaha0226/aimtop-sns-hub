@@ -88,10 +88,6 @@ async def update_operation_plan(
 ):
     plan = await _get_operation_plan_or_404(plan_id, db)
     updates = body.model_dump(exclude_none=True)
-    if plan.status == "approved":
-        is_client_recovery_only = set(updates.keys()) == {"client_id"} and plan.client_id is None
-        if not is_client_recovery_only:
-            raise HTTPException(status_code=400, detail="승인 완료된 운영계획은 수정할 수 없습니다")
     for field, value in updates.items():
         setattr(plan, field, value)
     await db.commit()
