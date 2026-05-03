@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { AlertTriangle, CalendarDays, ClipboardList, Loader2, Sparkles, Target, UploadCloud } from "lucide-react"
 import { aiService, type GenerateOperationPlanPayload, type GenerateOperationPlanResponse } from "@/services/ai"
 import { operationPlansService, type OperationPlanDraftsResponse, type OperationPlanRecord } from "@/services/operation-plans"
@@ -42,8 +42,31 @@ export default function OperationPlannerPage() {
   const [error, setError] = useState("")
   const [statusMessage, setStatusMessage] = useState("")
   const { selectedClientId, selectedClient, loading: clientLoading } = useSelectedClient()
+  const previousClientIdRef = useRef<string | null>(null)
 
   const canSubmit = useMemo(() => brandName.trim() && productSummary.trim() && channels.length > 0, [brandName, productSummary, channels])
+
+  useEffect(() => {
+    if (clientLoading) return
+    if (previousClientIdRef.current !== selectedClientId) {
+      previousClientIdRef.current = selectedClientId
+      setPlan(null)
+      setSavedPlan(null)
+      setLastRequest(null)
+      setDraftResult(null)
+      setBrandName(selectedClient?.name || "")
+      setProductSummary("")
+      setTargetAudience("")
+      setGoalsText("인지도 확보, 문의 확보")
+      setBenchmarkText("")
+      setChannels(["instagram", "threads", "blog"])
+      setMonth(defaultMonth())
+      setSeasonContext("")
+      setNotes("")
+      setError("")
+      setStatusMessage(selectedClientId ? "선택 클라이언트가 바뀌어 이전 운영계획 입력을 초기화했습니다." : "상단에서 클라이언트를 선택해주세요.")
+    }
+  }, [clientLoading, selectedClientId, selectedClient?.name])
 
   useEffect(() => {
     if (clientLoading) return
@@ -138,6 +161,12 @@ export default function OperationPlannerPage() {
     if (!plan || !lastRequest) return
     if (!selectedClientId) {
       setError("운영계획 저장 전에 상단에서 클라이언트를 선택해주세요. 선택 없이 저장하면 실행 단계에서 콘텐츠가 생성되지 않습니다.")
+      return
+    }
+    if (lastRequest.client_id !== selectedClientId) {
+      setError("선택 클라이언트가 바뀌었습니다. 현재 클라이언트 기준으로 운영계획을 다시 생성한 뒤 저장해주세요.")
+      setSavedPlan(null)
+      setDraftResult(null)
       return
     }
     setSaving(true)

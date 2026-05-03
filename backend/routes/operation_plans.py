@@ -1,12 +1,13 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
 from middleware.auth import get_current_user
 from models.operation_plan import OperationPlan
+from models.client import Client
 from models.content import Content
 from models.user import User
 from schemas.operation_plan import (
@@ -35,6 +36,49 @@ async def _get_operation_plan_or_404(plan_id: uuid.UUID, db: AsyncSession) -> Op
     return plan
 
 
+def _brand_candidates_from_payload(data: dict | None) -> set[str]:
+    if not isinstance(data, dict):
+        return set()
+    candidates = {
+        str(data.get("brand_name") or "").strip(),
+    }
+    request_payload = data.get("request_payload")
+    if isinstance(request_payload, dict):
+        candidates.add(str(request_payload.get("brand_name") or "").strip())
+    plan_payload = data.get("plan_payload")
+    if isinstance(plan_payload, dict):
+        candidates.add(str(plan_payload.get("brand_name") or "").strip())
+    return {candidate for candidate in candidates if candidate}
+
+
+async def _ensure_no_cross_client_brand_conflict(
+    *,
+    db: AsyncSession,
+    client_id: uuid.UUID | None,
+    payload: dict,
+) -> None:
+    if not client_id:
+        return
+    for brand_name in _brand_candidates_from_payload(payload):
+        normalized_brand = brand_name.lower()
+        result = await db.execute(
+            select(Client).where(
+                func.lower(Client.name) == normalized_brand,
+                Client.id != client_id,
+                Client.is_deleted.is_(False),
+            )
+        )
+        conflicting_client = result.scalar_one_or_none()
+        if conflicting_client:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"'{brand_name}' 브랜드는 다른 클라이언트({conflicting_client.name})에 속합니다. "
+                    "상단 클라이언트를 먼저 맞춘 뒤 운영계획을 다시 생성해주세요."
+                ),
+            )
+
+
 @router.get("", response_model=OperationPlanListResponse)
 async def list_operation_plans(
     client_id: uuid.UUID | None = Query(None),
@@ -59,8 +103,10 @@ async def create_operation_plan(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    payload = body.model_dump()
+    await _ensure_no_cross_client_brand_conflict(db=db, client_id=body.client_id, payload=payload)
     plan = OperationPlan(
-        **body.model_dump(),
+        **payload,
         author_id=current_user.id,
         status="draft",
     )
@@ -88,6 +134,8 @@ async def update_operation_plan(
 ):
     plan = await _get_operation_plan_or_404(plan_id, db)
     updates = body.model_dump(exclude_none=True)
+    effective_client_id = updates.get("client_id", plan.client_id)
+    await _ensure_no_cross_client_brand_conflict(db=db, client_id=effective_client_id, payload=updates)
     for field, value in updates.items():
         setattr(plan, field, value)
     await db.commit()

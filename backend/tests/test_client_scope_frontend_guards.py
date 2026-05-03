@@ -9,6 +9,7 @@ CONTENT_DETAIL_PAGE = PROJECT_ROOT / "frontend/src/app/(main)/contents/[id]/page
 HEADER = PROJECT_ROOT / "frontend/src/components/layout/Header.tsx"
 PLANNER_PAGE = PROJECT_ROOT / "frontend/src/app/(main)/growth/planner/page.tsx"
 CONTENTS_ROUTE = PROJECT_ROOT / "backend/routes/contents.py"
+OPERATION_PLANS_ROUTE = PROJECT_ROOT / "backend/routes/operation_plans.py"
 
 
 class ClientScopedFrontendGuardsTest(unittest.TestCase):
@@ -101,6 +102,38 @@ class ClientScopedFrontendGuardsTest(unittest.TestCase):
         self.assertIn('setPlan(null)', source)
         self.assertIn('setSavedPlan(null)', source)
         self.assertIn('setLastRequest(null)', source)
+
+    def test_planner_clears_stale_plan_when_selected_client_changes(self):
+        source = PLANNER_PAGE.read_text()
+
+        self.assertIn('previousClientIdRef', source)
+        self.assertRegex(
+            source,
+            re.compile(r"previousClientIdRef\.current\s*!==\s*selectedClientId", re.DOTALL),
+        )
+        self.assertIn('setPlan(null)', source)
+        self.assertIn('setSavedPlan(null)', source)
+        self.assertIn('setLastRequest(null)', source)
+        self.assertIn('setDraftResult(null)', source)
+        self.assertIn('setBrandName(selectedClient?.name || "")', source)
+
+    def test_planner_refuses_to_save_stale_request_from_another_selected_client(self):
+        source = PLANNER_PAGE.read_text()
+
+        self.assertIn('lastRequest.client_id !== selectedClientId', source)
+        self.assertIn('선택 클라이언트가 바뀌었습니다', source)
+        self.assertIn('return', source)
+
+    def test_backend_operation_plan_rejects_brand_that_belongs_to_another_client(self):
+        source = OPERATION_PLANS_ROUTE.read_text()
+
+        self.assertIn('from models.client import Client', source)
+        self.assertIn('_ensure_no_cross_client_brand_conflict', source)
+        self.assertRegex(
+            source,
+            re.compile(r"func\.lower\(Client\.name\)\s*==\s*normalized_brand", re.DOTALL),
+        )
+        self.assertIn('status_code=409', source)
 
 
 if __name__ == "__main__":
