@@ -20,6 +20,15 @@ class SNSOAuthScopeTest(unittest.TestCase):
         self.assertNotIn("instagram_basic", scopes)
         self.assertNotIn("instagram_content_publish", scopes)
 
+    def test_threads_connect_scope_omits_unapproved_threads_permissions(self):
+        scopes = set(PLATFORM_CONFIGS["threads"]["scopes"].split(","))
+
+        self.assertIn("pages_show_list", scopes)
+        self.assertIn("pages_read_engagement", scopes)
+        self.assertNotIn("instagram_basic", scopes)
+        self.assertNotIn("threads_basic", scopes)
+        self.assertNotIn("threads_content_publish", scopes)
+
 
 if __name__ == "__main__":
     unittest.main()

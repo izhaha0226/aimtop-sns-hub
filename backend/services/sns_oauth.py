@@ -75,7 +75,9 @@ PLATFORM_CONFIGS = {
     "threads": {
         "auth_url": "https://www.facebook.com/v19.0/dialog/oauth",
         "token_url": "https://graph.facebook.com/v19.0/oauth/access_token",
-        "scopes": "instagram_basic,threads_basic,threads_content_publish,pages_show_list",
+        # Connect-only scope set. Request Threads-specific scopes only after the
+        # Threads product/use-case and App Review access are ready.
+        "scopes": "pages_show_list,pages_read_engagement",
     },
     "youtube": {
         "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
