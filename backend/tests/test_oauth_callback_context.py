@@ -88,6 +88,48 @@ class OAuthCallbackContextTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(query["message"], ["OAuth code가 누락되었습니다"])
         self.assertIn(_oauth_context_cookie_name("facebook") + "=", response.headers["set-cookie"])
 
+    async def test_callback_with_meta_error_code_surfaces_meta_message_before_code_check(self):
+        client_id = uuid.uuid4()
+        redirect_uri = "https://sns.aimtop.ai/api/v1/oauth/facebook/callback"
+        frontend_redirect = f"/clients/{client_id}"
+        cookie_response = Response()
+        _set_oauth_context_cookie(
+            cookie_response,
+            "facebook",
+            {
+                "client_id": str(client_id),
+                "frontend_redirect": frontend_redirect,
+                "redirect_uri": redirect_uri,
+            },
+            redirect_uri,
+        )
+        cookie_value = cookie_response.headers["set-cookie"].split(";", 1)[0].split("=", 1)[1]
+
+        response = await oauth_callback(
+            request=_request_with_cookies({_oauth_context_cookie_name("facebook"): cookie_value}),
+            platform="facebook",
+            code=None,
+            state=None,
+            error=None,
+            error_description=None,
+            error_code="1349048",
+            error_message="URL을 읽어들일 수 없습니다: 앱 도메인에 포함되어 있지 않은 URL 도메인입니다.",
+            error_reason=None,
+            client_id=None,
+            db=None,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        parsed = urlparse(response.headers["location"])
+        self.assertEqual(parsed.path, f"/clients/{client_id}")
+        query = parse_qs(parsed.query)
+        self.assertEqual(query["oauth"], ["error"])
+        self.assertEqual(query["platform"], ["facebook"])
+        self.assertEqual(
+            query["message"],
+            ["Meta 오류 1349048: URL을 읽어들일 수 없습니다: 앱 도메인에 포함되어 있지 않은 URL 도메인입니다."],
+        )
+
     async def test_callback_without_state_or_cookie_redirects_instead_of_raising_400(self):
         response = await oauth_callback(
             request=_request_with_cookies(),

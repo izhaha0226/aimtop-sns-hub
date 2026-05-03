@@ -129,6 +129,9 @@ async def oauth_callback(
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
     error_description: str | None = Query(default=None),
+    error_code: str | None = Query(default=None),
+    error_message: str | None = Query(default=None),
+    error_reason: str | None = Query(default=None),
     client_id: uuid.UUID | None = Query(default=None, description="연결할 클라이언트 ID"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -140,6 +143,12 @@ async def oauth_callback(
     """
     if platform not in SUPPORTED_PLATFORMS:
         raise HTTPException(status_code=400, detail=f"지원하지 않는 플랫폼: {platform}")
+
+    error = error if isinstance(error, str) else None
+    error_description = error_description if isinstance(error_description, str) else None
+    error_code = error_code if isinstance(error_code, str) else None
+    error_message = error_message if isinstance(error_message, str) else None
+    error_reason = error_reason if isinstance(error_reason, str) else None
 
     state_payload = _decode_state(state)
     if not state_payload.get("client_id"):
@@ -163,8 +172,11 @@ async def oauth_callback(
         resolved_client_id,
     )
 
-    if error:
-        message = error_description or error
+    meta_error = error or error_message or error_description or error_reason
+    if meta_error:
+        message = error_description or error_message or error_reason or error or "OAuth 인증이 취소되었거나 Meta에서 거부되었습니다"
+        if error_code:
+            message = f"Meta 오류 {error_code}: {message}"
         error_url = _build_frontend_redirect(frontend_redirect, {
             "oauth": "error",
             "platform": platform,
