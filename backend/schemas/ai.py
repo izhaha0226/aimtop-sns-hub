@@ -181,6 +181,7 @@ class GenerateOperationPlanResponse(BaseModel):
     strategy_summary: str = ""
     target_insights: list[str] = Field(default_factory=list)
     product_angles: list[str] = Field(default_factory=list)
+    supermarketing_strategy: list[str] = Field(default_factory=list)
     seasonal_context: str = ""
     benchmark_source_status: str = "manual_or_pending"
     benchmark_notes: list[str] = Field(default_factory=list)

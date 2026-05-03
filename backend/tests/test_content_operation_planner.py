@@ -3,6 +3,7 @@ import unittest
 from services.content_operation_planner import (
     OperationPlanRequestData,
     build_fallback_operation_plan,
+    build_supermarketing_strategy,
 )
 
 
@@ -52,6 +53,26 @@ class ContentOperationPlannerTest(unittest.TestCase):
         self.assertEqual(plan["monthly_volume"]["linkedin"], 6)
         self.assertEqual(plan["monthly_volume"]["youtube"], 8)
         self.assertEqual(plan["monthly_volume"]["kakao"], 6)
+
+    def test_fallback_plan_passes_through_supermarketing_strategy_first(self):
+        req = OperationPlanRequestData(
+            brand_name="탑클래스",
+            product_summary="인플루언서 재능 마켓과 가정의달 선물 오퍼",
+            target_audience="30~40대 부모와 선물 구매자",
+            goals=["선물 수요 전환", "브랜드 신뢰"],
+            channels=["instagram", "facebook", "threads"],
+            benchmark_brands=["클래스101", "크몽"],
+            month="2026-05",
+        )
+
+        strategy = build_supermarketing_strategy(req)
+        plan = build_fallback_operation_plan(req)
+
+        self.assertGreaterEqual(len(strategy), 4)
+        self.assertEqual(plan["supermarketing_strategy"], strategy)
+        self.assertTrue(any("Brief lock" in item for item in plan["supermarketing_strategy"]))
+        self.assertTrue(any("Benchmark rule" in item for item in plan["supermarketing_strategy"]))
+        self.assertTrue(any("승인 전 외부 업로드" in item for item in plan["supermarketing_strategy"]))
 
 
 if __name__ == "__main__":

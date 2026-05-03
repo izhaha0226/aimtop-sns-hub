@@ -115,12 +115,53 @@ def _weekly_theme(week: int, brand_name: str, goals: list[str], season_context: 
     return themes.get(week, f"{goal} 집중 운영")
 
 
+def build_supermarketing_strategy(req: OperationPlanRequestData) -> list[str]:
+    """Build the Supermarketing strategy layer that must precede weekly planning.
+
+    This deterministic layer mirrors the supermarketing-aimtop workflow so the
+    operation planner never jumps straight to a calendar. It first frames the
+    audience, offer, angle, benchmark boundaries, and validation loop. The LLM
+    path may improve these items, but fallback plans still expose the same
+    strategic spine.
+    """
+    goals = [goal.strip() for goal in req.goals if str(goal).strip()] or ["브랜드 인지도", "문의/전환"]
+    channels = _normalize_channels(req.channels)
+    benchmark_scope = (
+        ", ".join(req.benchmark_brands)
+        if req.benchmark_brands
+        else "입력된 벤치마킹 브랜드 없음 — 업종 공통 패턴만 가정"
+    )
+    return [
+        (
+            "Brief lock: "
+            f"{req.brand_name}의 오퍼는 '{req.product_summary}'이며, 핵심 타겟은 "
+            f"'{req.target_audience or '구매/문의 가능성이 높은 잠재 고객'}'로 둔다."
+        ),
+        (
+            "Positioning angle: 문제 공감 → 상품성/차별점 증명 → 행동 유도 순서로 설득하며, "
+            f"이번 목표는 {', '.join(goals)}에 맞춰 우선순위를 둔다."
+        ),
+        (
+            "Benchmark rule: "
+            f"{benchmark_scope}. 문구/슬로건/캠페인 논리는 복제하지 않고 hook shape, pacing, CTA rhythm만 참고한다."
+        ),
+        (
+            "Channel execution: "
+            f"{', '.join(channels)}별로 같은 캠페인 spine을 유지하되 저장형/대화형/검색형/전환형 문법으로 변환한다."
+        ),
+        (
+            "Validation loop: 대표님 승인 전 외부 업로드를 금지하고, 승인 후 draft 성과는 CTR·저장·댓글·문의 전환으로 검증한다."
+        ),
+    ]
+
+
 def build_fallback_operation_plan(req: OperationPlanRequestData) -> dict[str, Any]:
     """Build a deterministic monthly operation plan without claiming live AI/data collection."""
     channels = _normalize_channels(req.channels)
     goals = [goal.strip() for goal in req.goals if str(goal).strip()] or ["브랜드 인지도", "문의/전환"]
     month = _resolve_month(req.month)
     season_context = _seasonal_text(month, req.season_context)
+    supermarketing_strategy = build_supermarketing_strategy(req)
     monthly_volume = {channel: _volume_for_channel(channel, len(goals)) for channel in channels}
     total_volume = sum(monthly_volume.values())
 
@@ -177,6 +218,7 @@ def build_fallback_operation_plan(req: OperationPlanRequestData) -> dict[str, An
             f"상품/서비스 핵심: {req.product_summary}",
             "비교 우위, 사용 장면, 고객 변화, 리스크 제거 메시지로 분해합니다.",
         ],
+        "supermarketing_strategy": supermarketing_strategy,
         "seasonal_context": season_context,
         "benchmark_source_status": "manual_or_pending",
         "benchmark_notes": benchmark_notes,

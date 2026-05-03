@@ -255,9 +255,17 @@ async def generate_operation_plan(
     fallback = build_fallback_operation_plan(req)
 
     prompt = (
-        "너는 SNS 운영 총괄 에이전트다. 아래 브랜드 브리프와 deterministic baseline을 바탕으로 "
-        "월간 채널 운영계획을 JSON으로만 개선해서 반환해라. 경쟁사 문구를 복제하지 말고 구조만 참고해라. "
-        "승인 전 외부 업로드 없음 원칙을 반드시 포함해라.\n\n"
+        "너는 SNS 운영 총괄 에이전트다. 운영계획을 바로 달력으로 만들지 말고 반드시 먼저 "
+        "Supermarketing/AimTop 전략 레이어를 통과시킨 뒤 월간·주차별 계획을 만들어라.\n\n"
+        "[Supermarketing 필수 사고 순서]\n"
+        "1) Brief lock: product/offer, audience, channel, conversion goal, constraints를 고정한다.\n"
+        "2) Direction divergence: 최소 3개 다른 마케팅 앵글을 내부적으로 발산한다.\n"
+        "3) Bench-aware judgment: 벤치마킹은 hook shape, pacing, CTA rhythm만 참고하고 문구·슬로건·캠페인 논리 복제는 금지한다.\n"
+        "4) Execution translation: 승리 앵글을 채널별 콘텐츠 역할, 월간 수량, 주차별 테마로 변환한다.\n"
+        "5) Validation: 승인 전 외부 업로드 금지, 승인 후 CTR/저장/댓글/문의 전환으로 검증한다.\n\n"
+        "반드시 supermarketing_strategy 배열에 위 전략 판단을 4~6개 bullet로 요약하고, "
+        "weekly_plan은 이 전략 spine에서 파생되게 만들어라. 외부 실수집 근거가 없으면 benchmark_source_status는 manual_or_pending으로 둔다. "
+        "응답은 JSON만 반환해라.\n\n"
         f"[브랜드]\n{brand_name}\n"
         f"[상품/서비스]\n{product_summary}\n"
         f"[타겟]\n{target_audience}\n"
@@ -266,7 +274,7 @@ async def generate_operation_plan(
         f"[벤치마킹]\n{benchmark_brands or []}\n"
         f"[월/시즌]\n{month or ''} / {season_context}\n"
         f"[추가 메모]\n{notes}\n\n"
-        "반환 스키마 키는 baseline과 동일해야 한다.\n"
+        "반환 스키마 키는 baseline과 동일해야 하며 supermarketing_strategy를 유지/개선해야 한다.\n"
         f"[baseline]\n{json.dumps(fallback, ensure_ascii=False)}"
     )
     try:

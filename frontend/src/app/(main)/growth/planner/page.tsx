@@ -378,6 +378,10 @@ export default function OperationPlannerPage() {
                 <InfoList title="상품성 앵글" icon={<Sparkles size={16} />} items={plan.product_angles} />
               </div>
 
+              {(plan.supermarketing_strategy || []).length > 0 && (
+                <InfoList title="슈퍼마케팅 전략 판단" icon={<Sparkles size={16} />} items={plan.supermarketing_strategy} tone="green" />
+              )}
+
               <div className="bg-white border rounded-2xl p-5 shadow-sm">
                 <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2"><CalendarDays size={16} /> 채널별 제작 수량</h3>
                 <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">

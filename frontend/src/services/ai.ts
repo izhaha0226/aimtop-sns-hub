@@ -91,6 +91,7 @@ export interface GenerateOperationPlanResponse {
   strategy_summary: string
   target_insights: string[]
   product_angles: string[]
+  supermarketing_strategy: string[]
   seasonal_context: string
   benchmark_source_status: string
   benchmark_notes: string[]
