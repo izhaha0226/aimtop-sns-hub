@@ -68,6 +68,16 @@ export default function LoginPage() {
         <div className="mt-5 text-sm text-gray-500">
           초대 링크가 있으신가요? <Link href="/signup" className="text-blue-600 hover:underline">초대 수락</Link>
         </div>
+        <div className="mt-6 border-t pt-4 text-center text-xs text-gray-500">
+          <p className="mb-2">로그인 없이 확인 가능한 공개 문서</p>
+          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2">
+            <Link href="/privacy" className="text-blue-600 hover:underline">개인정보처리방침</Link>
+            <span className="text-gray-300">|</span>
+            <Link href="/terms" className="text-blue-600 hover:underline">서비스 이용약관</Link>
+            <span className="text-gray-300">|</span>
+            <Link href="/data-deletion" className="text-blue-600 hover:underline">사용자 데이터 삭제</Link>
+          </div>
+        </div>
       </div>
     </div>
   )
