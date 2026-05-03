@@ -10,7 +10,7 @@ import json
 import uuid
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlencode, urlparse
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
@@ -26,6 +26,27 @@ router = APIRouter(prefix="/api/v1/oauth", tags=["oauth"])
 oauth_service = SNSOAuth()
 
 SUPPORTED_PLATFORMS = ("instagram", "facebook", "threads", "youtube", "x", "blog", "kakao", "tiktok", "linkedin")
+OAUTH_CONTEXT_COOKIE_PREFIX = "sns_oauth_ctx_"
+
+
+def _oauth_context_cookie_name(platform: str) -> str:
+    return f"{OAUTH_CONTEXT_COOKIE_PREFIX}{platform}"
+
+
+def _set_oauth_context_cookie(response: Response, platform: str, payload: dict, redirect_uri: str) -> None:
+    """Store short-lived OAuth context for providers that drop/omit state on callback."""
+    response.set_cookie(
+        key=_oauth_context_cookie_name(platform),
+        value=_encode_state(payload),
+        max_age=600,
+        httponly=True,
+        secure=redirect_uri.startswith("https://"),
+        samesite="lax",
+    )
+
+
+def _clear_oauth_context_cookie(response: RedirectResponse, platform: str) -> None:
+    response.delete_cookie(key=_oauth_context_cookie_name(platform))
 
 
 def _sanitize_frontend_redirect(frontend_redirect: str | None, request: Request, client_id: uuid.UUID) -> str:
@@ -34,7 +55,7 @@ def _sanitize_frontend_redirect(frontend_redirect: str | None, request: Request,
         return default_path
 
     parsed = urlparse(frontend_redirect)
-    request_origin = request.base_url.rstrip("/")
+    request_origin = str(request.base_url).rstrip("/")
     request_parsed = urlparse(request_origin)
 
     if not parsed.scheme and not parsed.netloc:
@@ -76,6 +97,7 @@ def _decode_state(value: str | None) -> dict:
 @router.get("/{platform}/auth-url")
 async def get_auth_url(
     platform: str,
+    response: Response,
     client_id: uuid.UUID = Query(..., description="연결할 클라이언트 ID"),
     redirect_uri: str = Query(..., description="OAuth 콜백 URI"),
     frontend_redirect: str | None = Query(default=None, description="연동 후 이동할 프론트 URL"),
@@ -86,13 +108,13 @@ async def get_auth_url(
         raise HTTPException(status_code=400, detail=f"지원하지 않는 플랫폼: {platform}")
 
     try:
-        state = _encode_state(
-            {
-                "client_id": str(client_id),
-                "frontend_redirect": frontend_redirect,
-                "redirect_uri": redirect_uri,
-            }
-        )
+        oauth_context = {
+            "client_id": str(client_id),
+            "frontend_redirect": frontend_redirect,
+            "redirect_uri": redirect_uri,
+        }
+        state = _encode_state(oauth_context)
+        _set_oauth_context_cookie(response, platform, oauth_context, redirect_uri)
         url = await oauth_service.get_auth_url(platform, redirect_uri, state=state)
         return {"auth_url": url, "platform": platform}
     except ValueError as e:
@@ -120,9 +142,19 @@ async def oauth_callback(
         raise HTTPException(status_code=400, detail=f"지원하지 않는 플랫폼: {platform}")
 
     state_payload = _decode_state(state)
+    if not state_payload.get("client_id"):
+        state_payload = _decode_state(request.cookies.get(_oauth_context_cookie_name(platform)))
+
     resolved_client_id = client_id or (uuid.UUID(state_payload["client_id"]) if state_payload.get("client_id") else None)
     if not resolved_client_id:
-        raise HTTPException(status_code=400, detail="client_id가 누락되었습니다")
+        fallback_redirect = _build_frontend_redirect("/clients", {
+            "oauth": "error",
+            "platform": platform,
+            "message": "OAuth client_id가 누락되었습니다. 클라이언트 화면에서 다시 연동을 시작해 주세요.",
+        })
+        response = RedirectResponse(url=fallback_redirect, status_code=302)
+        _clear_oauth_context_cookie(response, platform)
+        return response
 
     redirect_uri = state_payload.get("redirect_uri") or str(request.url).split("?")[0]
     frontend_redirect = _sanitize_frontend_redirect(
@@ -138,7 +170,9 @@ async def oauth_callback(
             "platform": platform,
             "message": message,
         })
-        return RedirectResponse(url=error_url, status_code=302)
+        response = RedirectResponse(url=error_url, status_code=302)
+        _clear_oauth_context_cookie(response, platform)
+        return response
 
     if not code:
         error_url = _build_frontend_redirect(frontend_redirect, {
@@ -146,7 +180,9 @@ async def oauth_callback(
             "platform": platform,
             "message": "OAuth code가 누락되었습니다",
         })
-        return RedirectResponse(url=error_url, status_code=302)
+        response = RedirectResponse(url=error_url, status_code=302)
+        _clear_oauth_context_cookie(response, platform)
+        return response
 
     try:
         tokens = await oauth_service.exchange_code(platform, code, redirect_uri, state=state)
@@ -156,7 +192,9 @@ async def oauth_callback(
             "platform": platform,
             "message": str(e),
         })
-        return RedirectResponse(url=error_url, status_code=302)
+        response = RedirectResponse(url=error_url, status_code=302)
+        _clear_oauth_context_cookie(response, platform)
+        return response
 
     result = await db.execute(
         select(ChannelConnection)
@@ -221,7 +259,9 @@ async def oauth_callback(
         "oauth": "success",
         "platform": platform,
     })
-    return RedirectResponse(url=success_url, status_code=302)
+    response = RedirectResponse(url=success_url, status_code=302)
+    _clear_oauth_context_cookie(response, platform)
+    return response
 
 
 @router.post("/{platform}/disconnect")
