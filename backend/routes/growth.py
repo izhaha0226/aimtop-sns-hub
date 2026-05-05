@@ -23,6 +23,25 @@ class CompetitorAnalysisRequest(BaseModel):
     competitor_handles: list[str]
 
 
+@router.get("/viral-strategy")
+async def get_viral_strategy(
+    client_id: uuid.UUID = Query(...),
+    platform: str = Query("instagram", description="플랫폼 (instagram, facebook, x, threads 등)"),
+    top_k: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """슈퍼마케팅 바이럴 루프 기반 SNS 성장 전략."""
+    svc = GrowthService(db)
+    try:
+        strategy = await svc.get_viral_strategy(client_id=client_id, platform=platform, top_k=top_k)
+        return {"ok": True, "data": strategy}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/trending-hashtags")
 async def get_trending_hashtags(
     platform: str = Query(..., description="플랫폼 (instagram, youtube, x, naver)"),
