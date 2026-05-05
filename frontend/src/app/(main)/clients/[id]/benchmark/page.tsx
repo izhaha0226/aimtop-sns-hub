@@ -6,6 +6,24 @@ import { benchmarkingService, type ActionLanguageProfileItem, type BenchmarkAcco
 
 const PLATFORMS = ["instagram", "facebook", "x", "threads", "kakao", "tiktok", "linkedin", "youtube"]
 
+type AccountFormState = {
+  handle: string
+  purpose: string
+  source_type: string
+  memo: string
+  metadataInput: string
+}
+
+const DEFAULT_ACCOUNT_FORM: AccountFormState = {
+  handle: "",
+  purpose: "all",
+  source_type: "manual",
+  memo: "",
+  metadataInput: "",
+}
+
+const emptyAccountForm = (): AccountFormState => ({ ...DEFAULT_ACCOUNT_FORM })
+
 const PLATFORM_HINTS: Record<string, string> = {
   instagram: "경쟁 인스타 username 입력. 실수집은 연결된 Instagram 채널 토큰이 필요합니다.",
   facebook: "페이지명 또는 page_id 입력. page_id는 metadata에 넣으면 더 안정적입니다.",
@@ -182,7 +200,22 @@ export default function ClientBenchmarkPage() {
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [statusMap, setStatusMap] = useState<Record<string, RefreshAccountResult>>({})
-  const [form, setForm] = useState({ handle: "", purpose: "all", source_type: "manual", memo: "", metadataInput: "" })
+  const [formsByPlatform, setFormsByPlatform] = useState<Record<string, AccountFormState>>(() =>
+    Object.fromEntries(PLATFORMS.map((item) => [item, emptyAccountForm()])),
+  )
+  const form = formsByPlatform[platform] || DEFAULT_ACCOUNT_FORM
+  const updateForm = useCallback((patch: Partial<AccountFormState>) => {
+    setFormsByPlatform((prev) => ({
+      ...prev,
+      [platform]: {
+        ...(prev[platform] || DEFAULT_ACCOUNT_FORM),
+        ...patch,
+      },
+    }))
+  }, [platform])
+  const resetCurrentForm = useCallback(() => {
+    setFormsByPlatform((prev) => ({ ...prev, [platform]: emptyAccountForm() }))
+  }, [platform])
   const [editForm, setEditForm] = useState({ handle: "", purpose: "all", source_type: "manual", memo: "", metadataInput: "", is_active: true })
 
   const load = useCallback(async (currentPlatform: string, currentTopK: number) => {
@@ -518,7 +551,7 @@ export default function ClientBenchmarkPage() {
         memo: form.memo.trim() || undefined,
         metadata_json: parseMetadata(platform, form.metadataInput),
       })
-      setForm({ handle: "", purpose: "all", source_type: "manual", memo: "", metadataInput: "" })
+      resetCurrentForm()
       await load(platform, topK)
     } finally {
       setSaving(false)
@@ -667,21 +700,21 @@ export default function ClientBenchmarkPage() {
           <div className="text-xs text-gray-500 mt-1">{PLATFORM_HINTS[platform] || "채널별 실수집 가능 범위에 맞춰 등록하세요."}</div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-          <input value={form.handle} onChange={(e) => setForm((prev) => ({ ...prev, handle: e.target.value }))} placeholder="handle / username / page_id" className="rounded-lg border px-3 py-2 text-sm" />
-          <select value={form.purpose} onChange={(e) => setForm((prev) => ({ ...prev, purpose: e.target.value }))} className="rounded-lg border px-3 py-2 text-sm">
+          <input key={`${platform}-handle`} value={form.handle} onChange={(e) => updateForm({ handle: e.target.value })} placeholder="handle / username / page_id" className="rounded-lg border px-3 py-2 text-sm" />
+          <select value={form.purpose} onChange={(e) => updateForm({ purpose: e.target.value })} className="rounded-lg border px-3 py-2 text-sm">
             <option value="all">all</option>
             <option value="benchmark">benchmark</option>
             <option value="inspiration">inspiration</option>
           </select>
-          <select value={form.source_type} onChange={(e) => setForm((prev) => ({ ...prev, source_type: e.target.value }))} className="rounded-lg border px-3 py-2 text-sm">
+          <select value={form.source_type} onChange={(e) => updateForm({ source_type: e.target.value })} className="rounded-lg border px-3 py-2 text-sm">
             <option value="manual">manual</option>
             <option value="discovery">discovery</option>
             <option value="competitor">competitor</option>
           </select>
-          <input value={form.metadataInput} onChange={(e) => setForm((prev) => ({ ...prev, metadataInput: e.target.value }))} placeholder={platform === "facebook" ? "page_id (선택)" : platform === "youtube" ? "channel_id (선택)" : "보조 식별자 (선택)"} className="rounded-lg border px-3 py-2 text-sm" />
+          <input key={`${platform}-metadata`} value={form.metadataInput} onChange={(e) => updateForm({ metadataInput: e.target.value })} placeholder={platform === "facebook" ? "page_id (선택)" : platform === "youtube" ? "channel_id (선택)" : "보조 식별자 (선택)"} className="rounded-lg border px-3 py-2 text-sm" />
           <button onClick={handleCreateAccount} disabled={saving || !form.handle.trim()} className="rounded-lg bg-blue-600 text-white text-sm px-4 py-2 disabled:opacity-50">{saving ? "등록 중..." : "계정 등록"}</button>
         </div>
-        <input value={form.memo} onChange={(e) => setForm((prev) => ({ ...prev, memo: e.target.value }))} placeholder="메모 (선택)" className="rounded-lg border px-3 py-2 text-sm w-full" />
+        <input key={`${platform}-memo`} value={form.memo} onChange={(e) => updateForm({ memo: e.target.value })} placeholder="메모 (선택)" className="rounded-lg border px-3 py-2 text-sm w-full" />
       </div>
 
       <div className="bg-white rounded-xl border p-4 flex flex-wrap items-center gap-3">
