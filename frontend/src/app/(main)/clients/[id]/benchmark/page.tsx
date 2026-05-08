@@ -700,7 +700,7 @@ export default function ClientBenchmarkPage() {
           <div className="text-xs text-gray-500 mt-1">{PLATFORM_HINTS[platform] || "채널별 실수집 가능 범위에 맞춰 등록하세요."}</div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-          <input key={`${platform}-handle`} value={form.handle} onChange={(e) => updateForm({ handle: e.target.value })} placeholder="handle / username / page_id" className="rounded-lg border px-3 py-2 text-sm" />
+          <input key={`${platform}-handle`} id={`benchmark-${platform}-handle`} name={`benchmark-${platform}-handle`} data-testid={`benchmark-${platform}-handle`} autoComplete="off" value={form.handle} onChange={(e) => updateForm({ handle: e.target.value })} placeholder="handle / username / page_id" className="rounded-lg border px-3 py-2 text-sm" />
           <select value={form.purpose} onChange={(e) => updateForm({ purpose: e.target.value })} className="rounded-lg border px-3 py-2 text-sm">
             <option value="all">all</option>
             <option value="benchmark">benchmark</option>
@@ -711,10 +711,10 @@ export default function ClientBenchmarkPage() {
             <option value="discovery">discovery</option>
             <option value="competitor">competitor</option>
           </select>
-          <input key={`${platform}-metadata`} value={form.metadataInput} onChange={(e) => updateForm({ metadataInput: e.target.value })} placeholder={platform === "facebook" ? "page_id (선택)" : platform === "youtube" ? "channel_id (선택)" : "보조 식별자 (선택)"} className="rounded-lg border px-3 py-2 text-sm" />
+          <input key={`${platform}-metadata`} id={`benchmark-${platform}-metadata`} name={`benchmark-${platform}-metadata`} data-testid={`benchmark-${platform}-metadata`} autoComplete="off" value={form.metadataInput} onChange={(e) => updateForm({ metadataInput: e.target.value })} placeholder={platform === "facebook" ? "page_id (선택)" : platform === "youtube" ? "channel_id (선택)" : "보조 식별자 (선택)"} className="rounded-lg border px-3 py-2 text-sm" />
           <button onClick={handleCreateAccount} disabled={saving || !form.handle.trim()} className="rounded-lg bg-blue-600 text-white text-sm px-4 py-2 disabled:opacity-50">{saving ? "등록 중..." : "계정 등록"}</button>
         </div>
-        <input key={`${platform}-memo`} value={form.memo} onChange={(e) => updateForm({ memo: e.target.value })} placeholder="메모 (선택)" className="rounded-lg border px-3 py-2 text-sm w-full" />
+        <input key={`${platform}-memo`} id={`benchmark-${platform}-memo`} name={`benchmark-${platform}-memo`} data-testid={`benchmark-${platform}-memo`} autoComplete="off" value={form.memo} onChange={(e) => updateForm({ memo: e.target.value })} placeholder="메모 (선택)" className="rounded-lg border px-3 py-2 text-sm w-full" />
       </div>
 
       <div className="bg-white rounded-xl border p-4 flex flex-wrap items-center gap-3">
