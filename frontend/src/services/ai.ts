@@ -51,7 +51,7 @@ export interface EngineOverridePayload {
 }
 
 export interface GenerateOperationPlanPayload {
-  client_id?: string | null
+  client_id: string
   brand_name: string
   product_summary: string
   target_audience?: string
@@ -134,8 +134,8 @@ export const aiService = {
 
   async generateImage(payload: GenerateImagePayload) {
     const res = await api.post("/api/v1/ai/generate-image", payload, {
-      // Image generation routinely takes 60s+; keep this longer than the backend/Fal roundtrip.
-      timeout: 180000,
+      // Backend times out Fal at 170s and returns 504 first; keep the browser slightly longer.
+      timeout: 190000,
     })
     return res.data as GenerateImageResponse
   },

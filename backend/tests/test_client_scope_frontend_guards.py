@@ -10,6 +10,9 @@ HEADER = PROJECT_ROOT / "frontend/src/components/layout/Header.tsx"
 PLANNER_PAGE = PROJECT_ROOT / "frontend/src/app/(main)/growth/planner/page.tsx"
 CONTENTS_ROUTE = PROJECT_ROOT / "backend/routes/contents.py"
 OPERATION_PLANS_ROUTE = PROJECT_ROOT / "backend/routes/operation_plans.py"
+AI_SCHEMAS = PROJECT_ROOT / "backend/schemas/ai.py"
+AI_ROUTE = PROJECT_ROOT / "backend/routes/ai.py"
+RUNTIME_SETTINGS = PROJECT_ROOT / "backend/services/runtime_settings.py"
 
 
 class ClientScopedFrontendGuardsTest(unittest.TestCase):
@@ -135,6 +138,41 @@ class ClientScopedFrontendGuardsTest(unittest.TestCase):
             re.compile(r"func\.lower\(Client\.name\)\s*==\s*normalized_brand", re.DOTALL),
         )
         self.assertIn('status_code=409', source)
+
+    def test_planner_requires_selected_client_before_generation_or_restore(self):
+        source = PLANNER_PAGE.read_text()
+
+        self.assertRegex(
+            source,
+            re.compile(r"const canSubmit\s*=\s*useMemo\(\(\)\s*=>\s*Boolean\(selectedClientId\)", re.DOTALL),
+        )
+        self.assertIn('if (!selectedClientId)', source)
+        self.assertIn('운영계획 생성 전에 상단에서 클라이언트를 선택해주세요.', source)
+        self.assertNotIn('operationPlansService.list(selectedClientId ? { client_id: selectedClientId } : undefined)', source)
+        self.assertIn('operationPlansService.list({ client_id: selectedClientId })', source)
+
+    def test_backend_operation_plan_generation_requires_client_id(self):
+        schema_source = AI_SCHEMAS.read_text()
+        route_source = AI_ROUTE.read_text()
+
+        self.assertRegex(
+            schema_source,
+            re.compile(r"client_id:\s*uuid\.UUID\s*=\s*Field\(\.\.\.", re.DOTALL),
+        )
+        self.assertIn('if not req.client_id', route_source)
+        self.assertIn('운영계획 생성에는 client_id가 필요합니다', route_source)
+
+    def test_fal_runtime_secret_supports_settings_and_env_aliases(self):
+        source = RUNTIME_SETTINGS.read_text()
+
+        self.assertRegex(
+            source,
+            re.compile(r'"fal_key":\s*\{[^}]*"setting_attrs":\s*\["FAL_KEY"\]', re.DOTALL),
+        )
+        self.assertRegex(
+            source,
+            re.compile(r'"fal_key":\s*\{[^}]*"env_names":\s*\["FAL_KEY",\s*"FAL_API_KEY"\]', re.DOTALL),
+        )
 
 
 if __name__ == "__main__":

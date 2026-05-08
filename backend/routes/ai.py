@@ -2,6 +2,7 @@
 AI Routes - API endpoints for AI-powered content generation.
 """
 from fastapi import APIRouter, Depends, HTTPException
+import httpx
 import logging
 import re
 from collections import Counter
@@ -240,10 +241,28 @@ async def api_generate_image(req: GenerateImageRequest):
         )
         return GenerateImageResponse(**result)
     except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.warning("generate_image configuration failed: %s", e)
+        raise HTTPException(status_code=400, detail="Fal.ai API 키가 설정되지 않았습니다. 관리자 설정에서 fal_key 또는 FAL_KEY/FAL_API_KEY를 확인해주세요.")
+    except httpx.TimeoutException:
+        logger.warning("generate_image timed out")
+        raise HTTPException(status_code=504, detail="Fal.ai 이미지 생성 응답 시간 초과")
+    except httpx.HTTPStatusError as e:
+        status = e.response.status_code
+        if status in (401, 403):
+            detail = "Fal.ai API 키가 유효하지 않거나 권한이 없습니다."
+        elif status == 422:
+            detail = "Fal.ai 요청 파라미터 오류입니다. 프롬프트/크기/모델 값을 확인해주세요."
+        elif status == 429:
+            detail = "Fal.ai 호출 한도를 초과했습니다. 잠시 후 다시 시도해주세요."
+        elif 500 <= status < 600:
+            detail = "Fal.ai 서비스 오류입니다. 잠시 후 다시 시도해주세요."
+        else:
+            detail = f"Fal.ai 이미지 생성 실패(status={status})"
+        logger.error("generate_image Fal HTTP error: status=%s body=%s", status, e.response.text[:500], exc_info=True)
+        raise HTTPException(status_code=502 if status >= 500 else 400, detail=detail)
     except Exception as e:
         logger.error("generate_image failed: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"이미지 생성 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail="이미지 생성 실패")
 
 
 @router.post("/suggest-hashtags", response_model=SuggestHashtagsResponse)
@@ -339,6 +358,8 @@ async def api_generate_operation_plan(
 ):
     """Generate an approval-first monthly SNS operation plan."""
     try:
+        if not req.client_id:
+            raise HTTPException(status_code=400, detail="운영계획 생성에는 client_id가 필요합니다")
         benchmark_insights = await _build_operation_benchmark_insights(
             db,
             client_id=req.client_id,
@@ -361,6 +382,8 @@ async def api_generate_operation_plan(
             db=db,
         )
         return GenerateOperationPlanResponse(**result)
+    except HTTPException:
+        raise
     except TimeoutError:
         raise HTTPException(status_code=504, detail="AI 응답 시간 초과")
     except Exception as e:

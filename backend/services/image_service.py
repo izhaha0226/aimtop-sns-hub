@@ -40,7 +40,7 @@ async def generate_image(
     """
     fal_key = await get_runtime_setting("fal_key")
     if not fal_key:
-        raise RuntimeError("FAL_KEY environment variable is not set")
+        raise RuntimeError("Fal.ai API key is not configured")
 
     model_id = _MODEL_MAP.get(model, _MODEL_MAP["fast"])
 
@@ -63,7 +63,7 @@ async def generate_image(
     if model_id == "openai/gpt-image-2" and quality:
         payload["quality"] = quality
 
-    async with httpx.AsyncClient(timeout=300) as client:
+    async with httpx.AsyncClient(timeout=170) as client:
         resp = await client.post(url, json=payload, headers=headers)
         resp.raise_for_status()
         data = resp.json()

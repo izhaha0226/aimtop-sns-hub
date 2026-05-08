@@ -141,7 +141,7 @@ class GenerateStrategyResponse(BaseModel):
 # ── Generate Operation Plan ─────────────────────────────────
 
 class GenerateOperationPlanRequest(BaseModel):
-    client_id: uuid.UUID | None = Field(default=None, description="Selected client for benchmark collection/context")
+    client_id: uuid.UUID = Field(..., description="Selected client for benchmark collection/context")
     brand_name: str = Field(..., description="Brand name to operate")
     product_summary: str = Field(..., description="Product/service and offer summary")
     target_audience: str = Field("", description="Target audience to analyze")

@@ -17,8 +17,8 @@ SECRET_CATALOG: dict[str, dict[str, Any]] = {
         "label": "Fal.ai API Key",
         "category": "AI",
         "description": "AI 이미지 생성용 Fal.ai 키",
-        "setting_attrs": [],
-        "env_names": ["FAL_KEY"],
+        "setting_attrs": ["FAL_KEY"],
+        "env_names": ["FAL_KEY", "FAL_API_KEY"],
     },
     "openai_api_key": {
         "label": "OpenAI API Key",

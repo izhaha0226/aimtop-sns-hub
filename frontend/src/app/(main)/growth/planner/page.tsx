@@ -44,7 +44,7 @@ export default function OperationPlannerPage() {
   const { selectedClientId, selectedClient, loading: clientLoading } = useSelectedClient()
   const previousClientIdRef = useRef<string | null>(null)
 
-  const canSubmit = useMemo(() => brandName.trim() && productSummary.trim() && channels.length > 0, [brandName, productSummary, channels])
+  const canSubmit = useMemo(() => Boolean(selectedClientId) && Boolean(brandName.trim()) && Boolean(productSummary.trim()) && channels.length > 0, [selectedClientId, brandName, productSummary, channels])
 
   useEffect(() => {
     if (clientLoading) return
@@ -73,9 +73,18 @@ export default function OperationPlannerPage() {
     let cancelled = false
 
     async function restoreLatestPlan() {
+      if (!selectedClientId) {
+        setPlan(null)
+        setSavedPlan(null)
+        setLastRequest(null)
+        setDraftResult(null)
+        setStatusMessage("상단에서 클라이언트를 선택해주세요.")
+        setRestoring(false)
+        return
+      }
       setRestoring(true)
       try {
-        const response = await operationPlansService.list(selectedClientId ? { client_id: selectedClientId } : undefined)
+        const response = await operationPlansService.list({ client_id: selectedClientId })
         const latest = Array.isArray(response.items) ? response.items.find((item) => item.plan_payload) : null
 
         if (cancelled) return
@@ -127,6 +136,10 @@ export default function OperationPlannerPage() {
   }
 
   async function generatePlan() {
+    if (!selectedClientId) {
+      setError("운영계획 생성 전에 상단에서 클라이언트를 선택해주세요.")
+      return
+    }
     if (!canSubmit) return
     const requestPayload: GenerateOperationPlanPayload = {
       client_id: selectedClientId,
