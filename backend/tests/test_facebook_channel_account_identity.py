@@ -140,6 +140,32 @@ class FacebookChannelAccountIdentityTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("access_token", dumped["channel_choices"][0])
         self.assertNotIn("extra_data", dumped)
 
+    def test_facebook_page_id_is_not_inferred_before_explicit_selection(self):
+        response = ChannelConnectionResponse.model_validate({
+            "id": uuid4(),
+            "client_id": uuid4(),
+            "channel_type": "facebook",
+            "account_name": "Facebook User",
+            "account_id": None,
+            "is_connected": True,
+            "connected_at": datetime.now(timezone.utc),
+            "token_expires_at": None,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+            "extra_data": {
+                "facebook_profile": {"id": "user-123", "name": "Facebook User"},
+                "pages": [{"id": "page-456", "name": "AimTop Page", "access_token": "must-not-leak"}],
+                "channel_choices": [{"id": "page-456", "label": "AimTop Page", "access_token": "must-not-leak"}],
+            },
+        })
+        dumped = response.model_dump()
+
+        self.assertIsNone(dumped["facebook_page_id"])
+        self.assertIsNone(dumped["facebook_page_name"])
+        self.assertTrue(dumped["selection_required"])
+        self.assertEqual(dumped["facebook_page_count"], 1)
+        self.assertNotIn("extra_data", dumped)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -38,12 +38,11 @@ class ChannelConnectionResponse(BaseModel):
     def facebook_page_id(self) -> str | None:
         if self.channel_type != "facebook":
             return None
+        # Page ID becomes publish-ready only after the operator explicitly
+        # selects a token-free channel_choice. Never infer the first page from
+        # token-bearing extra_data.pages.
         if self.account_id:
             return self.account_id
-        pages = (self.extra_data or {}).get("pages")
-        if isinstance(pages, list) and pages:
-            page_id = pages[0].get("id") if isinstance(pages[0], dict) else None
-            return str(page_id) if page_id else None
         return None
 
     @computed_field
@@ -51,11 +50,14 @@ class ChannelConnectionResponse(BaseModel):
     def facebook_page_name(self) -> str | None:
         if self.channel_type != "facebook":
             return None
-        pages = (self.extra_data or {}).get("pages")
-        if isinstance(pages, list) and pages:
-            page_name = pages[0].get("name") if isinstance(pages[0], dict) else None
-            return str(page_name) if page_name else None
-        return None
+        if not self.account_id:
+            return None
+        selected = (self.extra_data or {}).get("selected_channel")
+        if isinstance(selected, dict):
+            name = selected.get("label") or selected.get("name")
+            return str(name) if name else None
+        page_name = (self.extra_data or {}).get("page_name")
+        return str(page_name) if page_name else None
 
     @computed_field
     @property
