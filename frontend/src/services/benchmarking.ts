@@ -83,6 +83,19 @@ export interface RefreshAccountResult {
   refreshed_at?: string | null
 }
 
+export interface ManualBenchmarkPostPayload {
+  post_url?: string
+  content_text: string
+  hook_text?: string
+  cta_text?: string
+  format_type?: string
+  view_count?: number
+  like_count?: number
+  comment_count?: number
+  share_count?: number
+  save_count?: number
+}
+
 export interface BenchmarkAccountDiagnosticItem {
   account_id: string
   client_id: string
@@ -149,6 +162,15 @@ export const benchmarkingService = {
   async updateAccount(id: string, payload: Partial<BenchmarkAccountItem>) {
     const res = await api.patch(`/api/v1/benchmarking/accounts/${id}`, payload)
     return res.data as BenchmarkAccountItem
+  },
+
+  async deleteAccount(id: string) {
+    await api.delete(`/api/v1/benchmarking/accounts/${id}`)
+  },
+
+  async createManualPost(id: string, payload: ManualBenchmarkPostPayload) {
+    const res = await api.post(`/api/v1/benchmarking/accounts/${id}/manual-posts`, payload)
+    return res.data as BenchmarkPostItem
   },
 
   async refreshAccount(id: string, topK = 10, windowDays = 30) {

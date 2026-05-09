@@ -103,6 +103,53 @@ class BenchmarkCollectorService:
         await self.db.refresh(account)
         return account
 
+    async def delete_account(self, account: BenchmarkAccount) -> None:
+        await self.db.delete(account)
+        await self.db.commit()
+
+    async def create_manual_post(self, account: BenchmarkAccount, **kwargs) -> BenchmarkPost:
+        content_text = str(kwargs.get("content_text") or "").strip()
+        if not content_text:
+            raise ValueError("content_text is required")
+        post = BenchmarkPost(
+            benchmark_account_id=account.id,
+            client_id=account.client_id,
+            platform=account.platform,
+            external_post_id=kwargs.get("post_url") or f"manual-{uuid.uuid4()}",
+            post_url=kwargs.get("post_url"),
+            content_text=content_text,
+            hook_text=kwargs.get("hook_text") or content_text.splitlines()[0][:120],
+            cta_text=kwargs.get("cta_text") or self._extract_cta_text(content_text),
+            hashtags_json=self._extract_hashtags(content_text),
+            format_type=kwargs.get("format_type") or "post",
+            view_count=int(kwargs.get("view_count") or 0),
+            like_count=int(kwargs.get("like_count") or 0),
+            comment_count=int(kwargs.get("comment_count") or 0),
+            share_count=int(kwargs.get("share_count") or 0),
+            save_count=int(kwargs.get("save_count") or 0),
+            engagement_rate=self._calc_engagement_rate(
+                views=int(kwargs.get("view_count") or 0),
+                likes=int(kwargs.get("like_count") or 0),
+                comments=int(kwargs.get("comment_count") or 0),
+                shares=int(kwargs.get("share_count") or 0),
+                saves=int(kwargs.get("save_count") or 0),
+            ),
+            raw_payload={"source": "manual_benchmark_ingest", "view_metric": "manual"},
+            published_at=datetime.now(timezone.utc),
+        )
+        post.benchmark_score = calculate_benchmark_score(post)
+        self.db.add(post)
+        await self.db.commit()
+        await self.db.refresh(post)
+        await self.rebuild_action_language_profile(account.client_id, account.platform)
+        client = await self._get_client(account.client_id)
+        if client:
+            await self.rebuild_industry_action_language_profile(
+                industry_category=client.industry_category,
+                platform=account.platform,
+            )
+        return post
+
     async def get_account(self, account_id: uuid.UUID) -> BenchmarkAccount | None:
         result = await self.db.execute(select(BenchmarkAccount).where(BenchmarkAccount.id == account_id))
         return result.scalar_one_or_none()

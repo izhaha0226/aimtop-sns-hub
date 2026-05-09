@@ -14,6 +14,19 @@ type AccountFormState = {
   metadataInput: string
 }
 
+type ManualPostState = {
+  content_text: string
+  hook_text: string
+  cta_text: string
+  post_url: string
+  format_type: string
+  view_count: string
+  like_count: string
+  comment_count: string
+  share_count: string
+  save_count: string
+}
+
 const DEFAULT_ACCOUNT_FORM: AccountFormState = {
   handle: "",
   purpose: "all",
@@ -23,6 +36,19 @@ const DEFAULT_ACCOUNT_FORM: AccountFormState = {
 }
 
 const emptyAccountForm = (): AccountFormState => ({ ...DEFAULT_ACCOUNT_FORM })
+
+const emptyManualPost = (): ManualPostState => ({
+  content_text: "",
+  hook_text: "",
+  cta_text: "",
+  post_url: "",
+  format_type: "post",
+  view_count: "0",
+  like_count: "0",
+  comment_count: "0",
+  share_count: "0",
+  save_count: "0",
+})
 
 const PLATFORM_HINTS: Record<string, string> = {
   instagram: "경쟁 인스타 username 입력. 실수집은 연결된 Instagram 채널 토큰이 필요합니다.",
@@ -198,6 +224,9 @@ export default function ClientBenchmarkPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
+  const [bulkRefreshing, setBulkRefreshing] = useState(false)
+  const [manualPostByAccount, setManualPostByAccount] = useState<Record<string, ManualPostState>>({})
+  const [manualPostOpenId, setManualPostOpenId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [statusMap, setStatusMap] = useState<Record<string, RefreshAccountResult>>({})
   const [formsByPlatform, setFormsByPlatform] = useState<Record<string, AccountFormState>>(() =>
@@ -573,6 +602,73 @@ export default function ClientBenchmarkPage() {
     }
   }
 
+  async function handleRefreshAllAccounts() {
+    const targets = activePlatformAccounts.filter((item) => item.is_active)
+    if (!targets.length) return
+    setBulkRefreshing(true)
+    try {
+      const results = await Promise.allSettled(targets.map((item) => benchmarkingService.refreshAccount(item.id, topK, windowDays)))
+      setStatusMap((prev) => {
+        const next = { ...prev }
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") next[targets[index].id] = result.value
+        })
+        return next
+      })
+      await load(platform, topK)
+    } finally {
+      setBulkRefreshing(false)
+    }
+  }
+
+  function updateManualPost(accountId: string, patch: Partial<ManualPostState>) {
+    setManualPostByAccount((prev) => ({
+      ...prev,
+      [accountId]: { ...(prev[accountId] || emptyManualPost()), ...patch },
+    }))
+  }
+
+  async function handleCreateManualPost(accountId: string) {
+    const draft = manualPostByAccount[accountId] || emptyManualPost()
+    if (!draft.content_text.trim()) return
+    setSaving(true)
+    try {
+      await benchmarkingService.createManualPost(accountId, {
+        content_text: draft.content_text.trim(),
+        hook_text: draft.hook_text.trim() || undefined,
+        cta_text: draft.cta_text.trim() || undefined,
+        post_url: draft.post_url.trim() || undefined,
+        format_type: draft.format_type.trim() || undefined,
+        view_count: Number(draft.view_count) || 0,
+        like_count: Number(draft.like_count) || 0,
+        comment_count: Number(draft.comment_count) || 0,
+        share_count: Number(draft.share_count) || 0,
+        save_count: Number(draft.save_count) || 0,
+      })
+      setManualPostByAccount((prev) => ({ ...prev, [accountId]: emptyManualPost() }))
+      setManualPostOpenId(null)
+      await load(platform, topK)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDeleteAccount(item: BenchmarkAccountItem) {
+    if (!window.confirm(`${item.handle} 벤치마킹 계정과 수집 포스트를 삭제할까요?`)) return
+    await benchmarkingService.deleteAccount(item.id)
+    setStatusMap((prev) => {
+      const next = { ...prev }
+      delete next[item.id]
+      return next
+    })
+    setManualPostByAccount((prev) => {
+      const next = { ...prev }
+      delete next[item.id]
+      return next
+    })
+    await load(platform, topK)
+  }
+
   function startEdit(item: BenchmarkAccountItem) {
     setEditingId(item.id)
     setEditForm({
@@ -726,6 +822,9 @@ export default function ClientBenchmarkPage() {
         <input value={topK} onChange={(e) => setTopK(Number(e.target.value) || 10)} className="w-24 rounded-lg border px-3 py-2 text-sm" />
         <label className="text-sm text-gray-600">기간(일)</label>
         <input value={windowDays} onChange={(e) => setWindowDays(Number(e.target.value) || 30)} className="w-24 rounded-lg border px-3 py-2 text-sm" />
+        <button onClick={() => void handleRefreshAllAccounts()} disabled={bulkRefreshing || activePlatformAccounts.length === 0} className="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50">
+          {bulkRefreshing ? "전체 수집 중..." : "전체 새로고침"}
+        </button>
         <span className="text-xs text-gray-500">조회수/참여율/최근성 점수 기반</span>
       </div>
 
@@ -803,11 +902,13 @@ export default function ClientBenchmarkPage() {
                               <div className="font-medium">{item.handle}</div>
                               <div className="text-xs text-gray-500">{item.purpose} / {item.source_type}</div>
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex flex-wrap gap-2">
                               <button onClick={() => startEdit(item)} className="px-2.5 py-1.5 rounded-lg border text-xs hover:bg-gray-50">수정</button>
+                              <button onClick={() => setManualPostOpenId(manualPostOpenId === item.id ? null : item.id)} className="px-2.5 py-1.5 rounded-lg border text-xs hover:bg-gray-50">수동 포스트</button>
                               <button onClick={() => void handleRefreshAccount(item.id)} disabled={refreshingId === item.id || !item.is_active} className="px-2.5 py-1.5 rounded-lg border text-xs hover:bg-gray-50 disabled:opacity-50">
                                 {refreshingId === item.id ? "수집 중..." : "새로고침"}
                               </button>
+                              <button onClick={() => void handleDeleteAccount(item)} className="px-2.5 py-1.5 rounded-lg border border-red-200 text-xs text-red-600 hover:bg-red-50">삭제</button>
                             </div>
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
@@ -819,6 +920,30 @@ export default function ClientBenchmarkPage() {
                             <div className="text-[11px] text-gray-500 break-all">metadata: {JSON.stringify(item.metadata_json)}</div>
                           )}
                           {item.memo && <div className="text-[11px] text-gray-500">memo: {item.memo}</div>}
+                          {manualPostOpenId === item.id && (() => {
+                            const manualDraft = manualPostByAccount[item.id] || emptyManualPost()
+                            return (
+                              <div className="rounded-lg border bg-slate-50 p-3 space-y-2">
+                                <div className="text-xs font-semibold text-slate-700">수동 포스트 추가</div>
+                                <textarea value={manualDraft.content_text} onChange={(e) => updateManualPost(item.id, { content_text: e.target.value })} placeholder="본문/캡션" className="w-full rounded-lg border px-3 py-2 text-xs" rows={3} />
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                  <input value={manualDraft.hook_text} onChange={(e) => updateManualPost(item.id, { hook_text: e.target.value })} placeholder="Hook" className="rounded-lg border px-3 py-2 text-xs" />
+                                  <input value={manualDraft.cta_text} onChange={(e) => updateManualPost(item.id, { cta_text: e.target.value })} placeholder="CTA" className="rounded-lg border px-3 py-2 text-xs" />
+                                  <input value={manualDraft.format_type} onChange={(e) => updateManualPost(item.id, { format_type: e.target.value })} placeholder="format" className="rounded-lg border px-3 py-2 text-xs" />
+                                </div>
+                                <input value={manualDraft.post_url} onChange={(e) => updateManualPost(item.id, { post_url: e.target.value })} placeholder="원문 URL (선택)" className="w-full rounded-lg border px-3 py-2 text-xs" />
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                                  {(["view_count", "like_count", "comment_count", "share_count", "save_count"] as const).map((field) => (
+                                    <input key={`${item.id}-${field}`} value={manualDraft[field]} onChange={(e) => updateManualPost(item.id, { [field]: e.target.value })} placeholder={field.replace("_count", "")} className="rounded-lg border px-3 py-2 text-xs" />
+                                  ))}
+                                </div>
+                                <div className="flex gap-2">
+                                  <button onClick={() => void handleCreateManualPost(item.id)} disabled={saving || !manualDraft.content_text.trim()} className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs text-white disabled:opacity-50">수동 포스트 추가</button>
+                                  <button onClick={() => setManualPostOpenId(null)} className="rounded-lg border px-3 py-1.5 text-xs">닫기</button>
+                                </div>
+                              </div>
+                            )
+                          })()}
                           {accountState && (
                             <div className="space-y-2">
                               <div className="flex flex-wrap items-center gap-2">

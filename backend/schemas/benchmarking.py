@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class BenchmarkAccountCreateRequest(BaseModel):
@@ -21,6 +21,27 @@ class BenchmarkAccountUpdateRequest(BaseModel):
     memo: str | None = None
     metadata_json: dict | None = None
     is_active: bool | None = None
+
+
+class ManualBenchmarkPostCreateRequest(BaseModel):
+    post_url: str | None = None
+    content_text: str = Field(min_length=1)
+    hook_text: str | None = None
+    cta_text: str | None = None
+    format_type: str | None = "post"
+    view_count: int = Field(default=0, ge=0)
+    like_count: int = Field(default=0, ge=0)
+    comment_count: int = Field(default=0, ge=0)
+    share_count: int = Field(default=0, ge=0)
+    save_count: int = Field(default=0, ge=0)
+
+    @field_validator("content_text")
+    @classmethod
+    def content_text_must_not_be_blank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("content_text is required")
+        return stripped
 
 
 class BenchmarkAccountResponse(BaseModel):

@@ -35,6 +35,18 @@ class BenchmarkAccountFormPlatformStateTest(unittest.TestCase):
             self.assertIn('name={`benchmark-${platform}-' + field + '`}', source)
             self.assertIn('data-testid={`benchmark-${platform}-' + field + '`}', source)
 
+    def test_benchmark_center_has_operational_actions(self):
+        source = BENCHMARK_PAGE.read_text()
+
+        self.assertIn("handleRefreshAllAccounts", source)
+        self.assertIn("handleDeleteAccount", source)
+        self.assertIn("handleCreateManualPost", source)
+        self.assertIn("manualPostByAccount", source)
+        self.assertIn("benchmarkingService.deleteAccount", source)
+        self.assertIn("benchmarkingService.createManualPost", source)
+        self.assertIn("전체 새로고침", source)
+        self.assertIn("수동 포스트 추가", source)
+
 
 if __name__ == "__main__":
     unittest.main()

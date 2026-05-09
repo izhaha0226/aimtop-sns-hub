@@ -13,6 +13,7 @@ from schemas.benchmarking import (
     BenchmarkAccountResponse,
     BenchmarkAccountUpdateRequest,
     BenchmarkPostResponse,
+    ManualBenchmarkPostCreateRequest,
     RefreshAccountResponse,
 )
 from services.benchmark_collector_service import BenchmarkCollectorService
@@ -52,6 +53,34 @@ async def update_account(
     if not account:
         raise HTTPException(status_code=404, detail="Benchmark account not found")
     return await svc.update_account(account, **body.model_dump(exclude_none=True))
+
+
+@router.delete("/accounts/{account_id}", status_code=204)
+async def delete_account(
+    account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    svc = BenchmarkCollectorService(db)
+    account = await svc.get_account(account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Benchmark account not found")
+    await svc.delete_account(account)
+    return None
+
+
+@router.post("/accounts/{account_id}/manual-posts", response_model=BenchmarkPostResponse)
+async def create_manual_post(
+    account_id: uuid.UUID,
+    body: ManualBenchmarkPostCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    svc = BenchmarkCollectorService(db)
+    account = await svc.get_account(account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Benchmark account not found")
+    return await svc.create_manual_post(account, **body.model_dump())
 
 
 @router.post("/accounts/{account_id}/refresh", response_model=RefreshAccountResponse)
