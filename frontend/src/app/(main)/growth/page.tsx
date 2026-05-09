@@ -54,11 +54,16 @@ export default function GrowthPage() {
   const [competitor, setCompetitor] = useState("")
   const [competitorResult, setCompetitorResult] = useState<string>("")
   const [loading, setLoading] = useState<Record<string, boolean>>({})
+  const [errorMessage, setErrorMessage] = useState<string>("")
 
   const load = async (key: string, fn: () => Promise<void>) => {
     setLoading(prev => ({ ...prev, [key]: true }))
+    setErrorMessage("")
     try {
       await fn()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "알 수 없는 오류"
+      setErrorMessage(`기능 실행 중 오류: ${message}`)
     } finally {
       setLoading(prev => ({ ...prev, [key]: false }))
     }
@@ -107,6 +112,12 @@ export default function GrowthPage() {
           </button>
         </div>
       </div>
+
+      {errorMessage && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">
+          {errorMessage}
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-xl border bg-white p-4">

@@ -192,41 +192,119 @@ class GrowthService:
             blueprint["data_warning"] = "벤치마크 게시물 샘플이 없습니다. 경쟁/레퍼런스 계정을 먼저 등록·수집하면 추천 정확도가 올라갑니다."
         return blueprint
 
+    @staticmethod
+    def _normalize_hashtag(tag: str) -> str:
+        cleaned = str(tag or "").strip().replace(" ", "")
+        if not cleaned:
+            return ""
+        return cleaned if cleaned.startswith("#") else f"#{cleaned}"
+
+    @classmethod
+    def build_hashtag_fallback(cls, platform: str, category: str | None = None, tags: list[str] | None = None) -> list[dict]:
+        """Deterministic fallback so Growth Hub never depends on local Claude CLI availability."""
+        base_tags = tags or []
+        if category:
+            base_tags.extend([category, f"{category}마케팅", f"{category}콘텐츠"])
+        base_tags.extend([platform, "SNS운영", "콘텐츠전략", "브랜드성장", "카드뉴스", "마케팅인사이트"])
+        seen: set[str] = set()
+        result: list[dict] = []
+        for tag in base_tags:
+            normalized = cls._normalize_hashtag(tag)
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            result.append({
+                "hashtag": normalized,
+                "popularity": "medium",
+                "reason": "벤치마크/클라이언트 카테고리 기반 fallback 추천",
+            })
+        return result[:20]
+
+    @staticmethod
+    def build_content_idea_fallback(recent_titles: list[str], platforms: list[str], count: int = 10) -> list[dict]:
+        platform = platforms[0] if platforms else "instagram"
+        seeds = [title for title in recent_titles if title and title != "정보 없음"]
+        themes = seeds[:3] or ["브랜드 신뢰", "고객 질문", "성과 사례"]
+        templates = [
+            ("저장형 체크리스트", "고객이 저장해둘 수 있는 실행 체크리스트로 재구성"),
+            ("오해 깨기 콘텐츠", "업종에서 흔한 오해를 반대 관점 훅으로 설명"),
+            ("비교/선택 가이드", "구매·문의 전 비교 기준을 카드뉴스로 정리"),
+            ("고객 질문 답변", "댓글/상담에서 반복되는 질문을 짧은 Q&A로 전환"),
+            ("사례 기반 신뢰 포스트", "성과·과정·비하인드를 증거 중심으로 보여줌"),
+        ]
+        ideas: list[dict] = []
+        for index in range(count):
+            name, description = templates[index % len(templates)]
+            theme = themes[index % len(themes)]
+            ideas.append({
+                "title": f"{theme} · {name}",
+                "platform": platform,
+                "post_type": "card_news" if index % 2 == 0 else "text",
+                "description": description,
+                "expected_engagement": "medium",
+                "source": "deterministic_fallback",
+            })
+        return ideas
+
+    @staticmethod
+    def build_competitor_analysis_fallback(competitor_handles: list[str]) -> dict:
+        competitors = [
+            {
+                "handle": handle,
+                "estimated_strategy": "등록/수집된 벤치마크 데이터가 부족해 정성 분석 fallback으로 표시합니다.",
+                "strengths": ["포지셔닝/콘텐츠 톤 확인 필요", "반응 높은 포맷 수집 필요"],
+                "weaknesses": ["실측 게시물 샘플 부족"],
+                "content_pattern": "벤치마킹 센터에서 계정 등록 후 Top Posts 수집 필요",
+                "posting_frequency": "데이터 부족",
+            }
+            for handle in competitor_handles
+        ]
+        return {
+            "competitors": competitors,
+            "recommendations": [
+                "벤치마킹 센터에 경쟁/레퍼런스 계정을 등록하고 수집 후 다시 분석하세요.",
+                "현재는 Stop-scroll 훅, 저장형 체크리스트, 공유 CTA 중심으로 실험을 시작하세요.",
+            ],
+            "market_gaps": ["실측 샘플 부족: 해시태그·포맷·댓글 패턴 수집 필요"],
+            "source": "deterministic_fallback",
+        }
+
     async def get_trending_hashtags(
         self, platform: str, category: str | None = None
     ) -> list:
-        """Claude CLI로 트렌딩 해시태그 분석."""
+        """트렌딩 해시태그 조회. Claude CLI가 없어도 deterministic fallback으로 응답."""
         category_text = f" ({category} 카테고리)" if category else ""
         prompt = (
             f"{platform} 플랫폼{category_text}에서 현재 트렌딩 중인 해시태그 20개를 추천해줘.\n"
             f"각 해시태그의 인기도(high/medium/low)와 추천 이유도 함께 제공해.\n\n"
             f"JSON 배열로만 응답:\n"
-            f'[{{"hashtag": "#예시", "popularity": "high", "reason": "이유"}}]'
+            '[{"hashtag": "#예시", "popularity": "high", "reason": "이유"}]'
         )
-        raw = await call_claude(prompt)
         try:
+            raw = await call_claude(prompt, timeout=8)
             result = _parse_json_response(raw)
-            return result if isinstance(result, list) else [result]
-        except (json.JSONDecodeError, Exception) as e:
-            logger.warning("Trending hashtag parse failed: %s", e)
-            return [{"hashtag": tag.strip(), "popularity": "medium", "reason": ""}
-                    for tag in raw.split(",") if tag.strip().startswith("#")]
+            if isinstance(result, list) and result:
+                return result
+            if isinstance(result, dict):
+                return [result]
+        except (FileNotFoundError, TimeoutError, RuntimeError, json.JSONDecodeError, Exception) as e:
+            logger.warning("Trending hashtag AI unavailable; using fallback: %s", e)
+        return self.build_hashtag_fallback(platform=platform, category=category)
 
     async def get_content_ideas(
         self, client_id: uuid.UUID, count: int = 10
     ) -> list:
-        """콘텐츠 아이디어 AI 생성."""
-        # 최근 콘텐츠 정보 조회
+        """콘텐츠 아이디어 생성. 콘텐츠 schema와 LLM 장애에 안전하게 fallback."""
         from models.content import Content
         result = await self.db.execute(
-            select(Content.title, Content.platform, Content.post_type)
+            select(Content.title, Content.target_platform, Content.post_type)
             .where(Content.client_id == client_id)
             .order_by(Content.created_at.desc())
             .limit(20)
         )
         recent = result.all()
         recent_titles = [r[0] for r in recent if r[0]] or ["정보 없음"]
-        platforms = list(set(r[1] for r in recent if r[1])) or ["instagram"]
+        platforms = list({r[1] for r in recent if r[1]}) or ["instagram"]
 
         prompt = (
             f"다음 클라이언트의 최근 콘텐츠를 분석하고 새로운 콘텐츠 아이디어를 {count}개 제안해줘.\n\n"
@@ -234,40 +312,43 @@ class GrowthService:
             + "\n".join(f"- {t}" for t in recent_titles[:10])
             + f"\n\n활성 플랫폼: {', '.join(platforms)}\n\n"
             f"JSON 배열로만 응답:\n"
-            f'[{{"title": "아이디어 제목", "platform": "플랫폼", "post_type": "유형", '
-            f'"description": "설명", "expected_engagement": "high/medium/low"}}]'
+            '[{"title": "아이디어 제목", "platform": "플랫폼", "post_type": "유형", '
+            '"description": "설명", "expected_engagement": "high/medium/low"}]'
         )
-        raw = await call_claude(prompt, timeout=180)
         try:
+            raw = await call_claude(prompt, timeout=12)
             result = _parse_json_response(raw)
             ideas = result if isinstance(result, list) else [result]
-            return ideas[:count]
-        except (json.JSONDecodeError, Exception) as e:
-            logger.warning("Content ideas parse failed: %s", e)
-            return [{"title": "아이디어 생성 실패", "description": raw, "expected_engagement": "low"}]
+            if ideas:
+                return ideas[:count]
+        except (FileNotFoundError, TimeoutError, RuntimeError, json.JSONDecodeError, Exception) as e:
+            logger.warning("Content ideas AI unavailable; using fallback: %s", e)
+        return self.build_content_idea_fallback(recent_titles=recent_titles, platforms=platforms, count=count)
 
     async def get_competitor_analysis(
         self, competitor_handles: list[str]
     ) -> dict:
-        """경쟁사 분석 AI."""
+        """경쟁사 분석. Claude CLI가 없어도 화면이 작동하도록 fallback."""
         handles_text = ", ".join(competitor_handles)
         prompt = (
             f"다음 SNS 계정들의 경쟁사 분석을 수행해줘: {handles_text}\n\n"
             f"각 계정에 대해 추정되는 전략, 강점, 약점, 콘텐츠 패턴을 분석해.\n\n"
             f"JSON 형식으로 응답:\n"
-            f'{{"competitors": [{{"handle": "@계정", "estimated_strategy": "...", '
-            f'"strengths": ["..."], "weaknesses": ["..."], "content_pattern": "...", '
-            f'"posting_frequency": "..."}}], '
-            f'"recommendations": ["우리가 할 수 있는 차별화 전략"], '
-            f'"market_gaps": ["시장 기회"]}}'
+            '{"competitors": [{"handle": "@계정", "estimated_strategy": "...", '
+            '"strengths": ["..."], "weaknesses": ["..."], "content_pattern": "...", '
+            '"posting_frequency": "..."}], '
+            '"recommendations": ["우리가 할 수 있는 차별화 전략"], '
+            '"market_gaps": ["시장 기회"]}'
         )
-        raw = await call_claude(prompt, timeout=180)
         try:
+            raw = await call_claude(prompt, timeout=12)
             result = _parse_json_response(raw)
-            return result if isinstance(result, dict) else {"raw": result}
-        except (json.JSONDecodeError, Exception) as e:
-            logger.warning("Competitor analysis parse failed: %s", e)
-            return {"competitors": [], "recommendations": [raw], "market_gaps": []}
+            if isinstance(result, dict):
+                return result
+            return {"raw": result}
+        except (FileNotFoundError, TimeoutError, RuntimeError, json.JSONDecodeError, Exception) as e:
+            logger.warning("Competitor analysis AI unavailable; using fallback: %s", e)
+        return self.build_competitor_analysis_fallback(competitor_handles)
 
     async def get_optimal_schedule(self, account_id: uuid.UUID) -> dict:
         """최적 스케줄 AI 추천."""
@@ -311,7 +392,7 @@ class GrowthService:
             f'"avoid_times": ["..."], '
             f'"tips": ["..."]}}'
         )
-        raw = await call_claude(prompt)
+        raw = await call_claude(prompt, timeout=8)
         try:
             result = _parse_json_response(raw)
             return result if isinstance(result, dict) else {"raw": result}
