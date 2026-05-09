@@ -6,7 +6,8 @@
     "dev": "next dev -p 1111",
     "build": "next build",
     "start": "next start -p 1111",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:benchmark-form": "node tests/benchmark-form-platform-scope.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.0.0",

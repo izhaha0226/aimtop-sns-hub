@@ -705,12 +705,12 @@ export default function ClientBenchmarkPage() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
           <input key={`${platform}-handle`} id={`benchmark-${platform}-handle`} name={`benchmark-${platform}-handle`} data-testid={`benchmark-${platform}-handle`} autoComplete="off" value={form.handle} onChange={(e) => updateForm({ handle: e.target.value })} placeholder="handle / username / page_id" className="rounded-lg border px-3 py-2 text-sm" />
-          <select value={form.purpose} onChange={(e) => updateForm({ purpose: e.target.value })} className="rounded-lg border px-3 py-2 text-sm">
+          <select key={`${platform}-purpose`} id={`benchmark-${platform}-purpose`} name={`benchmark-${platform}-purpose`} data-testid={`benchmark-${platform}-purpose`} value={form.purpose} onChange={(e) => updateForm({ purpose: e.target.value })} className="rounded-lg border px-3 py-2 text-sm">
             <option value="all">all</option>
             <option value="benchmark">benchmark</option>
             <option value="inspiration">inspiration</option>
           </select>
-          <select value={form.source_type} onChange={(e) => updateForm({ source_type: e.target.value })} className="rounded-lg border px-3 py-2 text-sm">
+          <select key={`${platform}-source-type`} id={`benchmark-${platform}-source-type`} name={`benchmark-${platform}-source-type`} data-testid={`benchmark-${platform}-source-type`} value={form.source_type} onChange={(e) => updateForm({ source_type: e.target.value })} className="rounded-lg border px-3 py-2 text-sm">
             <option value="manual">manual</option>
             <option value="discovery">discovery</option>
             <option value="competitor">competitor</option>
