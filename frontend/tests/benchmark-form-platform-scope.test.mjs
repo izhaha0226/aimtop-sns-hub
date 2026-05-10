@@ -19,11 +19,17 @@ function assertControlScoped(field) {
 }
 
 assertIncludes('const [formsByPlatform, setFormsByPlatform]', 'account drafts must be separated by platform')
+assertIncludes('const form = formsByPlatform[platform] || DEFAULT_ACCOUNT_FORM', 'visible account form must read the active platform draft')
+assertIncludes('[platform]: {', 'form updates must write only the active platform draft')
 assertIncludes('const changePlatform = useCallback((nextPlatform: string) => {', 'tab switch must go through changePlatform')
 assertIncludes('setEditingId(null)', 'tab switch must close edit mode')
+assertIncludes('setManualPostOpenId(null)', 'tab switch must close manual post panel')
 assertIncludes('onClick={() => changePlatform(item)}', 'platform tabs must call changePlatform')
+assertIncludes('data-testid={`benchmark-platform-tab-${item}`}', 'platform tabs must expose platform-scoped test ids for smoke tests')
+assertIncludes('aria-pressed={platform === item}', 'platform tabs must expose selected state for browser smoke tests')
 assertIncludes('key={`benchmark-account-form-${platform}`}', 'account form wrapper must remount per platform')
 assertIncludes('data-testid={`benchmark-account-form-${platform}`}', 'account form wrapper data-testid must include platform')
+assertIncludes('data-platform={platform}', 'account form wrapper must expose active platform for browser smoke tests')
 
 for (const field of ['handle', 'purpose', 'source-type', 'metadata', 'memo']) {
   assertControlScoped(field)

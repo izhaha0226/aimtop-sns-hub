@@ -247,6 +247,7 @@ export default function ClientBenchmarkPage() {
   }, [platform])
   const changePlatform = useCallback((nextPlatform: string) => {
     setEditingId(null)
+    setManualPostOpenId(null)
     setPlatform(nextPlatform)
   }, [])
   const [editForm, setEditForm] = useState({ handle: "", purpose: "all", source_type: "manual", memo: "", metadataInput: "", is_active: true })
@@ -719,6 +720,8 @@ export default function ClientBenchmarkPage() {
         {PLATFORMS.map((item) => (
           <button
             key={item}
+            data-testid={`benchmark-platform-tab-${item}`}
+            aria-pressed={platform === item}
             onClick={() => changePlatform(item)}
             className={`px-3 py-2 rounded-lg text-sm ${platform === item ? "bg-blue-50 text-blue-700 font-medium" : "bg-white border text-gray-600"}`}
           >
@@ -794,7 +797,7 @@ export default function ClientBenchmarkPage() {
         </div>
       )}
 
-      <div key={`benchmark-account-form-${platform}`} data-testid={`benchmark-account-form-${platform}`} className="bg-white rounded-xl border p-5 space-y-4">
+      <div key={`benchmark-account-form-${platform}`} data-testid={`benchmark-account-form-${platform}`} data-platform={platform} className="bg-white rounded-xl border p-5 space-y-4">
         <div>
           <div className="text-sm font-semibold">벤치마킹 계정 등록</div>
           <div className="text-xs text-gray-500 mt-1">{PLATFORM_HINTS[platform] || "채널별 실수집 가능 범위에 맞춰 등록하세요."}</div>
