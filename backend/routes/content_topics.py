@@ -65,7 +65,7 @@ async def create_content_topic(
 ):
     data = body.model_dump()
     channels = data.pop("channels", None)
-    metadata = data.get("source_metadata") or {}
+    metadata = data.pop("source_metadata", None) or {}
     if channels:
         metadata["channels"] = channels
     topic = ContentTopic(**data, source_metadata=metadata, author_id=current_user.id)

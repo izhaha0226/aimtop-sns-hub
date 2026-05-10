@@ -24,6 +24,8 @@ assertIncludes('[platform]: {', 'form updates must write only the active platfor
 assertIncludes('const changePlatform = useCallback((nextPlatform: string) => {', 'tab switch must go through changePlatform')
 assertIncludes('setEditingId(null)', 'tab switch must close edit mode')
 assertIncludes('setManualPostOpenId(null)', 'tab switch must close manual post panel')
+assertIncludes('setFormsByPlatform((prev) => ({ ...prev, [nextPlatform]: emptyAccountForm() }))', 'tab switch must clear the target platform registration draft to prevent stale handle values')
+assertIncludes('setPlatform(nextPlatform)', 'tab switch must activate the requested platform')
 assertIncludes('onClick={() => changePlatform(item)}', 'platform tabs must call changePlatform')
 assertIncludes('data-testid={`benchmark-platform-tab-${item}`}', 'platform tabs must expose platform-scoped test ids for smoke tests')
 assertIncludes('aria-pressed={platform === item}', 'platform tabs must expose selected state for browser smoke tests')

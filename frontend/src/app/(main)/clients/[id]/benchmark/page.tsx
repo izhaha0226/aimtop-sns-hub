@@ -248,6 +248,7 @@ export default function ClientBenchmarkPage() {
   const changePlatform = useCallback((nextPlatform: string) => {
     setEditingId(null)
     setManualPostOpenId(null)
+    setFormsByPlatform((prev) => ({ ...prev, [nextPlatform]: emptyAccountForm() }))
     setPlatform(nextPlatform)
   }, [])
   const [editForm, setEditForm] = useState({ handle: "", purpose: "all", source_type: "manual", memo: "", metadataInput: "", is_active: true })
