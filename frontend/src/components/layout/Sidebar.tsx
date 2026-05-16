@@ -3,7 +3,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   LayoutDashboard, Building2, FileText, Calendar,
-  MessageSquare, BarChart3, TrendingUp, Settings, ClipboardList
+  MessageSquare, BarChart3, TrendingUp, Settings, ClipboardList, Bot
 } from "lucide-react"
 import { cn } from "@/utils/cn"
 
@@ -15,6 +15,7 @@ const menus = [
   { href: "/inbox", icon: MessageSquare, label: "인박스" },
   { href: "/analytics", icon: BarChart3, label: "분석" },
   { href: "/growth", icon: TrendingUp, label: "Growth Hub" },
+  { href: "/growth/threads-automation", icon: Bot, label: "Threads 자동화" },
   { href: "/growth/planner", icon: ClipboardList, label: "운영계획" },
   { href: "/settings/users", icon: Settings, label: "설정" },
   { href: "/settings/ai-engine", icon: Settings, label: "AI 엔진" },
