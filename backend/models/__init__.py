@@ -22,6 +22,16 @@ from models.benchmark_post import BenchmarkPost
 from models.action_language_profile import ActionLanguageProfile
 from models.industry_action_language_profile import IndustryActionLanguageProfile
 from models.operation_plan import OperationPlan
+from models.auth_identity import AuthIdentity
+from models.threads_automation import (
+    ThreadsActionLog,
+    ThreadsApprovalQueue,
+    ThreadsDraft,
+    ThreadsLearningEvent,
+    ThreadsPersona,
+    ThreadsSafetyFilter,
+    ThreadsTargetRule,
+)
 
 __all__ = [
     "Base",
@@ -51,4 +61,12 @@ __all__ = [
     "ActionLanguageProfile",
     "IndustryActionLanguageProfile",
     "OperationPlan",
+    "AuthIdentity",
+    "ThreadsPersona",
+    "ThreadsTargetRule",
+    "ThreadsDraft",
+    "ThreadsSafetyFilter",
+    "ThreadsApprovalQueue",
+    "ThreadsActionLog",
+    "ThreadsLearningEvent",
 ]
