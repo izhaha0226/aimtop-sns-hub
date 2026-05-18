@@ -9,6 +9,17 @@ from services.runtime_settings import get_runtime_setting
 
 logger = logging.getLogger(__name__)
 
+FAL_TIMEOUT_SECONDS = 170
+
+
+class FalConfigurationError(RuntimeError):
+    """Raised when Fal.ai cannot run because configuration is missing."""
+
+
+class FalEmptyResponseError(RuntimeError):
+    """Raised when Fal.ai responds successfully but without a usable image URL."""
+
+
 # Model mapping
 _MODEL_MAP = {
     "fast": "fal-ai/nano-banana-2",
@@ -40,7 +51,7 @@ async def generate_image(
     """
     fal_key = await get_runtime_setting("fal_key")
     if not fal_key:
-        raise RuntimeError("Fal.ai API key is not configured")
+        raise FalConfigurationError("Fal.ai API key is not configured")
 
     model_id = _MODEL_MAP.get(model, _MODEL_MAP["fast"])
 
@@ -63,7 +74,7 @@ async def generate_image(
     if model_id == "openai/gpt-image-2" and quality:
         payload["quality"] = quality
 
-    async with httpx.AsyncClient(timeout=170) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(FAL_TIMEOUT_SECONDS)) as client:
         resp = await client.post(url, json=payload, headers=headers)
         resp.raise_for_status()
         data = resp.json()
@@ -71,11 +82,15 @@ async def generate_image(
     # Extract result
     images = data.get("images", [])
     if not images:
-        raise RuntimeError("No images returned from Fal.ai")
+        raise FalEmptyResponseError("No images returned from Fal.ai")
 
     first = images[0]
+    image_url = first.get("url", "") if isinstance(first, dict) else ""
+    if not image_url:
+        raise FalEmptyResponseError("Fal.ai image response did not include a URL")
+
     return {
-        "image_url": first.get("url", ""),
+        "image_url": image_url,
         "seed": data.get("seed", 0),
         "model_used": model_id,
     }

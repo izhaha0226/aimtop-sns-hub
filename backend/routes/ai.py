@@ -28,7 +28,7 @@ from services.ai_service import (
     generate_operation_plan,
 )
 from services.benchmark_collector_service import BenchmarkCollectorService
-from services.image_service import generate_image
+from services.image_service import FalConfigurationError, FalEmptyResponseError, generate_image
 
 logger = logging.getLogger(__name__)
 
@@ -240,12 +240,15 @@ async def api_generate_image(req: GenerateImageRequest):
             quality=req.quality,
         )
         return GenerateImageResponse(**result)
-    except RuntimeError as e:
+    except FalConfigurationError as e:
         logger.warning("generate_image configuration failed: %s", e)
         raise HTTPException(status_code=400, detail="Fal.ai API 키가 설정되지 않았습니다. 관리자 설정에서 fal_key 또는 FAL_KEY/FAL_API_KEY를 확인해주세요.")
     except httpx.TimeoutException:
         logger.warning("generate_image timed out")
         raise HTTPException(status_code=504, detail="Fal.ai 이미지 생성 응답 시간 초과")
+    except FalEmptyResponseError as e:
+        logger.error("generate_image returned no usable image: %s", e)
+        raise HTTPException(status_code=502, detail="Fal.ai 응답에 사용 가능한 이미지 URL이 없습니다.")
     except httpx.HTTPStatusError as e:
         status = e.response.status_code
         if status in (401, 403):
