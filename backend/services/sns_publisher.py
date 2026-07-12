@@ -20,7 +20,12 @@ class SNSPublisher:
 
     @classmethod
     def is_supported_platform(cls, platform: str) -> bool:
-        return platform in cls.SUPPORTED_PLATFORMS
+        try:
+            from services.channel_capability import publishable_platforms
+
+            return platform in publishable_platforms()
+        except Exception:
+            return platform in cls.SUPPORTED_PLATFORMS
 
     async def publish(self, account, content) -> dict:
         """
@@ -30,20 +35,29 @@ class SNSPublisher:
         Returns: {platform_post_id, url, published_at}
         """
         platform = account.channel_type
+        try:
+            from services.channel_capability import assert_capability
+
+            assert_capability(platform, "publish")
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
         if platform == "instagram":
             return await self._publish_instagram(account, content)
-        elif platform == "threads":
+        if platform == "threads":
             return await self._publish_threads(account, content)
-        elif platform == "youtube":
+        if platform == "youtube":
             return await self._publish_youtube(account, content)
-        elif platform == "blog":
+        if platform == "blog":
             return await self._publish_blog(account, content)
-        elif platform == "x":
+        if platform == "x":
             return await self._publish_x(account, content)
-        elif platform == "facebook":
+        if platform == "facebook":
             return await self._publish_facebook(account, content)
-        elif platform == "linkedin":
+        if platform == "linkedin":
             return await self._publish_linkedin(account, content)
+        if platform in ("kakao", "tiktok"):
+            raise ValueError(f"{platform} 채널 실발행 adapter는 아직 구현되지 않았습니다")
         raise ValueError(f"Unsupported platform: {platform}")
 
     async def _publish_instagram(self, account, content) -> dict:

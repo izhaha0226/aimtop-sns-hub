@@ -8,7 +8,7 @@ import { clientsService } from "@/services/clients"
 import { contentTopicsService } from "@/services/content-topics"
 import type { ChannelVariant, ContentTopic, ReferenceAsset } from "@/types/content-topic"
 
-const CHANNELS = ["instagram", "facebook", "threads", "x", "linkedin", "kakao", "blog"]
+const CHANNELS = ["instagram", "facebook", "threads", "x", "linkedin", "kakao", "blog", "youtube", "tiktok"]
 const ASSET_TYPES = ["product", "person", "place", "logo", "brand_style", "competitor_reference", "moodboard", "raw_material"]
 const USAGE_MODES = ["reference_only", "must_include", "composite_subject", "style_reference", "do_not_copy_structure"]
 

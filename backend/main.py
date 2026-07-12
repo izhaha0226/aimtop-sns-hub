@@ -16,7 +16,7 @@ from routes import contents, content_topics, channels, dashboard, media
 from routes import oauth, publish, ai
 from routes import schedule, comments, auto_reply
 from routes import analytics, notifications
-from routes import auth_identities, threads_automation
+from routes import auth_identities, threads_automation, automation
 from routes import approvals, reports, growth, ops, admin_secrets, admin_ai_settings, benchmarking, operation_plans
 
 logging.basicConfig(level=logging.INFO)
@@ -125,6 +125,7 @@ app.include_router(approvals.router)
 app.include_router(reports.router)
 app.include_router(growth.router)
 app.include_router(threads_automation.router)
+app.include_router(automation.router)
 app.include_router(ops.router)
 app.include_router(admin_secrets.router)
 app.include_router(admin_ai_settings.router)

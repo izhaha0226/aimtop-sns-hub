@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 publisher = SNSPublisher()
 last_channel_health_check: datetime | None = None
+last_comment_sync_check: datetime | None = None
 
 
 def _reset_content_publish_evidence(content: Content) -> None:
@@ -302,9 +303,38 @@ class SchedulerService:
                     await db.commit()
 
 
+async def process_automation_comment_sync():
+    """자동화 ON + auto_reply 클라이언트 댓글 동기화/자동응답."""
+    from services.automation_service import AutomationService
+
+    async with AsyncSessionLocal() as db:
+        service = AutomationService(db)
+        client_ids = await service.enabled_auto_reply_client_ids()
+        # also include clients with any enabled automation policy
+        from models.automation import ChannelAutomationPolicy
+        from sqlalchemy import select
+
+        result = await db.execute(
+            select(ChannelAutomationPolicy.client_id)
+            .where(ChannelAutomationPolicy.enabled == True)  # noqa: E712
+            .distinct()
+        )
+        enabled_ids = set(client_ids) | set(result.scalars().all())
+        for client_id in enabled_ids:
+            try:
+                summary = await service.sync_comments(
+                    client_id=client_id,
+                    apply_auto_reply=True,
+                )
+                if summary.get("new_comments") or summary.get("auto_replied"):
+                    logger.info("automation comment sync client=%s %s", client_id, summary)
+            except Exception as exc:
+                logger.warning("automation comment sync failed client=%s: %s", client_id, exc)
+
+
 async def scheduler_loop():
     """백그라운드에서 매분 실행되는 스케줄러 루프"""
-    global last_channel_health_check
+    global last_channel_health_check, last_comment_sync_check
 
     logger.info("Scheduler loop started")
     while True:
@@ -321,6 +351,13 @@ async def scheduler_loop():
                     if monitor_result["scanned"]:
                         logger.info("Channel health alerts checked: %s", monitor_result)
                 last_channel_health_check = now
+
+            if (
+                last_comment_sync_check is None
+                or now - last_comment_sync_check >= timedelta(minutes=15)
+            ):
+                await process_automation_comment_sync()
+                last_comment_sync_check = now
         except Exception as e:
             logger.error(f"Scheduler loop error: {e}", exc_info=True)
         await asyncio.sleep(60)  # 1분마다 체크

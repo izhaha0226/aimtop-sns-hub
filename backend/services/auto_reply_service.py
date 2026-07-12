@@ -2,6 +2,7 @@
 자동 응답 서비스
 - 규칙 기반 자동 답글
 - 키워드 매칭 / 감성 매칭
+- 위험 키워드 에스컬레이션 (자동응답 금지)
 """
 
 import logging
@@ -17,6 +18,13 @@ from services.comment_service import CommentService
 
 logger = logging.getLogger(__name__)
 
+# 민감/법적/욕설 — 자동응답 금지, 인박스 에스컬레이션
+DANGER_KEYWORD_RE = re.compile(
+    r"환불|환급|고소|소송|사기|신고|경찰|변호사|법적\s*대응|개인정보|"
+    r"씨발|시발|병신|좆|죽어|죽여|욕설|성희롱|성추행",
+    re.IGNORECASE,
+)
+
 
 class AutoReplyService:
     """자동 응답 규칙 관리 및 실행"""
@@ -24,12 +32,20 @@ class AutoReplyService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    @staticmethod
+    def is_danger_comment(text: str) -> bool:
+        return bool(text and DANGER_KEYWORD_RE.search(text))
+
     async def check_and_reply(self, comment: Comment) -> bool:
         """
         등록된 규칙에 매칭되는지 확인하고 자동 답글 전송
         Returns: 자동 답글 전송 여부
         """
         if not comment.text or comment.replied_at:
+            return False
+
+        if self.is_danger_comment(comment.text):
+            logger.info("Auto-reply skipped (danger keyword): comment=%s", comment.id)
             return False
 
         # 해당 채널의 클라이언트 ID를 통해 규칙 조회

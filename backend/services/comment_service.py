@@ -101,9 +101,14 @@ class CommentService:
         """플랫폼별 댓글 API 호출"""
         if platform == "instagram":
             return await self._fetch_instagram_comments(access_token, post_id)
-        elif platform == "youtube":
+        if platform == "youtube":
             return await self._fetch_youtube_comments(access_token, post_id)
-        # blog, x 등은 추가 구현
+        if platform == "facebook":
+            return await self._fetch_facebook_comments(access_token, post_id, channel)
+        if platform == "threads":
+            return await self._fetch_threads_comments(access_token, post_id)
+        # x/blog/linkedin/kakao/tiktok: capability=false 또는 API 제한
+        logger.info("comment fetch unsupported platform=%s", platform)
         return []
 
     async def _fetch_instagram_comments(
@@ -128,6 +133,77 @@ class CommentService:
                 {
                     "id": item["id"],
                     "text": item.get("text", ""),
+                    "author_name": item.get("username", ""),
+                    "author_avatar_url": None,
+                }
+                for item in data
+            ]
+
+    async def _fetch_facebook_comments(
+        self, access_token: str, post_id: str, channel
+    ) -> list[dict]:
+        """Facebook Page post comments (Graph API). Prefer page token when present."""
+        token = access_token
+        extra = channel.extra_data if isinstance(getattr(channel, "extra_data", None), dict) else {}
+        page_token = extra.get("page_access_token") if isinstance(extra, dict) else None
+        if page_token:
+            token = page_token
+        base_url = "https://graph.facebook.com/v19.0"
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(
+                f"{base_url}/{post_id}/comments",
+                params={
+                    "fields": "id,message,from,created_time",
+                    "access_token": token,
+                    "filter": "toplevel",
+                    "limit": 100,
+                },
+            )
+            if resp.status_code != 200:
+                logger.error("Facebook comments fetch failed: %s", resp.text)
+                return []
+            data = resp.json().get("data", [])
+            items = []
+            for item in data:
+                author = item.get("from") or {}
+                items.append(
+                    {
+                        "id": item["id"],
+                        "text": item.get("message", ""),
+                        "author_name": author.get("name", ""),
+                        "author_avatar_url": None,
+                    }
+                )
+            return items
+
+    async def _fetch_threads_comments(self, access_token: str, post_id: str) -> list[dict]:
+        """Threads conversation replies (best-effort Graph endpoint)."""
+        base_url = "https://graph.threads.net/v1.0"
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(
+                f"{base_url}/{post_id}/replies",
+                params={
+                    "fields": "id,text,username,timestamp",
+                    "access_token": access_token,
+                },
+            )
+            if resp.status_code != 200:
+                # fallback to facebook graph path used by some Meta setups
+                resp = await client.get(
+                    f"https://graph.facebook.com/v19.0/{post_id}/replies",
+                    params={
+                        "fields": "id,text,username,timestamp",
+                        "access_token": access_token,
+                    },
+                )
+            if resp.status_code != 200:
+                logger.error("Threads comments fetch failed: %s", resp.text)
+                return []
+            data = resp.json().get("data", [])
+            return [
+                {
+                    "id": item["id"],
+                    "text": item.get("text", "") or item.get("message", ""),
                     "author_name": item.get("username", ""),
                     "author_avatar_url": None,
                 }
@@ -212,9 +288,22 @@ class CommentService:
         """플랫폼별 답글 API 호출"""
         if platform == "instagram":
             return await self._reply_instagram(access_token, platform_comment_id, text)
-        elif platform == "youtube":
+        if platform == "youtube":
             return await self._reply_youtube(access_token, platform_comment_id, text)
-        return {"status": "unsupported_platform"}
+        if platform == "facebook":
+            return await self._reply_facebook(access_token, platform_comment_id, text)
+        raise ValueError(f"{platform} 채널은 댓글 답글 자동화를 지원하지 않습니다")
+
+    async def _reply_facebook(self, access_token: str, comment_id: str, text: str) -> dict:
+        base_url = "https://graph.facebook.com/v19.0"
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{base_url}/{comment_id}/comments",
+                data={"message": text, "access_token": access_token},
+            )
+            if resp.status_code != 200:
+                raise ValueError(f"Facebook reply failed: {resp.text}")
+            return {"platform_reply_id": resp.json().get("id")}
 
     async def _reply_instagram(
         self, access_token: str, comment_id: str, text: str

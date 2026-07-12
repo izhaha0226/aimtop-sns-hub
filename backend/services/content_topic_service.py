@@ -152,23 +152,75 @@ async def generate_card_images(topic: ContentTopic, *, size: str = "1024x1024", 
     return urls
 
 
+def _trim(text: str, limit: int) -> str:
+    compact = (text or "").strip()
+    if len(compact) <= limit:
+        return compact
+    return compact[: max(0, limit - 1)].rstrip() + "…"
+
+
 def build_channel_variant(topic: ContentTopic, platform: str) -> dict[str, Any]:
-    storyline = topic.card_storyline or []
-    hooks = [card.get("headline", "") for card in storyline]
-    hashtags = ["#SNS운영", "#카드뉴스", f"#{platform}"]
+    """채널 규격에 맞게 본문/해시태그 변형. 글자수 제한은 생성 단계에서 강제."""
+    storyline = topic.card_storyline or build_fallback_storyline(topic)
+    hooks = [str(card.get("headline") or "") for card in storyline]
+    bodies = [str(card.get("body") or "") for card in storyline]
+    core = topic.core_message or topic.brief or topic.title
+    brand_tag = "".join(ch for ch in (topic.title or "") if ch.isalnum())[:12] or "AIMTOP"
+    hashtags = [f"#{brand_tag}", "#SNS자동화", f"#{platform}"]
+
     if platform in ("instagram", "facebook"):
-        body = "\n\n".join([f"{card.get('card_no')}. {card.get('headline')}\n{card.get('body')}" for card in storyline])
+        body = "\n\n".join(
+            f"{card.get('card_no')}. {card.get('headline')}\n{card.get('body')}" for card in storyline
+        )
+        body = _trim(body, 2100)
+        post_type = "card_news"
     elif platform == "threads":
-        body = " → ".join([card.get("headline", "") for card in storyline]) + "\n\n자세한 내용은 카드뉴스에서 확인하세요."
+        body = " → ".join([h for h in hooks if h]) + f"\n\n{core}\n\n자세한 내용은 카드뉴스에서 확인하세요."
+        body = _trim(body, 480)
+        post_type = "text"
     elif platform == "x":
-        body = (hooks[0] if hooks else topic.title)[:220]
+        body = _trim(hooks[0] if hooks else topic.title, 240)
+        hashtags = hashtags[:2]
+        post_type = "text"
+    elif platform == "linkedin":
+        body = (
+            f"{hooks[0] if hooks else topic.title}\n\n"
+            f"{core}\n\n"
+            + "\n".join(f"• {h}" for h in hooks[1:4] if h)
+            + "\n\n운영 자동화로 반복 업무를 줄이고 검증 가능한 발행 루프를 만드세요."
+        )
+        body = _trim(body, 2800)
+        post_type = "text"
+    elif platform == "blog":
+        body = (
+            f"# {topic.title}\n\n{core}\n\n"
+            + "\n\n".join(f"## {h}\n{b}" for h, b in zip(hooks, bodies) if h)
+            + "\n\n---\n문의/상담은 댓글 또는 채널 메시지로 남겨주세요."
+        )
+        post_type = "card_news"
+    elif platform == "youtube":
+        body = _trim(
+            f"{topic.title}\n\n{core}\n\n" + " / ".join(h for h in hooks if h) + "\n\n#Shorts #자동화",
+            4500,
+        )
+        post_type = "text"
+    elif platform == "kakao":
+        body = _trim(f"{hooks[0] if hooks else topic.title}\n\n{core}", 900)
+        post_type = "card_news"
+    elif platform == "tiktok":
+        body = _trim(f"{hooks[0] if hooks else topic.title} | {core}", 280)
+        hashtags = hashtags[:3] + ["#fyp"]
+        post_type = "text"
     else:
-        body = "\n".join(hooks) + f"\n\n{topic.core_message or topic.brief or ''}"
+        body = _trim("\n".join(hooks) + f"\n\n{core}", 1500)
+        post_type = "text"
+
     return {
         "platform": platform,
         "title": f"[{platform}] {topic.title}",
         "text": body,
         "hashtags": hashtags,
+        "post_type": post_type,
     }
 
 
@@ -182,7 +234,8 @@ async def create_channel_contents(topic: ContentTopic, db: AsyncSession, channel
             topic_id=topic.id,
             target_platform=platform,
             variant_role="channel_variant",
-            post_type="card_news" if platform in ("instagram", "facebook", "linkedin", "kakao", "blog") else "text",
+            post_type=variant.get("post_type")
+            or ("card_news" if platform in ("instagram", "facebook", "linkedin", "kakao", "blog") else "text"),
             title=variant["title"],
             text=variant["text"],
             hashtags=variant["hashtags"],
@@ -192,6 +245,7 @@ async def create_channel_contents(topic: ContentTopic, db: AsyncSession, channel
                 "topic_id": str(topic.id),
                 "card_storyline": topic.card_storyline,
                 "selected_visual_option": topic.selected_visual_option,
+                "channel_limits": {"platform": platform, "char_count": len(variant["text"] or "")},
             },
         )
         db.add(content)

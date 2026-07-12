@@ -15,6 +15,7 @@ const menus = [
   { href: "/inbox", icon: MessageSquare, label: "인박스" },
   { href: "/analytics", icon: BarChart3, label: "분석" },
   { href: "/growth", icon: TrendingUp, label: "Growth Hub" },
+  { href: "/growth/automation", icon: Bot, label: "채널 자동화" },
   { href: "/growth/threads-automation", icon: Bot, label: "Threads 자동화" },
   { href: "/growth/planner", icon: ClipboardList, label: "운영계획" },
   { href: "/settings/users", icon: Settings, label: "설정" },

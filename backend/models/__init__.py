@@ -32,6 +32,11 @@ from models.threads_automation import (
     ThreadsSafetyFilter,
     ThreadsTargetRule,
 )
+from models.automation import (
+    AutomationActionLog,
+    AutomationRun,
+    ChannelAutomationPolicy,
+)
 
 __all__ = [
     "Base",
@@ -69,4 +74,7 @@ __all__ = [
     "ThreadsApprovalQueue",
     "ThreadsActionLog",
     "ThreadsLearningEvent",
+    "ChannelAutomationPolicy",
+    "AutomationRun",
+    "AutomationActionLog",
 ]
