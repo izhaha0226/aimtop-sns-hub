@@ -46,7 +46,7 @@ class GenerateCopyResponse(BaseModel):
 class GenerateImageRequest(BaseModel):
     prompt: str = Field(..., description="Image generation prompt")
     size: str = Field("1024x1024", description="Image size: 1024x1024, 1024x768, etc.")
-    model: str = Field("gpt-image-2.0", description="Model alias. Default: gpt-image-2.0 via Fal")
+    model: str = Field("gpt-image-2.5", description="Model alias. Default: gpt-image-2.5 (Flare, medium) via Fal")
     quality: str | None = Field(default=None, description="GPT Image quality: low, medium, high")
 
 

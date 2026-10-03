@@ -252,7 +252,7 @@ export default function ContentComposer({ mode }: Props) {
       const result = await aiService.generateImage({
         prompt: `${promptBase}${slidePrompt ? ` | ${slidePrompt}` : ""}. ${mode === "card_news" ? "카드뉴스 스타일, 마케팅 비주얼" : "SNS 포스트용 고품질 이미지"}`,
         size: mode === "card_news" ? "1024x1024" : "1024x768",
-        model: "gpt-image-2.0",
+        model: "gpt-image-2.5",
         quality: mode === "card_news" ? "medium" : undefined,
       })
       if (result.image_url) {
